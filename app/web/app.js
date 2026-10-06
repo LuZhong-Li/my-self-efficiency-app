@@ -7,6 +7,7 @@ import { renderPlan } from "./plan.js";
 import { renderMedia } from "./media.js";
 import { renderDev } from "./dev.js";
 import { renderStudy } from "./study.js";
+import { renderFinance } from "./finance.js";
 import { renderFitness } from "./fitness.js";
 import { renderDiet } from "./diet.js";
 import { renderGame } from "./game.js";
@@ -65,6 +66,7 @@ function render() {
   else if (id === "media") renderMedia(view);
   else if (id === "dev") renderDev(view, sub);
   else if (id === "study") renderStudy(view);
+  else if (id === "finance") renderFinance(view);
   else if (id === "fitness") renderFitness(view);
   else if (id === "diet") renderDiet(view);
   else if (id === "game") renderGame(view);

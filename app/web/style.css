@@ -1797,3 +1797,28 @@ html[data-skin="glass"][data-theme="dark"] .mk-weight { background: #b3bdcf; }
     rgba(255, 255, 255, 0.55);
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
 }
+
+/* ---------------- 记账：左栏日历 / 右栏明细（方案乙） ----------------
+   右栏固定 320px：这台机器上窗口 1159px 时内容区只有约 830px，
+   再宽一点日历每格就要挤了。窄于 1100px（和首页看板同一档）塌成一列。 */
+
+.fin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* 卡片自己有 margin-bottom，放进网格里会多出一截空隙 */
+.fin-layout > div > .card { margin-bottom: 16px; }
+.fin-layout > div > .card:last-child { margin-bottom: 0; }
+.fin-side { display: flex; flex-direction: column; gap: 16px; }
+.fin-side > .card { margin-bottom: 0; }
+
+html[data-skin="glass"] .fin-layout { gap: 10px; }
+html[data-skin="glass"] .fin-layout > div > .card { margin-bottom: 10px; }
+html[data-skin="glass"] .fin-side { gap: 10px; }
+
+@media (max-width: 1100px) {
+  .fin-layout { grid-template-columns: minmax(0, 1fr); }
+}

@@ -7,6 +7,7 @@ export const MODULES = [
   { id: "media", name: "自媒体", icon: "media", desc: "选题到发布的内容流水" },
   { id: "dev", name: "开发工作", icon: "dev", desc: "项目、待办、问题和进展" },
   { id: "study", name: "学习工作", icon: "study", desc: "在学什么、学了多久、有什么心得" },
+  { id: "finance", name: "记账", icon: "money", desc: "每天的支出和收入，一个月花了多少" },
   { id: "fitness", name: "健身计划", icon: "fitness", desc: "每周安排、训练打卡和体重" },
   { id: "diet", name: "饮食计划", icon: "diet", desc: "三餐、加餐和喝水" },
   { id: "game", name: "游戏娱乐", icon: "game", desc: "在玩、想玩和通关记录" },

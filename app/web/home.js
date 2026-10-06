@@ -8,7 +8,7 @@
  */
 
 import { store, touch, table, esc, todayStr, homeViewOf, setHomeView } from "./store.js";
-import { progressOf, overdueTasks, cardsFor } from "./home-view.js";
+import { progressOf, overdueTasks, cardsFor, financeBriefOf, financeTextOf } from "./home-view.js";
 import { bindFresh, emptyState } from "./ui.js";
 import { icon } from "./icons.js";
 
@@ -19,9 +19,7 @@ export function renderHome(root) {
   const data = store.data || {};
   const mode = homeViewOf();
 
-  // 简洁模式在 Task 4–6 里长出来；这一步两个分支都还画原来的布局，
-  // 免得中途出现「点进首页是空的」这种半成品状态。
-  root.innerHTML = mode === "simple" ? fullView(data, today) : fullView(data, today);
+  root.innerHTML = mode === "simple" ? simpleView(data, today) : fullView(data, today);
 
   const memo = root.querySelector("#memo");
   if (memo) memo.value = (store.data && store.data.memo) || "";
@@ -148,6 +146,59 @@ function fullView(data, today) {
       ${taskListHTML(p)}
     </section>
     <section class="mod-grid">${cards.highlight.map((c) => modCard(c, true)).join("")}</section>`;
+}
+
+/* ---------------- 简洁模式（默认） ---------------- */
+
+function simpleView(data, today) {
+  const p = progressOf(data, today);
+  const overdue = overdueTasks(data, today);
+  const brief = financeBriefOf(data, today);
+  const money = financeTextOf(brief);
+  return `
+    ${heroHTML("simple")}
+    <div class="home-core">
+      <section class="card home-progress">
+        <div class="card-head">
+          <h2>${icon("plan", 18)}今日进度</h2>
+          <span class="hint">已完成 ${p.done} / ${p.total}</span>
+        </div>
+        <div class="home-progress-row">
+          <strong class="home-percent">${p.percent}<small>%</small></strong>
+          <div class="progress-track"><span style="width:${p.percent}%"></span></div>
+          <div class="ov-item"><span>待安排</span><strong>${p.untimed}<small> 条</small></strong></div>
+        </div>
+        ${overdueTip(overdue)}
+        ${taskListHTML(p, 5)}
+      </section>
+      <aside class="card home-finance" data-act="go" data-hash="#finance" title="打开记账">
+        <div class="card-head">
+          <h2>${icon("money", 18)}财务摘要</h2>
+          <a class="link" href="#finance">去记账 →</a>
+        </div>
+        <div class="home-money">
+          <div class="home-money-item">
+            <span>${esc(money.expenseLabel)}</span>
+            <strong${brief.hasTodayExpense ? "" : ' class="home-money-none"'}>${esc(money.expenseText)}</strong>
+          </div>
+          ${
+            money.balanceText
+              ? `<div class="home-money-item">
+                   <span>${esc(money.balanceLabel)}</span>
+                   <strong>${esc(money.balanceText)}</strong>
+                 </div>`
+              : ""
+          }
+        </div>
+        ${
+          brief.debt
+            ? `<a class="home-alert${brief.debt.level === "overdue" ? " overdue" : ""}" href="#finance/debt"
+                 title="${esc(brief.debt.tip)}">${icon("warning", 14)}${esc(brief.debt.text)}
+                 <span class="home-alert-tip">${esc(brief.debt.tip)}</span></a>`
+            : ""
+        }
+      </aside>
+    </div>`;
 }
 
 /* ---------------- 欢迎语与小零件 ---------------- */

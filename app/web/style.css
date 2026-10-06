@@ -1066,6 +1066,79 @@ html[data-theme="dark"] .dlg-icon.danger { background: #3a2220; }
 
 /* ---------------- 首页：模块摘要卡片 ---------------- */
 
+/* ---------------- 首页：核心区（简洁模式） ----------------
+   左边今日进度 & 待办、右边财务摘要。窄于 1100px（和记账页同一档）塌成一列。 */
+
+.home-core {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+/* 卡片自己带 margin-bottom，放进网格里会多出一截 */
+.home-core > .card { margin-bottom: 0; }
+
+.home-progress .card-head .hint { margin: 0; }
+
+.home-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.home-percent {
+  flex: 0 0 auto;
+  font-size: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-percent small { color: var(--muted); font-size: 14px; font-weight: 400; }
+
+/* 财务摘要：两个数字并排，钱再长也不撑破格子 */
+.home-money {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.home-money-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-money-item > span { color: var(--muted); font-size: 12px; }
+.home-money-item > strong {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.home-money-item > strong.home-money-none { color: var(--muted); font-size: 15px; font-weight: 400; }
+
+/* 债务预警：柔和高亮，不铺大面积重色 */
+.home-alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  border: var(--bw) solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-bg);
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.home-alert:hover { border-color: var(--warn); }
+.home-alert.overdue { border-color: var(--err); }
+.home-alert .home-alert-tip { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  .home-core { grid-template-columns: minmax(0, 1fr); }
+}
+
 .mod-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

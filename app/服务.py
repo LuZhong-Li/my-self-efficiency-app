@@ -73,6 +73,7 @@ COUNT_KEYS = [
     ("meals", "饮食记录"),
     ("water", "饮水记录"),
     ("games", "游戏"),
+    ("finance.transactions", "账目"),
 ]
 
 
@@ -95,6 +96,24 @@ def log_line(text: str) -> None:
             f.write("%s  %s\n" % (now_text(), text))
     except OSError:
         pass
+
+
+def default_finance() -> dict:
+    """记账（第 10 个模块）的空骨架。
+
+    transfers / budget.categoryCents / accounts[].initialBalanceCents 这个版本
+    先建着不用——第二版做账户余额、转账、分类预算时不用再迁数据。
+    """
+    return {
+        "accounts": [],
+        "categories": {
+            "expense": ["餐饮", "交通", "购物", "学习", "娱乐", "住房", "医疗", "其他"],
+            "income": ["工资", "兼职", "红包", "退款", "其他"],
+        },
+        "transactions": [],
+        "budget": {"monthlyTotalCents": 0, "categoryCents": {}},
+        "transfers": [],
+    }
 
 
 def default_data() -> dict:
@@ -120,6 +139,7 @@ def default_data() -> dict:
         "meals": [],
         "water": [],
         "games": [],
+        "finance": default_finance(),
         "settings": {
             "theme": "light",
             "backupKeep": DEFAULT_BACKUP_KEEP,
@@ -183,6 +203,13 @@ def migrate(data: dict) -> dict:
             for c in (data.get("consults") or [])
         ]
         data.pop("consults", None)
+    if not isinstance(data.get("finance"), dict):
+        data["finance"] = default_finance()
+    else:
+        # 骨架里以后要是加了新键（比如第二版的 transfers），老数据也能补齐
+        for key, value in default_finance().items():
+            if key not in data["finance"]:
+                data["finance"][key] = value
     return data
 
 
@@ -304,10 +331,21 @@ def open_folder(path: str) -> None:
     starter(path)
 
 
+def dig(data: dict, path: str):
+    """按 "a.b" 取嵌套的值；中间断掉就返回 None。
+    记账的数据嵌在 finance 一个键里，启动摘要要数它得走这条路。"""
+    cur = data
+    for part in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
 def summarize(data: dict) -> list[tuple[str, int]]:
     out = []
     for key, label in COUNT_KEYS:
-        value = data.get(key)
+        value = dig(data, key)
         out.append((label, len(value) if isinstance(value, list) else 0))
     return out
 

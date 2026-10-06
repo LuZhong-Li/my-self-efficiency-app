@@ -138,7 +138,7 @@ export function markPendingForm(on) {
 }
 
 // 这些字段是「停笔即存」的，不用算进「没保存的改动」里
-const AUTOSAVE_FIELDS = "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter";
+const AUTOSAVE_FIELDS = "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, #budget-input";
 
 document.addEventListener(
   "input",
@@ -258,6 +258,8 @@ export const TRASH_TABLE_LABEL = {
   meals: "饮食记录",
   water: "饮水记录",
   games: "游戏",
+  "finance.transactions": "账目",
+  "finance.accounts": "账户",
 };
 
 /* ---------------- 小工具 ---------------- */
@@ -343,11 +345,21 @@ export function formatDateCN(str) {
   return `${y}年${m}月${d}日 星期${WEEKDAYS[dt.getDay()]}`;
 }
 
-/** 取某张表，顺便容忍老数据里没有这个键的情况 */
+/** 取某张表，顺便容忍老数据里没有这个键的情况。
+ *  支持 "finance.transactions" 这种带点的路径——记账的数据嵌在一个
+ *  finance 键里（模块的数据归模块），但回收站、搜索这些通用零件只认
+ *  一个表名，所以在这一层把路径打通，别的代码就不用知道它是嵌套的。 */
 export function table(key) {
   if (!store.data) return [];
-  if (!Array.isArray(store.data[key])) store.data[key] = [];
-  return store.data[key];
+  const parts = String(key).split(".");
+  let holder = store.data;
+  for (const part of parts.slice(0, -1)) {
+    if (typeof holder[part] !== "object" || holder[part] === null) holder[part] = {};
+    holder = holder[part];
+  }
+  const last = parts[parts.length - 1];
+  if (!Array.isArray(holder[last])) holder[last] = [];
+  return holder[last];
 }
 
 /** 把用户输入塞进 HTML 之前先转义，避免内容里的尖括号把页面搞乱 */

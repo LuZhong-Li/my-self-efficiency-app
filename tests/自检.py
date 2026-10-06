@@ -127,7 +127,7 @@ def main() -> int:
         status, data = call(port, "/api/data")
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
-                "games", "settings"]
+                "games", "settings", "finance"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -180,10 +180,32 @@ def main() -> int:
         check("导入前会自动留一份快照",
               (data_dir / "备份" / imp["snapshot"]).exists(), imp.get("snapshot", ""))
 
+        # 记账：导出导入也要带着 finance 走
+        cur = call(port, "/api/data")[1]
+        cur["finance"]["transactions"] = [{
+            "id": "tx-selftest", "type": "expense", "amountCents": 2550,
+            "date": "2026-10-07", "category": "餐饮", "accountId": "",
+            "note": "自检", "createdAt": "2026-10-07 12:30",
+        }]
+        cur["finance"]["budget"]["monthlyTotalCents"] = 200000
+        call(port, "/api/data", "POST", cur)
+
+        status, exp2 = call(port, "/api/export", "POST", {})
+        exported2 = json.loads(Path(exp2["path"]).read_text(encoding="utf-8"))
+        call(port, "/api/clear", "POST", {})
+        call(port, "/api/import", "POST", exported2)
+        back2 = call(port, "/api/data")[1]
+        check("导出导入往返带着记账数据",
+              back2["finance"]["transactions"][0]["amountCents"] == 2550
+              and back2["finance"]["budget"]["monthlyTotalCents"] == 200000)
+
         # 清空
         status, cleared = call(port, "/api/clear", "POST", {})
         now = call(port, "/api/data")[1]
         check("清空后只剩空骨架", not now.get("tasks") and not now.get("contents"))
+        check("清空后记账回到空骨架",
+              now.get("finance", {}).get("transactions") == []
+              and now.get("finance", {}).get("budget", {}).get("monthlyTotalCents") == 0)
         check("清空前会自动留一份快照",
               (data_dir / "备份" / cleared["snapshot"]).exists(), cleared.get("snapshot", ""))
 

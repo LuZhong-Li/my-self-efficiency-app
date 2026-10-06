@@ -9,7 +9,10 @@ rem
 rem  这个仓库（D:\自用APP管理）只用来开发和推送；
 rem  平时双击使用的是 D:\小李 那一份，它带着你自己的数据。
 rem
-rem  只同步代码，绝不碰 %TARGET%\数据 —— 你的任务、记录、备份都安全。
+rem  只同步「用得上的东西」，两类文件刻意跳过：
+rem    1. %TARGET%\数据 —— 你的任务、记录、备份，绝不能动；
+rem    2. 只有仓库才需要的东西 —— .git、.gitignore、.gitattributes、
+rem       以及本文件自己（在那边没有意义）。
 rem =====================================================================
 
 set "TARGET=D:\小李"
@@ -29,7 +32,7 @@ echo.
 
 robocopy "%~dp0" "%TARGET%" /E ^
   /XD "%~dp0数据" "%~dp0.git" "%~dp0__pycache__" ^
-  /XF *.pyc *.log *.tmp ^
+  /XF *.pyc *.log *.tmp .gitignore .gitattributes 同步到小李.cmd ^
   /NFL /NDL /NJH /NJS /NP
 
 if %ERRORLEVEL% GEQ 8 (

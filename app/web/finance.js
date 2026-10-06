@@ -448,7 +448,8 @@ function openTxDialog(tx) {
           touch(true);
           toast("已移入回收站");
         })();
-        return true;
+        // 返回 false：确认框已经接管了这里，外层别再关一次（否则确认框一闪就没）
+        return false;
       }
       if (act === "save") {
         const next = read();

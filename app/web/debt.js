@@ -166,7 +166,9 @@ export function openDebtDialog(item) {
           touch(true);
           toast("已移入回收站");
         })();
-        return true;
+        // 返回 false：别让外层再关一次——askConfirm 已经把表单弹窗换成了确认框，
+        // 外层要是接着调 close()，会把刚弹出来的确认框一起关掉（一闪就没）。
+        return false;
       }
       if (act !== "save") return true;
 

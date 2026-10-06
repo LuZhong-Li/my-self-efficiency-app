@@ -240,7 +240,7 @@ function txRow(t) {
   const accountName = t.accountId ? (account ? account.name : "（账户已删）") : "";
   const note = t.note || t.category;
   return `
-    <li class="item fin-row" data-id="${esc(t.id)}">
+    <li class="item fin-row ${t.type === "income" ? "is-income" : "is-expense"}" data-id="${esc(t.id)}">
       <span class="fin-cat">${catIcon(t.type, t.category)}</span>
       <span class="i-title">${esc(note)}</span>
       ${accountName ? `<span class="i-meta">${esc(accountName)}</span>` : ""}
@@ -259,6 +259,9 @@ function txRow(t) {
 function accountsCard(txs) {
   const list = accountsOf();
   const bt = balanceTotals(list, txs);
+  // 删账户时整条记录连同 row 一起挪进了回收站，所以名字和期初都还在，
+  // 能在这里把它们单独收成一组「已归档账户」。
+  const archived = (store.data.trash || []).filter((e) => e.table === "finance.accounts" && e.row);
   return `
     <div class="card-head">
       <h2>账户</h2>
@@ -274,9 +277,23 @@ function accountsCard(txs) {
         : emptyState("还没有账户", "加一个之后，记一笔时就能选它了。", "", "money")
     }
     ${
-      bt.deletedCount
-        ? `<p class="fin-help">另有 ${bt.deletedCount} 个已删除的账户 · 净额 ${fmtMoney(bt.deletedCents)}
-           （它们的账目还在，明细里显示「（账户已删）」），已经算进「账户总余额」里。</p>`
+      archived.length
+        ? `<details class="fin-archive">
+             <summary>已归档账户 · ${archived.length} 个 · 合计 ${fmtMoney(bt.deletedCents)}</summary>
+             <ul class="items">
+               ${archived
+                 .map(
+                   (e) => `<li class="item fin-acc fin-acc-archived">
+                     <span class="fin-acc-name">${esc(e.row.name || e.label || "（没写名字）")}</span>
+                     <span class="fin-acc-sub">余额 ${fmtMoney(accountBalanceCents(e.row, txs))}
+                       · ${txs.filter((t) => t.accountId === e.row.id).length} 笔账
+                       · ${esc(e.deletedAt || "")} 删除</span>
+                   </li>`
+                 )
+                 .join("")}
+             </ul>
+             <p class="fin-help">它们的账目还在（明细里显示「（账户已删）」），余额也照样算进「账户总余额」。</p>
+           </details>`
         : ""
     }`;
 }
@@ -299,7 +316,7 @@ function accountRow(a, txs) {
     <li class="item fin-acc" data-id="${esc(a.id)}">
       <span class="fin-acc-name">${esc(a.name)}</span>
       <span class="fin-acc-sub">
-        <span class="fin-amount ${balance < 0 ? "expense" : ""}">余额 ${fmtMoney(balance)}</span>
+        <span class="fin-amount ${balance < 0 ? "warn" : ""}">余额 ${fmtMoney(balance)}</span>
         · 共 ${mine.length} 笔账
       </span>
       <span class="i-actions">

@@ -1882,6 +1882,7 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-amount { font-variant-numeric: tabular-nums; font-weight: 600; }
 .fin-amount.expense { color: var(--err); }
 .fin-amount.income { color: var(--ok); }
+.fin-amount.warn { color: var(--warn); }
 
 .fin-budget { border-top: var(--bw) solid var(--divider); padding-top: 12px; }
 .fin-budget-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1906,6 +1907,21 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-day-sum { display: flex; gap: 12px; margin-bottom: 8px; font-size: 13px; }
 .fin-row .fin-cat { font-size: 15px; line-height: 1; }
 .fin-row .fin-amount { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 收入一行淡绿底、支出一行淡红底（压得很淡，十二条也不会变成彩虹） */
+.fin-row.is-expense { background: rgba(231, 76, 60, 0.05); }
+.fin-row.is-income { background: rgba(39, 174, 96, 0.06); }
+html[data-theme="dark"] .fin-row.is-expense { background: rgba(248, 113, 113, 0.08); }
+html[data-theme="dark"] .fin-row.is-income { background: rgba(52, 211, 153, 0.08); }
+/* 编辑 / 删除按钮：hover 从下划线换成一块玻璃高亮 */
+.fin-row .link { padding: 2px 6px; border-radius: var(--r-sm); }
+.fin-row .link:hover { background: var(--hover); text-decoration: none; }
+
+/* 已归档账户：折叠一组放在账户卡片底部，不和在用的账户混排 */
+.fin-archive { margin-top: 8px; }
+.fin-archive > summary { padding: 4px 0; color: var(--muted); font-size: 12px; cursor: pointer; }
+.fin-archive > summary:hover { color: var(--ink); }
+.fin-archive .items { margin-top: 4px; }
+.fin-acc-archived { opacity: 0.75; }
 
 .dlg-title { margin: 0 0 16px; font-size: 16px; }
 .dlg-form { display: flex; flex-direction: column; gap: 8px; }

@@ -12,7 +12,9 @@ rem
 rem  只同步「用得上的东西」，两类文件刻意跳过：
 rem    1. %TARGET%\数据 —— 你的任务、记录、备份，绝不能动；
 rem    2. 只有仓库才需要的东西 —— .git、.gitignore、.gitattributes、
-rem       以及本文件自己（在那边没有意义）。
+rem       以及本文件自己（在那边没有意义）；
+rem    3. 演示数据工具（演示数据.cmd + tools\）—— 那是给开发版演示、截图用的，
+rem       日常在用的那份不需要它，免得误点到把自己真实数据换成演示数据。
 rem =====================================================================
 
 set "TARGET=D:\小李"
@@ -31,8 +33,8 @@ echo   到  %TARGET%
 echo.
 
 robocopy "%~dp0" "%TARGET%" /E ^
-  /XD "%~dp0数据" "%~dp0.git" "%~dp0__pycache__" ^
-  /XF *.pyc *.log *.tmp .gitignore .gitattributes 同步到小李.cmd ^
+  /XD "%~dp0数据" "%~dp0.git" "%~dp0__pycache__" "%~dp0tools" ^
+  /XF *.pyc *.log *.tmp .gitignore .gitattributes 同步到小李.cmd 演示数据.cmd ^
   /NFL /NDL /NJH /NJS /NP
 
 if %ERRORLEVEL% GEQ 8 (

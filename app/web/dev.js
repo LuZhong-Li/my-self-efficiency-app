@@ -11,6 +11,7 @@ const CLOSED = ["已解决", "已关闭"];
 
 let editProject = false;
 let editing = null; // {kind: "todo"|"issue", id}
+let sorter = null;  // 项目卡片的拖拽实例（每次重画都要重建）
 
 export function renderDev(root, sub) {
   const project = table("projects").find((p) => p.id === sub);
@@ -18,6 +19,47 @@ export function renderDev(root, sub) {
   else renderList(root);
 
   bindFresh(root, { submit: onSubmit, click: onClick, change: onChange });
+  setupDragSort(root);
+}
+
+/**
+ * 项目卡片拖拽排序（只在这个页面启用）。
+ * 用的是本地的 SortableJS（vendor/Sortable.min.js，MIT，不联网）。
+ * 库没加载成功也不影响别的功能，只是拖不动而已。
+ */
+function setupDragSort(root) {
+  if (sorter) {
+    try {
+      sorter.destroy();
+    } catch {
+      /* 旧元素已经不在页面上了，忽略 */
+    }
+    sorter = null;
+  }
+  if (typeof window.Sortable !== "function") return;
+
+  const grid = root.querySelector(".proj-grid");
+  if (!grid || grid.children.length < 2) return;
+
+  sorter = new window.Sortable(grid, {
+    animation: 180,          // 回弹动画，配液态玻璃的柔和手感
+    ghostClass: "card-ghost",
+    chosenClass: "card-chosen",
+    dragClass: "card-drag",
+    distance: 5,             // 手抖 5 像素算点击（卡片本身是个链接，别把点击吃掉）
+    onEnd() {
+      // 拖完把 DOM 顺序读回来，重排 projects 数组，整份落盘
+      const ids = [...grid.querySelectorAll("[data-id]")].map((el) => el.dataset.id);
+      const all = table("projects");
+      const ordered = ids.map((id) => all.find((p) => p.id === id)).filter(Boolean);
+      for (const p of all) if (!ordered.includes(p)) ordered.push(p); // 兜底：一个都不能丢
+      all.length = 0;
+      all.push(...ordered);
+      touch(true);
+      toast("顺序已保存");
+    },
+  });
+  grid.dataset.sortable = "on"; // 给外面（和自检）一个"拖拽已启用"的标记
 }
 
 function redraw() {
@@ -66,7 +108,7 @@ function projCard(p) {
   const openTodos = todoList(p.id).filter((t) => !t.done).length;
   const bugs = issueList(p.id).filter((i) => !CLOSED.includes(i.status)).length;
   return `
-    <a class="proj-card" href="#dev/${esc(p.id)}">
+    <a class="proj-card" data-id="${esc(p.id)}" href="#dev/${esc(p.id)}">
       <div class="proj-top">
         <span class="proj-name">${esc(p.name)}</span>
         ${chip(p.status)}

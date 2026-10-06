@@ -585,6 +585,25 @@ code {
 .proj-counts { font-size: 13px; }
 .proj-meta { margin-top: 8px; color: var(--muted); font-size: 12px; }
 
+/* 项目卡片拖拽排序（只在开发工作页启用） */
+.proj-grid .proj-card { cursor: grab; }
+.proj-grid .proj-card:active { cursor: grabbing; }
+
+.proj-card.card-chosen {
+  cursor: grabbing;
+  transform: scale(1.03);
+  box-shadow: var(--shadow-lift);
+}
+
+/* 拖走以后留在原位的那块虚线占位 */
+.proj-card.card-ghost {
+  background: var(--chip);
+  border: var(--bw) dashed var(--accent);
+  box-shadow: none;
+}
+
+.proj-card.card-drag { opacity: 0.95; }
+
 /* ---------------- 时间线 ---------------- */
 
 .timeline li {

@@ -49,10 +49,16 @@ function setupDragSort(root) {
   if (!grid || grid.children.length < 2) return;
 
   sorter = new window.Sortable(grid, {
-    animation: 180,          // 回弹动画，配液态玻璃的柔和手感
-    ghostClass: "card-ghost",
-    chosenClass: "card-chosen",
-    dragClass: "card-drag",
+    animation: 180,          // 其余卡片平滑让位的时长
+    ghostClass: "card-ghost",   // 原位留下的占位（透明，只留一条缝）
+    chosenClass: "card-chosen", // 被按住的那张
+    dragClass: "card-drag",     // 跟着光标走的那张
+    fallbackClass: "card-drag", // 同上：forceFallback 模式下跟手的是克隆
+    // 关键：桌面浏览器默认用 HTML5 原生拖拽，跟手的是浏览器自己截的图（天生半透明），
+    // 样式管不了。forceFallback 让 Sortable 用自己的克隆来跟手，才能做到"手里这张不虚化"。
+    forceFallback: true,
+    fallbackOnBody: true,    // 克隆挂在 body 上，不会被卡片容器裁掉
+    fallbackTolerance: 4,
     distance: 5,             // 手抖 5 像素算点击（卡片本身是个链接，别把点击吃掉）
     onEnd() {
       // 拖完把 DOM 顺序读回来，重排 projects 数组，整份落盘
@@ -171,7 +177,9 @@ function projCard(p) {
   const openTodos = todoList(p.id).filter((t) => !t.done).length;
   const bugs = issueList(p.id).filter((i) => !CLOSED.includes(i.status)).length;
   return `
-    <a class="proj-card" data-id="${esc(p.id)}" href="#dev/${esc(p.id)}">
+    <!-- draggable="false" 很关键：这是个链接，浏览器默认允许原生拖拽，
+         一旦原生拖拽被触发，页面就收不到 mousemove，Sortable 的 forceFallback 会卡住不跟手。 -->
+    <a class="proj-card" data-id="${esc(p.id)}" draggable="false" href="#dev/${esc(p.id)}">
       <div class="proj-top">
         <span class="proj-name">${esc(p.name)}</span>
         ${chip(p.status)}

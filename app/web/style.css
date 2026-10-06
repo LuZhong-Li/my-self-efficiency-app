@@ -604,20 +604,40 @@ code {
 .proj-grid .proj-card { cursor: grab; }
 .proj-grid .proj-card:active { cursor: grabbing; }
 
+/* 手里拖着的那张：保持原样不虚化，只轻微放大上浮。
+   （forceFallback 之后跟手的是真实 DOM，所以 opacity 说了算） */
 .proj-card.card-chosen {
   cursor: grabbing;
-  transform: scale(1.03);
-  box-shadow: var(--shadow-lift);
+  opacity: 1 !important;
+  transform: scale(1.04);
+  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.24);
+  z-index: 999;
 }
 
-/* 拖走以后留在原位的那块虚线占位 */
+.proj-card.card-drag {
+  cursor: grabbing;
+  opacity: 1 !important;
+  transform: scale(1.04);
+  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.24);
+  z-index: 999;
+}
+
+/* 原位留下的占位：完全透明，只占着一条缝。
+   注意用透明边框而不是 border:none——去掉边框盒子会矮 2px，松手时会跳一下。 */
 .proj-card.card-ghost {
-  background: var(--chip);
-  border: var(--bw) dashed var(--accent);
+  opacity: 0 !important;
+  background: transparent;
+  border-color: transparent;
   box-shadow: none;
 }
 
-.proj-card.card-drag { opacity: 0.95; }
+/* 拖拽中的那几张关掉我们自己的过渡，动画交给 Sortable 管，
+   不然两个 transition 叠在一起会让让位动作发涩。 */
+.proj-card.card-chosen,
+.proj-card.card-drag,
+.proj-card.card-ghost {
+  transition: none;
+}
 
 /* ---------------- 时间线 ---------------- */
 

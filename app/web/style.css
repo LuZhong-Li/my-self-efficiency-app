@@ -767,9 +767,14 @@ code {
 .hero-sub { color: var(--muted); font-size: 13px; }
 .hero .btn { padding: 12px 20px; font-size: 14px; gap: 6px; }
 
+.hero-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 /* ---------------- 首页：今日进度条 ---------------- */
 
 .view-switch { display: inline-flex; gap: 4px; }
+
+/* 首页：简洁模式的「还有 N 条」 */
+.more-link { margin: 12px 0 0; font-size: 13px; }
 
 /* ---------------- 月历 ---------------- */
 

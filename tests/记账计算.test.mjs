@@ -115,6 +115,10 @@ eq(cats.length, 3, "十月三个支出分类");
 eq(cats[0].category, "购物", "按金额降序，购物最多");
 eq(Math.round(cats[0].ratio * 1000), 955, "占比 = 该类 ÷ 本月支出（800.00 / 837.50）");
 eq(categoryTotals(TX, "2026-09").length, 0, "没账的月份是空数组");
+eq(categoryTotals(TX, "2026-10").length, 3, "不传 type 时默认只看支出");
+eqDeep(categoryTotals(TX, "2026-10", "income").map((c) => [c.category, c.cents]),
+  [["工资", 300000]], "传 income 时只看收入那一头");
+eq(categoryTotals(TX, "2026-11", "income").length, 0, "那个月没有收入就是空数组");
 
 eqDeep(budgetState(0, 0), { usedCents: 0, budgetCents: 0, ratio: 0, level: "none" }, "没设预算");
 eq(budgetState(50000, 200000).level, "ok", "用了 25% → ok");

@@ -2001,3 +2001,14 @@ html[data-theme="dark"] .fin-row.is-income { background: rgba(52, 211, 153, 0.08
 .fin-legend-bar { display: block; height: 4px; margin: 2px 6px 6px 22px; border-radius: 999px; background: var(--soft); overflow: hidden; }
 .fin-legend-bar > i { display: block; height: 100%; border-radius: 999px; }
 .fin-ring-detail { margin-top: 16px; border-top: var(--bw) solid var(--divider); padding-top: 12px; }
+
+/* 环形图：切换看支出 / 收入，中心显示合计，点图例时那一段加粗、其余压暗 */
+.fin-ring-tabs { display: inline-flex; gap: 4px; margin-bottom: 12px; }
+.fin-ring .ring-seg { transition: stroke-width 0.15s ease, opacity 0.15s ease; }
+.fin-ring .ring-seg.active { stroke-width: 21; }
+.fin-ring .ring-seg.dim { opacity: 0.45; }
+.fin-ring-label { fill: var(--muted); font-size: 8px; }
+.fin-ring-total { fill: var(--ink); font-size: 12px; font-weight: 600; }
+
+/* 全局搜索里把命中的字标出来 */
+.sr-text mark { padding: 0 2px; border-radius: 3px; background: var(--chip); color: var(--chip-ink); }

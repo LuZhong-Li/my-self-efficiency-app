@@ -52,13 +52,13 @@ export function monthByDay(transactions, month) {
   return map;
 }
 
-/** 本月支出按分类汇总，金额从大到小；ratio 是占本月支出的比例。
- *  只算支出：收入分类少、金额集中，混进饼图没什么信息。 */
-export function categoryTotals(transactions, month) {
+/** 本月某个方向的收支按分类汇总，金额从大到小；ratio 是占该方向合计的比例。
+ *  type 默认 "expense"（记账页的环形图默认看支出，也可以切到收入）。 */
+export function categoryTotals(transactions, month, type = "expense") {
   const sums = new Map();
   let total = 0;
   for (const t of transactions || []) {
-    if (monthKey(t.date) !== month || t.type === "income") continue;
+    if (monthKey(t.date) !== month || t.type !== type) continue;
     const cents = Number(t.amountCents) || 0;
     sums.set(t.category, (sums.get(t.category) || 0) + cents);
     total += cents;

@@ -59,6 +59,18 @@ function searchAll(query) {
   return out;
 }
 
+/** 把命中的关键词裹一层 <mark>，其余部分照旧转义 */
+function highlight(text, needle) {
+  const t = String(text ?? "");
+  const i = t.toLowerCase().indexOf(String(needle).toLowerCase());
+  if (!needle || i < 0) return esc(t);
+  return (
+    esc(t.slice(0, i)) +
+    "<mark>" + esc(t.slice(i, i + needle.length)) + "</mark>" +
+    esc(t.slice(i + needle.length))
+  );
+}
+
 export function initSearch() {
   const input = document.getElementById("search");
   const panel = document.getElementById("search-panel");
@@ -82,7 +94,7 @@ export function initSearch() {
           .map(
             (h) => `<button class="sr-item" data-module="${esc(h.module)}">
               <span class="sr-tag">${esc(h.label)}</span>
-              <span class="sr-text">${esc(h.text)}</span>
+              <span class="sr-text">${highlight(h.text, query.trim())}</span>
             </button>`
           )
           .join("")

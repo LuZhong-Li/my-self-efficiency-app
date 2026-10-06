@@ -19,6 +19,7 @@ import {
 let selected = null; // 月历上选中的那天
 let editingAccount = null; // 正在改名的账户 id
 let ringPick = null; // 环形图上点开的分类（展开明细用）
+let ringType = "expense"; // 环形图看哪一头：expense / income
 
 const EXPENSE_ICON = { 餐饮: "🍜", 交通: "🚌", 购物: "🛒", 学习: "📚", 娱乐: "🎮", 住房: "🏠", 医疗: "💊", 其他: "📦" };
 const INCOME_ICON = { 工资: "💰", 兼职: "💼", 红包: "🧧", 退款: "↩️", 其他: "📦" };
@@ -141,23 +142,36 @@ function monthCN(month) {
  * 不放进 CSS 变量是因为 SVG 的 stroke 要一条一条上色，塞变量反而更绕。 */
 const RING_COLORS = ["#5f7fe0", "#8b7cf0", "#34a884", "#dfa24b", "#429ed4", "#dd8a52", "#c86b8a", "#9aa6bb"];
 
-/** 左栏第二张：本月支出按分类的环形图 + 图例；点某一类展开它的明细。 */
+/** 左栏第二张：本月支出（或收入）按分类的环形图 + 图例；
+ *  点某一类展开它的明细，再点收起。 */
 function ringCard(txs) {
   const month = currentMonth();
-  const cats = categoryTotals(txs, month);
-  const head = `<div class="card-head"><h2>分类占比</h2><span class="hint">${esc(monthCN(month))} · 只看支出</span></div>`;
+  const cats = categoryTotals(txs, month, ringType);
+  const isIncome = ringType === "income";
+  const head = `
+    <div class="card-head"><h2>分类占比</h2><span class="hint">${esc(monthCN(month))}</span></div>
+    <div class="fin-ring-tabs">
+      <button class="fin-tab${isIncome ? "" : " active"}" data-act="ring-type" data-type="expense">支出</button>
+      <button class="fin-tab${isIncome ? " active" : ""}" data-act="ring-type" data-type="income">收入</button>
+    </div>`;
   if (!cats.length) {
-    return `${head}${emptyState("这个月还没有支出", "记一笔支出，这里就会出现占比。", "", "money")}`;
+    return `${head}${emptyState(
+      isIncome ? "这个月还没有收入" : "这个月还没有支出",
+      isIncome ? "记一笔收入，这里就会出现占比。" : "记一笔支出，这里就会出现占比。",
+      "", "money")}`;
   }
 
+  const total = cats.reduce((sum, c) => sum + c.cents, 0);
   const R = 52;
   const C = 2 * Math.PI * R;
   let acc = 0;
   const arcs = cats
     .map((c, i) => {
       const len = c.ratio * C;
+      // 点了图例就把那一段加粗，其余压暗一点
+      const cls = ringPick ? (c.category === ringPick ? " active" : " dim") : "";
       const seg = `<circle cx="60" cy="60" r="${R}" fill="none"
-        stroke="${RING_COLORS[i % RING_COLORS.length]}" stroke-width="16"
+        class="ring-seg${cls}" stroke="${RING_COLORS[i % RING_COLORS.length]}" stroke-width="16"
         stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-acc}"
         transform="rotate(-90 60 60)"></circle>`;
       acc += len;
@@ -168,7 +182,7 @@ function ringCard(txs) {
   const picked = cats.find((c) => c.category === ringPick);
   const pickedList = picked
     ? txs
-        .filter((t) => t.type !== "income" && monthKey(t.date) === month && t.category === picked.category)
+        .filter((t) => t.type === ringType && monthKey(t.date) === month && t.category === picked.category)
         .sort(byCreatedAt)
     : [];
 
@@ -176,14 +190,18 @@ function ringCard(txs) {
     ${head}
     <div class="fin-ring-wrap">
       <svg class="fin-ring" viewBox="0 0 120 120" width="132" height="132" role="img"
-           aria-label="本月支出按分类占比">${arcs}</svg>
+           aria-label="本月${isIncome ? "收入" : "支出"}按分类占比">
+        ${arcs}
+        <text class="fin-ring-label" x="60" y="53" text-anchor="middle">${isIncome ? "总收入" : "总支出"}</text>
+        <text class="fin-ring-total" x="60" y="68" text-anchor="middle">${fmtMoney(total)}</text>
+      </svg>
       <ul class="fin-legend">
         ${cats
           .map(
             (c, i) => `<li class="fin-legend-item${c.category === ringPick ? " active" : ""}">
               <button class="fin-legend-btn" data-act="ring-pick" data-cat="${esc(c.category)}">
                 <i class="fin-dot" style="background:${RING_COLORS[i % RING_COLORS.length]}"></i>
-                <span class="fin-legend-name">${catIcon("expense", c.category)} ${esc(c.category)}</span>
+                <span class="fin-legend-name">${catIcon(ringType, c.category)} ${esc(c.category)}</span>
                 <span class="fin-legend-num">${fmtMoney(c.cents)}</span>
                 <span class="fin-legend-pct">${Math.round(c.ratio * 100)}%</span>
               </button>
@@ -204,7 +222,7 @@ function ringCard(txs) {
                    (t) => `<li class="item fin-row" data-id="${esc(t.id)}">
                      <span class="i-meta">${esc(t.date.slice(5))}</span>
                      <span class="i-title">${esc(t.note || t.category)}</span>
-                     <span class="fin-amount expense">-${fmtMoney(t.amountCents)}</span>
+                     <span class="fin-amount ${isIncome ? "income" : "expense"}">${isIncome ? "+" : "-"}${fmtMoney(t.amountCents)}</span>
                    </li>`
                  )
                  .join("")}
@@ -560,6 +578,12 @@ function onClick(e) {
 
   if (act === "ring-pick") {
     ringPick = ringPick === btn.dataset.cat ? null : btn.dataset.cat;
+    redraw();
+    return;
+  }
+  if (act === "ring-type") {
+    ringType = btn.dataset.type;
+    ringPick = null; // 换了一头，之前点开的那个分类就不在了
     redraw();
     return;
   }

@@ -15,35 +15,12 @@ import {
   monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
   accountBalanceCents, balanceTotals, categoryBudgetStates,
 } from "./finance-calc.js";
+import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 
 let selected = null; // 月历上选中的那天
 let editingAccount = null; // 正在改名的账户 id
 let ringPick = null; // 环形图上点开的分类（展开明细用）
 let ringType = "expense"; // 环形图看哪一头：expense / income
-
-const EXPENSE_ICON = { 餐饮: "🍜", 交通: "🚌", 购物: "🛒", 学习: "📚", 娱乐: "🎮", 住房: "🏠", 医疗: "💊", 其他: "📦" };
-const INCOME_ICON = { 工资: "💰", 兼职: "💼", 红包: "🧧", 退款: "↩️", 其他: "📦" };
-
-function catIcon(type, category) {
-  return (type === "income" ? INCOME_ICON : EXPENSE_ICON)[category] || "📦";
-}
-
-/** 记账的数据都嵌在 finance 这一个键里；老数据可能还没有它，
- *  这里顺手补上空壳（和 store.js 的 table() 一个脾气）。 */
-function finance() {
-  if (!store.data.finance || typeof store.data.finance !== "object") store.data.finance = {};
-  return store.data.finance;
-}
-
-function accountsOf() {
-  return table("finance.accounts");
-}
-
-function budgetOf() {
-  const f = finance();
-  if (!f.budget || typeof f.budget !== "object") f.budget = { monthlyTotalCents: 0, categoryCents: {} };
-  return f.budget;
-}
 
 /** 左栏：月历。格子里画当天的支出（红）和收入（绿），超支的日子套一圈红边。 */
 function calendarCard(txs) {
@@ -109,7 +86,7 @@ function overviewCard(txs) {
 /** 本月概览里的分类预算：设了预算的分类各一条进度条，下面跟着一个设预算的小表单。
  *  超支只影响这一条（红），月历上的「超支日」还是按月度总预算算的。 */
 function categoryBudgetBlock(txs) {
-  const f = finance();
+  const f = financeOf();
   const rows = categoryBudgetStates(txs, currentMonth(), budgetOf().categoryCents);
   const cats = ((f.categories || {}).expense || []).slice();
   return `
@@ -387,15 +364,6 @@ function accountRow(a, txs) {
  *  的 click 处理，不经过 bindFresh（弹窗挂在 body 上，不在 #view 里）。 */
 function txFormHtml(v, type, f) {
   const cats = (f.categories || {})[type] || [];
-  const accounts = f.accounts || [];
-  const accOpts = [
-    ...(v.accountId && !accounts.some((a) => a.id === v.accountId)
-      ? [`<option value="${esc(v.accountId)}" selected>（账户已删）</option>`]
-      : []),
-    ...accounts.map(
-      (a) => `<option value="${esc(a.id)}"${a.id === v.accountId ? " selected" : ""}>${esc(a.name)}</option>`
-    ),
-  ].join("");
   return `
     <div class="fin-tabs">
       <button type="button" class="fin-tab${type === "expense" ? " active" : ""}" data-act="tx-type" data-type="expense">支出</button>
@@ -412,7 +380,7 @@ function txFormHtml(v, type, f) {
       </div>
       <div>
         <label class="fin-label" for="tx-account">账户</label>
-        <select id="tx-account">${accOpts || `<option value="">（还没建账户）</option>`}</select>
+        <select id="tx-account">${accountOptionsHtml(v.accountId)}</select>
       </div>
     </div>
     <p class="fin-help">账户之间转钱暂时不能记，只能手动记一笔「A 账户支出」+ 一笔「B 账户收入」。</p>
@@ -433,7 +401,7 @@ function txFormHtml(v, type, f) {
 /** 打开「记一笔 / 改一笔」。传 tx 就是改，不传就是新增。 */
 function openTxDialog(tx) {
   const editing = Boolean(tx);
-  const f = finance();
+  const f = financeOf();
   const type0 = editing ? tx.type : "expense";
   const v = editing
     ? {

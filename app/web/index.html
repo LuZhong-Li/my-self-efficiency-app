@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小李</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">小李</div>
+  <div class="top-greet" id="top-greet">—</div>
+  <div class="top-right">
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="搜索任务、内容、项目、客户…" autocomplete="off">
+      <div class="search-panel" id="search-panel" hidden></div>
+    </div>
+    <button class="icon-btn" id="theme-btn" title="切换浅色 / 深色"></button>
+    <span class="top-status" id="status">正在连接…</span>
+  </div>
+</header>
+
+<div class="body-row">
+  <aside class="sidebar">
+    <nav class="side-nav" id="side-nav"></nav>
+  </aside>
+
+  <div class="content-col">
+    <main id="view"></main>
+    <footer class="statusbar">
+      <span class="sb-item">数据文件路径：<span id="foot-file">—</span></span>
+      <span class="sb-item">服务地址：<span id="foot-server">—</span></span>
+    </footer>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

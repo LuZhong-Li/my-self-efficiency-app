@@ -1,0 +1,15 @@
+# 换行符：批处理文件必须是 CRLF，否则别人克隆下来双击可能会出问题。
+# 其余文本文件交给 git 自己判断，图片按二进制存。
+
+* text=auto
+
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.py  text eol=lf
+*.js  text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
+*.png binary
+*.jpg binary

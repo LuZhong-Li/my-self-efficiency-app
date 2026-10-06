@@ -1,2 +1,114 @@
-# my-self-efficiency-app
-A local offline personal efficiency dashboard with macOS Liquid Glass UI. Run locally, store all data in JSON files, no database, no network requests. Contains schedule, 自媒体，development, fitness and diet modules.
+# 小李
+
+> A local offline personal efficiency dashboard with macOS Liquid Glass UI.
+> Run locally, store all data in JSON files, no database, no network requests.
+> Contains schedule, media, development, fitness and diet modules.
+
+只在你自己电脑上跑的个人工作台：**不登录、不联网、不上云、不装依赖**。
+双击一个文件，浏览器打开九个模块，所有数据存成本机一个 JSON 文件。
+
+## 它长这样
+
+![浅色](docs/screenshots/home-light.png)
+
+![深色](docs/screenshots/home-dark.png)
+
+## 九个模块
+
+| 模块 | 干什么 |
+| --- | --- |
+| 首页总览 | 今天的待办（可直接勾选）、快速备忘、今日进度、快速操作、六个模块的摘要卡片 |
+| 今日计划 | 今天的任务；「昨天没做完的」一键挪到今天；**月历视图**看哪天有安排 |
+| 自媒体 | 选题 → 写作中 → 待发布 → 已发布的流水，外加发布排期月历 |
+| 开发工作 | 项目 + 每个项目的待办 / 问题 / 进展时间线 |
+| 学习工作 | 学习对象（书/课程/视频/技能）+ 按天的学习记录，记时长和心得，标「待复习/已复习」 |
+| 健身计划 | 每周训练安排、按天打卡、体重记录（自动算和上次的差） |
+| 饮食计划 | 三餐 + 加餐、喝水杯数，能翻回前几天补记 |
+| 游戏娱乐 | 在玩 / 想玩 / 已通关 / 弃坑，记平台、时长和进度 |
+| 数据与设置 | 导出、导入恢复、自动备份、**回收站**、外观与标语、清空数据 |
+
+另外还有：顶部全局搜索、四套皮肤（液态玻璃 / 极简 / 笔记 / 粗野）× 深浅两色、
+软删除回收站、多窗口防覆盖、运行日志、一键自检。
+
+## 怎么跑
+
+需要电脑上有 **Python 3**（3.8 以上都行）。
+
+**Windows**：双击 `启动.cmd`。黑窗口起来后浏览器会自动打开界面，
+**关掉黑窗口就等于停止程序**。
+
+**macOS / Linux**：在项目目录执行
+
+```bash
+python3 app/服务.py
+```
+
+它会起一个只监听 `127.0.0.1` 的小服务，然后手动打开它打印出来的地址。
+
+## 数据在哪
+
+全部数据就是**一个文件**：`数据/数据.json`（第一次运行时自动创建）。
+旁边还有两个目录：
+
+```
+数据/
+  数据.json         全部数据就这一个文件，随时可以复制走
+  备份/             每天首次打开自动存一份，保留最近若干份
+    _最近一次.json   每次保存前的上一版
+  导出/             手动导出的备份文件
+  日志/运行.log     启动、备份、导入这些关键事件的流水
+```
+
+想换地方放数据（比如另一块盘），设一个环境变量就行：
+
+```bash
+XIAOLI_DATA_DIR=D:\我的小李数据 python app/服务.py
+```
+
+## 怎么更新
+
+如果「日常用的那份」和「开发用的这份」是分开的两个目录，
+把代码同步过去就行——仓库里的 `同步到小李.cmd` 就是干这个的（不会动你的数据）。
+
+## 自检
+
+双击 `自检.cmd`（或在终端跑 `python tests/自检.py`）。它会在一个**临时目录**里
+自己起一个服务，把 21 项关键检查过一遍——接口、修订号、来源校验、备份、
+长期保留、导出导入往返、清空快照、运行日志、零外链。**不会碰你正在用的数据。**
+
+## 目录结构
+
+```
+启动.cmd              双击它开始用
+自检.cmd              双击它做一次体检
+同步到小李.cmd         把代码同步到日常用的那份
+app/
+  服务.py             本机小服务，只用 Python 标准库
+  web/                界面：原生 HTML + CSS + JS，零框架零外链
+    index.html
+    app.js            外壳：顶栏 / 侧栏 / 状态栏 / 路由
+    store.js          数据层：整份读、整份写、回收站、多窗口同步
+    日历 calendar.js  全站共用的「挑日期」零件
+    dialog.js         自绘确认框与轻提示
+    icons.js          手写的内联 SVG 图标（不联网、不装图标库）
+    modules.js        九个模块的唯一清单
+    home / plan / media / dev / study / fitness / diet / game / settings.js
+    style.css         设计规范 + 四套皮肤，全在一个文件里
+tests/自检.py         自检脚本
+docs/                 需求清单、设计文档、截图
+```
+
+## 几条设计上的选择
+
+- **一个 JSON 文件，不装数据库**：个人数据量小，一个文件最好备份、最好搬走。
+- **只用 Python 标准库**：不用 pip 装任何东西，`python app/服务.py` 就能跑。
+- **前端零依赖**：不引框架、不引 CDN、不引在线字体和图标，断网完全正常。
+- **写接口只认本机页面**：别的网站在浏览器里也能往 `127.0.0.1` 发请求，
+  所以写接口会看来源，不是本机页面的一律拒掉。
+- **删除先进回收站**：手滑删了能捞回来。
+- **两个窗口不会互相覆盖**：数据里带修订号，对不上就拒收；窗口之间用浏览器自带的
+  `BroadcastChannel` 互相知会。
+
+## 许可
+
+[MIT](LICENSE)

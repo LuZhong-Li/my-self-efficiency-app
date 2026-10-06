@@ -618,10 +618,19 @@ code {
   cursor: grabbing;
   opacity: 1 !important;
   transform: scale(1.04);
-  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.24);
+  /* 阴影别用太大半径的，跟随的元素每帧都会重绘它 */
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
   z-index: 999;
   /* 跟手的这张不能吃鼠标事件，否则会挡住下面的卡片、干扰落点判断 */
   pointer-events: none;
+  /* 跟随的元素上绝对不能有过渡：光标一停一走，它就会"慢慢追"，越拖越远。
+     皮肤规则里给 .proj-card 设过 transition，优先级比这里高，所以必须 !important。 */
+  transition: none !important;
+  /* 磨砂玻璃每帧都要重新算一遍背后模糊，跟随必然掉帧 —— 这张不参与磨砂 */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  /* 提前提升成独立图层，位移更稳 */
+  will-change: transform;
 }
 
 /* 原位留下的占位：完全透明，只占着一条缝。
@@ -638,7 +647,7 @@ code {
 .proj-card.card-chosen,
 .proj-card.card-follow,
 .proj-card.card-ghost {
-  transition: none;
+  transition: none !important;
 }
 
 /* ---------------- 时间线 ---------------- */

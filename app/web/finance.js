@@ -10,9 +10,10 @@ import { pageHeader, bindFresh, emptyState } from "./ui.js";
 import { icon } from "./icons.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, currentMonth, showMonth, dayLabel } from "./calendar.js";
-import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
+import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import {
   monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
+  accountBalanceCents, balanceTotals,
 } from "./finance-calc.js";
 
 let selected = null; // 月历上选中的那天
@@ -70,6 +71,8 @@ function overviewCard(txs) {
   const totals = monthTotals(txs, month);
   const st = budgetState(totals.expenseCents, budgetOf().monthlyTotalCents);
   const balanceTone = totals.balanceCents < 0 ? "expense" : "income";
+  const accounts = accountsOf();
+  const bt = balanceTotals(accounts, txs);
   return `
     <div class="card-head">
       <h2>本月概览</h2>
@@ -82,6 +85,14 @@ function overviewCard(txs) {
         <strong class="fin-amount income">${fmtMoney(totals.incomeCents)}</strong></div>
       <div class="fin-sum-item"><span>结余</span>
         <strong class="fin-amount ${balanceTone}">${fmtMoney(totals.balanceCents)}</strong></div>
+      ${
+        accounts.length
+          ? `<div class="fin-sum-item fin-total">
+               <span>账户总余额 <small>含期初</small></span>
+               <strong class="fin-amount ${bt.totalCents < 0 ? "expense" : "income"}">${fmtMoney(bt.totalCents)}</strong>
+             </div>`
+          : ""
+      }
     </div>
     ${budgetBlock(st)}
   `;
@@ -236,9 +247,11 @@ function txRow(t) {
     </li>`;
 }
 
-/** 右栏第三张：账户列表。第一版只有名字，余额和转账是第二版的事。 */
-function accountsCard() {
+/** 右栏第三张：账户列表。余额是实时算出来的（期初 + 该账户的收支），
+ *  不存字段——账目是唯一的可信来源。 */
+function accountsCard(txs) {
   const list = accountsOf();
+  const bt = balanceTotals(list, txs);
   return `
     <div class="card-head">
       <h2>账户</h2>
@@ -250,27 +263,40 @@ function accountsCard() {
     </form>
     ${
       list.length
-        ? `<ul class="items">${list.map(accountRow).join("")}</ul>`
+        ? `<ul class="items">${list.map((a) => accountRow(a, txs)).join("")}</ul>`
         : emptyState("还没有账户", "加一个之后，记一笔时就能选它了。", "", "money")
+    }
+    ${
+      bt.deletedCount
+        ? `<p class="fin-help">另有 ${bt.deletedCount} 个已删除的账户 · 净额 ${fmtMoney(bt.deletedCents)}
+           （它们的账目还在，明细里显示「（账户已删）」），已经算进「账户总余额」里。</p>`
+        : ""
     }`;
 }
 
-function accountRow(a) {
+function accountRow(a, txs) {
   if (a.id === editingAccount) {
     return `
-      <li class="item editing" data-id="${esc(a.id)}">
-        <input data-field="name" class="grow" maxlength="20" value="${esc(a.name)}">
+      <li class="item editing fin-acc-edit" data-id="${esc(a.id)}">
+        <input data-field="name" class="grow" maxlength="20" value="${esc(a.name)}" title="账户名">
+        <input data-field="init" class="fin-init" inputmode="decimal" maxlength="12"
+               value="${centsToYuan(a.initialBalanceCents || 0)}" title="期初余额">
         <button class="btn primary small" data-act="acc-save">保存</button>
         <button class="btn small" data-act="acc-cancel">取消</button>
+        <p class="fin-help">期初余额 = 这个账户在开始记账之前已有的资产；改它不会动已有账目。</p>
       </li>`;
   }
-  const used = table("finance.transactions").filter((t) => t.accountId === a.id).length;
+  const mine = txs.filter((t) => t.accountId === a.id);
+  const balance = accountBalanceCents(a, txs);
   return `
-    <li class="item" data-id="${esc(a.id)}">
-      <span class="i-title">${esc(a.name)}</span>
-      <span class="i-meta">${used ? `${used} 笔账在用它` : "还没用过"}</span>
+    <li class="item fin-acc" data-id="${esc(a.id)}">
+      <span class="fin-acc-name">${esc(a.name)}</span>
+      <span class="fin-acc-sub">
+        <span class="fin-amount ${balance < 0 ? "expense" : ""}">余额 ${fmtMoney(balance)}</span>
+        · 共 ${mine.length} 笔账
+      </span>
       <span class="i-actions">
-        <button class="link" data-act="acc-edit">改名</button>
+        <button class="link" data-act="acc-edit">编辑</button>
         <button class="link danger" data-act="acc-del">删除</button>
       </span>
     </li>`;
@@ -308,6 +334,7 @@ function txFormHtml(v, type, f) {
         <select id="tx-account">${accOpts || `<option value="">（还没建账户）</option>`}</select>
       </div>
     </div>
+    <p class="fin-help">账户之间转钱暂时不能记，只能手动记一笔「A 账户支出」+ 一笔「B 账户收入」。</p>
     <label class="fin-label">分类</label>
     <div class="fin-cats">
       ${cats
@@ -455,7 +482,7 @@ export function renderFinance(root) {
       <div class="fin-side">
         <section class="card" id="fin-overview">${overviewCard(txs)}</section>
         <section class="card" id="fin-day">${dayCard(txs)}</section>
-        <section class="card" id="fin-accounts">${accountsCard()}</section>
+        <section class="card" id="fin-accounts">${accountsCard(txs)}</section>
       </div>
     </div>
   `;
@@ -531,7 +558,14 @@ function onClick(e) {
       toast("名字不能是空的", "err");
       return;
     }
+    const raw = li.querySelector('[data-field="init"]').value.trim();
+    const init = raw === "" ? 0 : yuanToCentsNonNeg(raw);
+    if (init === null) {
+      toast("期初余额要填一个不小于 0 的数，最多两位小数", "err");
+      return;
+    }
     a.name = name;
+    a.initialBalanceCents = init;
     editingAccount = null;
     touch(true);
     return;

@@ -1914,6 +1914,18 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 
 /* ---------------- 记账：分类环形图与图例 ---------------- */
 
+/* 记账：账户列表（名字 + 余额两行，操作在右侧竖着居中） */
+.fin-acc { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.fin-acc-name { grid-column: 1; font-weight: 600; }
+.fin-acc-sub { grid-column: 1; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fin-acc .i-actions { grid-column: 2; grid-row: 1 / span 2; }
+.fin-acc-edit { flex-wrap: wrap; }
+.fin-acc-edit .fin-init { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+.fin-help { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.fin-acc-edit .fin-help { flex: 1 0 100%; }
+.fin-total { border-top: var(--bw) solid var(--divider); padding-top: 8px; }
+.fin-total small { margin-left: 4px; color: var(--muted); font-size: 11px; }
+
 .fin-ring-wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
 .fin-ring { flex: 0 0 auto; }
 .fin-legend { flex: 1 1 260px; min-width: 240px; list-style: none; margin: 0; padding: 0; }

@@ -102,3 +102,39 @@ export function byCreatedAt(a, b) {
   const y = String(b.createdAt || "");
   return x < y ? -1 : x > y ? 1 : 0;
 }
+
+/** 一个账户的余额（分）：期初 + 这个账户的收入 − 这个账户的支出。
+ *  不存余额字段——账目是唯一的可信来源，存了就会跟流水对不上。 */
+export function accountBalanceCents(account, transactions) {
+  const init = Number(account && account.initialBalanceCents) || 0;
+  let net = 0;
+  for (const t of transactions || []) {
+    if (!account || t.accountId !== account.id) continue;
+    net += t.type === "income" ? Number(t.amountCents) || 0 : -(Number(t.amountCents) || 0);
+  }
+  return init + net;
+}
+
+/** 账户余额汇总。已删除的账户（账目还在、账户不在列表里）默认也算进总余额，
+ *  所以单独报一份出来，好在界面上说明白。
+ *  返回 { listedCents, deletedCents, totalCents, deletedCount }。 */
+export function balanceTotals(accounts, transactions) {
+  const list = accounts || [];
+  const ids = new Set(list.map((a) => a && a.id));
+  let listedCents = 0;
+  for (const a of list) listedCents += accountBalanceCents(a, transactions);
+
+  let deletedCents = 0;
+  const deletedIds = new Set();
+  for (const t of transactions || []) {
+    if (!t.accountId || ids.has(t.accountId)) continue;
+    deletedIds.add(t.accountId);
+    deletedCents += t.type === "income" ? Number(t.amountCents) || 0 : -(Number(t.amountCents) || 0);
+  }
+  return {
+    listedCents,
+    deletedCents,
+    totalCents: listedCents + deletedCents,
+    deletedCount: deletedIds.size,
+  };
+}

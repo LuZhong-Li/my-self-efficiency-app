@@ -2,10 +2,11 @@
  * 跑法：node tests\记账计算.test.mjs   （本机 Node v24，不需要 package.json）
  * 说明：这个测试不进「自检.cmd」——自检是给用户一键跑的，保持纯 Python。 */
 
-import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "../app/web/money.js";
+import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney, fmtMoneyShort } from "../app/web/money.js";
 import {
   monthKey, daysInMonth, dayTotals, monthTotals, monthByDay,
   categoryTotals, budgetState, overDays, byCreatedAt,
+  accountBalanceCents, balanceTotals,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -71,6 +72,16 @@ eq(fmtMoneyShort(300000), "3k", "3000 元 → 3k");
 eq(fmtMoneyShort(125000), "1.2k", "1250 元 → 1.2k（截断，不四舍五入）");
 eq(fmtMoneyShort(99900), "999.00", "差一分不到 1000 元，仍按原数显示");
 
+// 期初余额允许 0（甚至必须能填 0），所以另有一个「允许 0」的解析
+eq(yuanToCentsNonNeg("0"), 0, "期初余额可以填 0");
+eq(yuanToCentsNonNeg("0.00"), 0, "0.00 也是 0");
+eq(yuanToCentsNonNeg("1826.3"), 182630, "1826.3 → 182630 分");
+eq(yuanToCentsNonNeg("999999.99"), 99999999, "上限照样收下");
+eq(yuanToCentsNonNeg("1000000"), null, "超过上限不收");
+eq(yuanToCentsNonNeg("-1"), null, "负数不收");
+eq(yuanToCentsNonNeg("1.234"), null, "三位小数不收");
+eq(yuanToCentsNonNeg("abc"), null, "非数字不收");
+
 // 一份固定的小数据，所有断言都围着它
 const TX = [
   { id: "a", type: "expense", amountCents: 2550, date: "2026-10-07", category: "餐饮", createdAt: "2026-10-07 12:30" },
@@ -119,6 +130,31 @@ eq([...overDays(TX, "2026-10", 1000000)].length, 0, "预算够花就没有超支
 
 const shuffled = [TX[2], TX[0], TX[1]];
 eqDeep(shuffled.slice().sort(byCreatedAt).map((t) => t.id), ["b", "c", "a"], "按记入时间从早到晚");
+
+// 账户余额：期初 + 收入 − 支出（实时算，不存）
+const ACC = [
+  { id: "a1", name: "微信", initialBalanceCents: 100000 },
+  { id: "a2", name: "银行卡", initialBalanceCents: 0 },
+  { id: "a3", name: "现金", initialBalanceCents: 0 },
+];
+const ACC_TX = [
+  { id: "x1", type: "expense", amountCents: 2550, date: "2026-10-07", category: "餐饮", accountId: "a1" },
+  { id: "x2", type: "income", amountCents: 300000, date: "2026-10-07", category: "工资", accountId: "a1" },
+  { id: "x3", type: "expense", amountCents: 80000, date: "2026-10-12", category: "购物", accountId: "a4" },
+];
+
+eq(accountBalanceCents(ACC[0], ACC_TX), 397450, "微信：期初 1000 + 收 3000 − 支 25.50");
+eq(accountBalanceCents(ACC[1], ACC_TX), 0, "没动过的账户就是期初那么多");
+eq(accountBalanceCents({ id: "a9", name: "新的", initialBalanceCents: 0 }, ACC_TX), 0, "没有账目时是 0");
+
+const BT = balanceTotals(ACC, ACC_TX);
+eq(BT.listedCents, 397450, "列表里三个账户的合计");
+eq(BT.deletedCents, -80000, "挂在已删账户上的账，单独算出来");
+eq(BT.deletedCount, 1, "已删账户的个数按「有账目引用、但账户不在列表里」数");
+eq(BT.totalCents, 317450, "总余额 = 列表合计 + 已删账户的净额（默认含已删）");
+// 账户列表空了，那三笔账就全都算「已删账户」的：3000 − 25.50 − 800 = 2174.50
+eq(balanceTotals([], ACC_TX).totalCents, 217450, "一个账户都没有时，全部账目都归到已删那一份");
+eq(balanceTotals([], ACC_TX).deletedCount, 2, "按 accountId 数出 2 个已删账户");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

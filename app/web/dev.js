@@ -52,13 +52,14 @@ function setupDragSort(root) {
     animation: 180,          // 其余卡片平滑让位的时长
     ghostClass: "card-ghost",   // 原位留下的占位（透明，只留一条缝）
     chosenClass: "card-chosen", // 被按住的那张
-    dragClass: "card-drag",     // 跟着光标走的那张
-    fallbackClass: "card-drag", // 同上：forceFallback 模式下跟手的是克隆
+    dragClass: "card-follow",       // 跟着光标走的那张
+    fallbackClass: "card-follow",   // forceFallback 模式下跟手的是克隆
     // 关键：桌面浏览器默认用 HTML5 原生拖拽，跟手的是浏览器自己截的图（天生半透明），
     // 样式管不了。forceFallback 让 Sortable 用自己的克隆来跟手，才能做到"手里这张不虚化"。
     forceFallback: true,
     fallbackOnBody: true,    // 克隆挂在 body 上，不会被卡片容器裁掉
     fallbackTolerance: 4,
+    filter: "input, textarea, select", // 卡片里要是将来放了输入框，从输入框上按住不触发拖拽
     distance: 5,             // 手抖 5 像素算点击（卡片本身是个链接，别把点击吃掉）
     onEnd() {
       // 拖完把 DOM 顺序读回来，重排 projects 数组，整份落盘

@@ -614,12 +614,14 @@ code {
   z-index: 999;
 }
 
-.proj-card.card-drag {
+.proj-card.card-follow {
   cursor: grabbing;
   opacity: 1 !important;
   transform: scale(1.04);
   box-shadow: 0 14px 45px rgba(0, 0, 0, 0.24);
   z-index: 999;
+  /* 跟手的这张不能吃鼠标事件，否则会挡住下面的卡片、干扰落点判断 */
+  pointer-events: none;
 }
 
 /* 原位留下的占位：完全透明，只占着一条缝。
@@ -634,7 +636,7 @@ code {
 /* 拖拽中的那几张关掉我们自己的过渡，动画交给 Sortable 管，
    不然两个 transition 叠在一起会让让位动作发涩。 */
 .proj-card.card-chosen,
-.proj-card.card-drag,
+.proj-card.card-follow,
 .proj-card.card-ghost {
   transition: none;
 }

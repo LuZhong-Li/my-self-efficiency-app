@@ -192,6 +192,7 @@ COUNT_KEYS = [
     ("progress", "进展"), ("subjects", "学习对象"), ("studies", "学习记录"),
     ("workoutLogs", "训练打卡"), ("weights", "体重"), ("meals", "饮食"),
     ("water", "饮水"), ("games", "游戏"), ("finance.transactions", "账目"),
+    ("debt.items", "债务"),
 ]
 
 
@@ -473,6 +474,27 @@ def demo_data(existing: dict | None) -> dict:
         for i, (date_text, kind, cents, category, account, note) in enumerate(tx_plan, start=1)
     ]
 
+    debt_items = [
+        {
+            "id": "demo-d1", "name": "花呗", "type": "oweOthers", "totalCents": 350000,
+            "creditor": "支付宝", "dueDate": md(20), "note": "每月 20 号还款",
+            "status": "pending",
+            # txId 留空：演示数据里没有对应的账目，界面会写「没有对应账目」
+            "repayments": [{"date": md(1), "amountCents": 230000, "txId": ""}],
+        },
+        {
+            "id": "demo-d2", "name": "借给同事的钱", "type": "othersOweMe", "totalCents": 80000,
+            "creditor": "小张", "dueDate": d(25), "note": "说好下个月发工资还",
+            "status": "pending", "repayments": [],
+        },
+        {
+            "id": "demo-d3", "name": "去年借朋友的钱", "type": "oweOthers", "totalCents": 100000,
+            "creditor": "老王", "dueDate": d(-40), "note": "已经还清了",
+            "status": "done",
+            "repayments": [{"date": d(-45), "amountCents": 100000, "txId": ""}],
+        },
+    ]
+
     return {
         "version": 1,
         "rev": 0,                                   # 真正写的时候会重算
@@ -506,6 +528,7 @@ def demo_data(existing: dict | None) -> dict:
             "budget": {"monthlyTotalCents": 320000, "categoryCents": {}},
             "transfers": [],
         },
+        "debt": {"items": debt_items},
         "settings": settings,                       # 你选的皮肤 / 明暗一律保留
         "trash": old.get("trash") or [],            # 回收站也原样留着
     }

@@ -16,6 +16,8 @@ const SOURCES = [
   { table: "meals", module: "diet", label: "饮食", fields: ["breakfast", "lunch", "dinner", "snack"] },
   { table: "games", module: "game", label: "游戏", fields: ["name", "platform", "progress"] },
   { table: "finance.transactions", module: "finance", label: "账目", fields: ["note", "category"] },
+  { table: "debt.items", module: "finance", hash: "finance/debt", label: "债务",
+    fields: ["name", "creditor", "note"] },
 ];
 
 const MAX = 12;
@@ -36,6 +38,7 @@ function searchAll(query) {
       if (hit) {
         out.push({
           module: src.module,
+          hash: src.hash,
           label: src.label,
           text: String(row[hit] || row.date || ""),
         });
@@ -92,7 +95,7 @@ export function initSearch() {
     panel.innerHTML = hits.length
       ? hits
           .map(
-            (h) => `<button class="sr-item" data-module="${esc(h.module)}">
+            (h) => `<button class="sr-item" data-module="${esc(h.module)}" data-hash="${esc(h.hash || h.module)}">
               <span class="sr-tag">${esc(h.label)}</span>
               <span class="sr-text">${highlight(h.text, query.trim())}</span>
             </button>`
@@ -117,7 +120,7 @@ export function initSearch() {
   panel.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-module]");
     if (!btn) return;
-    location.hash = "#" + btn.dataset.module;
+    location.hash = "#" + btn.dataset.hash;
     input.value = "";
     close();
   });

@@ -260,6 +260,7 @@ export const TRASH_TABLE_LABEL = {
   games: "游戏",
   "finance.transactions": "账目",
   "finance.accounts": "账户",
+  "debt.items": "债务",
 };
 
 /* ---------------- 小工具 ---------------- */

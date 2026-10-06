@@ -6,6 +6,7 @@ import { SUMMARY_MODULES, moduleOf } from "./modules.js";
 import { icon } from "./icons.js";
 import { monthTotals, dayTotals } from "./finance-calc.js";
 import { fmtMoney } from "./money.js";
+import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
 
 let memoTimer = null;
 
@@ -145,6 +146,7 @@ function cards() {
         <div class="mod-title"><span class="mod-icon">${icon(mod.icon, 18)}</span>${esc(mod.name)}</div>
         <div class="mod-main">${esc(s.main)}</div>
         <div class="mod-sub">${esc(s.sub)}</div>
+        ${s.extra ? `<div class="mod-extra">${esc(s.extra)}</div>` : ""}
       </a>`;
   }).join("");
 }
@@ -189,9 +191,16 @@ function summary(id) {
     const month = today.slice(0, 7);
     const day = dayTotals(txs, today);
     const totals = monthTotals(txs, month);
+    // 债务提醒只在「已逾期或 7 天内到期」时出现，平时不占那一行
+    const coming = upcoming(table("debt.items"), today, 7);
+    const first = coming[0];
     return {
       main: `今日支出 ${fmtMoney(day.expenseCents)}`,
       sub: txs.length ? `本月结余 ${fmtMoney(totals.balanceCents)}` : "还没有记账",
+      extra: first
+        ? `近期待还：${first.name} ${fmtMoney(remainCents(first))} · ${
+            dueState(first, today) === "overdue" ? "已逾期" : `${daysUntil(first.dueDate, today)} 天后`}`
+        : "",
     };
   }
   if (id === "fitness") {

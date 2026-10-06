@@ -1499,6 +1499,15 @@ html[data-skin="glass"] .statusbar {
   box-shadow: var(--shadow);
 }
 
+/* 玻璃皮肤下顶栏自己有 backdrop-filter，会形成一个层叠上下文；内容区的卡片
+   也各是一个，而它们在 DOM 里排在顶栏后面 —— 结果顶栏里的搜索面板（z-index 30）
+   会被卡片压住：看得见、点不动。把顶栏整个抬到内容之上就解决了。
+   （别的皮肤顶栏没有 backdrop-filter，不形成层叠上下文，所以一直是好的） */
+html[data-skin="glass"] .topbar {
+  position: relative;
+  z-index: 40;
+}
+
 html[data-skin="glass"] .body-row { gap: 10px; }
 html[data-skin="glass"] .content-col { gap: 10px; }
 html[data-skin="glass"] .side-item { border-radius: var(--r-md); }
@@ -1943,6 +1952,8 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
   line-height: 18px;
   text-align: center;
 }
+/* 首页模块卡片上多出来的第三行（现在只有记账用它，写「近期待还」） */
+.mod-extra { margin-top: 4px; color: var(--warn); font-size: 12px; }
 
 /* 概览下面那行说明：结余和总余额不是一回事，用一句话讲清楚 */
 .fin-note { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }

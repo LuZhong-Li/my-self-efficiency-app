@@ -57,6 +57,19 @@ export function shiftMonth(month, amount) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
 }
 
+/** 现在看着的是哪个月（"YYYY-MM"）。
+ *  记账页的「本月概览」「分类占比」要跟着它走，而不是跟着选中的那一天——
+ *  否则翻到上个月，左边日历换了、右边还停在原来那个月。 */
+export function currentMonth() {
+  ensureState();
+  return cursor;
+}
+
+/** 跳到某个月（记一笔补记到别的月份时，用它把日历一起带过去）。 */
+export function showMonth(month) {
+  if (/^\d{4}-\d{2}$/.test(String(month || ""))) cursor = month;
+}
+
 function formatMonth(month) {
   const [y, m] = month.split("-").map(Number);
   return `${y}年${m}月`;

@@ -9,14 +9,15 @@ import { store, table, todayStr, nowText, uid, touch, esc, moveToTrash } from ".
 import { pageHeader, bindFresh, emptyState } from "./ui.js";
 import { icon } from "./icons.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
-import { monthGridHtml, calendarAction, dayLabel } from "./calendar.js";
+import { monthGridHtml, calendarAction, currentMonth, showMonth, dayLabel } from "./calendar.js";
 import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import {
-  monthKey, dayTotals, monthTotals, monthByDay, overDays, budgetState, byCreatedAt,
+  monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
 } from "./finance-calc.js";
 
 let selected = null; // 月历上选中的那天
 let editingAccount = null; // 正在改名的账户 id
+let ringPick = null; // 环形图上点开的分类（展开明细用）
 
 const EXPENSE_ICON = { 餐饮: "🍜", 交通: "🚌", 购物: "🛒", 学习: "📚", 娱乐: "🎮", 住房: "🏠", 医疗: "💊", 其他: "📦" };
 const INCOME_ICON = { 工资: "💰", 兼职: "💼", 红包: "🧧", 退款: "↩️", 其他: "📦" };
@@ -44,7 +45,7 @@ function budgetOf() {
 
 /** 左栏：月历。格子里画当天的支出（红）和收入（绿），超支的日子套一圈红边。 */
 function calendarCard(txs) {
-  const month = monthKey(selected);
+  const month = currentMonth();
   const byDay = monthByDay(txs, month);
   const over = overDays(txs, month, budgetOf().monthlyTotalCents);
   return monthGridHtml({
@@ -65,7 +66,7 @@ function calendarCard(txs) {
 
 /** 右栏第一张：本月支出 / 收入 / 结余 + 月度总预算进度条。 */
 function overviewCard(txs) {
-  const month = monthKey(selected);
+  const month = currentMonth();
   const totals = monthTotals(txs, month);
   const st = budgetState(totals.expenseCents, budgetOf().monthlyTotalCents);
   const balanceTone = totals.balanceCents < 0 ? "expense" : "income";
@@ -116,6 +117,83 @@ function budgetBlock(st) {
 function monthCN(month) {
   const [y, m] = month.split("-").map(Number);
   return `${y}年${m}月`;
+}
+
+/* 环形图的配色：跟月历圆点一样，是一小组固定的低饱和色。
+ * 不放进 CSS 变量是因为 SVG 的 stroke 要一条一条上色，塞变量反而更绕。 */
+const RING_COLORS = ["#5f7fe0", "#8b7cf0", "#34a884", "#dfa24b", "#429ed4", "#dd8a52", "#c86b8a", "#9aa6bb"];
+
+/** 左栏第二张：本月支出按分类的环形图 + 图例；点某一类展开它的明细。 */
+function ringCard(txs) {
+  const month = currentMonth();
+  const cats = categoryTotals(txs, month);
+  const head = `<div class="card-head"><h2>分类占比</h2><span class="hint">${esc(monthCN(month))} · 只看支出</span></div>`;
+  if (!cats.length) {
+    return `${head}${emptyState("这个月还没有支出", "记一笔支出，这里就会出现占比。", "", "money")}`;
+  }
+
+  const R = 52;
+  const C = 2 * Math.PI * R;
+  let acc = 0;
+  const arcs = cats
+    .map((c, i) => {
+      const len = c.ratio * C;
+      const seg = `<circle cx="60" cy="60" r="${R}" fill="none"
+        stroke="${RING_COLORS[i % RING_COLORS.length]}" stroke-width="16"
+        stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-acc}"
+        transform="rotate(-90 60 60)"></circle>`;
+      acc += len;
+      return seg;
+    })
+    .join("");
+
+  const picked = cats.find((c) => c.category === ringPick);
+  const pickedList = picked
+    ? txs
+        .filter((t) => t.type !== "income" && monthKey(t.date) === month && t.category === picked.category)
+        .sort(byCreatedAt)
+    : [];
+
+  return `
+    ${head}
+    <div class="fin-ring-wrap">
+      <svg class="fin-ring" viewBox="0 0 120 120" width="132" height="132" role="img"
+           aria-label="本月支出按分类占比">${arcs}</svg>
+      <ul class="fin-legend">
+        ${cats
+          .map(
+            (c, i) => `<li class="fin-legend-item${c.category === ringPick ? " active" : ""}">
+              <button class="fin-legend-btn" data-act="ring-pick" data-cat="${esc(c.category)}">
+                <i class="fin-dot" style="background:${RING_COLORS[i % RING_COLORS.length]}"></i>
+                <span class="fin-legend-name">${catIcon("expense", c.category)} ${esc(c.category)}</span>
+                <span class="fin-legend-num">${fmtMoney(c.cents)}</span>
+                <span class="fin-legend-pct">${Math.round(c.ratio * 100)}%</span>
+              </button>
+              <span class="fin-legend-bar"><i style="width:${Math.round(c.ratio * 100)}%;background:${RING_COLORS[i % RING_COLORS.length]}"></i></span>
+            </li>`
+          )
+          .join("")}
+      </ul>
+    </div>
+    ${
+      picked
+        ? `<div class="fin-ring-detail">
+             <div class="list-head"><span>${esc(picked.category)} 本月 ${pickedList.length} 笔</span>
+               <span class="hint">${fmtMoney(picked.cents)}</span></div>
+             <ul class="items">
+               ${pickedList
+                 .map(
+                   (t) => `<li class="item fin-row" data-id="${esc(t.id)}">
+                     <span class="i-meta">${esc(t.date.slice(5))}</span>
+                     <span class="i-title">${esc(t.note || t.category)}</span>
+                     <span class="fin-amount expense">-${fmtMoney(t.amountCents)}</span>
+                   </li>`
+                 )
+                 .join("")}
+             </ul>
+           </div>`
+        : ""
+    }`;
 }
 
 /** 右栏第二张：选中那天的一笔笔账（点一行就能改）。 */
@@ -313,6 +391,7 @@ function openTxDialog(tx) {
           });
         }
         selected = next.date; // 记完停在那一天，方便核对
+        showMonth(monthKey(next.date)); // 补记到别的月份时，日历跟着翻过去
         touch(true);
         toast(`已记一笔 ${fmtMoney(cents)}`);
         return true;
@@ -371,7 +450,7 @@ export function renderFinance(root) {
     <div class="fin-layout">
       <div class="fin-main">
         <section class="card" id="fin-calendar">${calendarCard(txs)}</section>
-        <section class="card" id="fin-ring"></section>
+        <section class="card" id="fin-ring">${ringCard(txs)}</section>
       </div>
       <div class="fin-side">
         <section class="card" id="fin-overview">${overviewCard(txs)}</section>
@@ -425,6 +504,12 @@ function onClick(e) {
       touch(true);
       toast("已移入回收站");
     })();
+    return;
+  }
+
+  if (act === "ring-pick") {
+    ringPick = ringPick === btn.dataset.cat ? null : btn.dataset.cat;
+    redraw();
     return;
   }
 

@@ -1911,3 +1911,33 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 }
 .fin-cat-pick > span { font-size: 18px; line-height: 1; }
 .fin-cat-pick.active { border-color: var(--accent); background: var(--chip); color: var(--chip-ink); }
+
+/* ---------------- 记账：分类环形图与图例 ---------------- */
+
+.fin-ring-wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.fin-ring { flex: 0 0 auto; }
+.fin-legend { flex: 1 1 260px; min-width: 240px; list-style: none; margin: 0; padding: 0; }
+.fin-legend-item { padding: 4px 0; }
+.fin-legend-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.fin-legend-btn:hover { background: var(--hover); }
+.fin-legend-item.active .fin-legend-btn { background: var(--chip); color: var(--chip-ink); }
+.fin-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.fin-legend-name { flex: 1 1 auto; font-size: 13px; }
+.fin-legend-num { font-size: 13px; font-variant-numeric: tabular-nums; }
+.fin-legend-pct { width: 42px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fin-legend-bar { display: block; height: 4px; margin: 2px 6px 6px 22px; border-radius: 999px; background: var(--soft); overflow: hidden; }
+.fin-legend-bar > i { display: block; height: 100%; border-radius: 999px; }
+.fin-ring-detail { margin-top: 16px; border-top: var(--bw) solid var(--divider); padding-top: 12px; }

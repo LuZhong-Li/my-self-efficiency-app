@@ -16,6 +16,8 @@ import {
   accountBalanceCents, balanceTotals, categoryBudgetStates,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
+import { renderDebtPage } from "./debt.js";
+import { splitBySettled } from "./debt-calc.js";
 
 let selected = null; // 月历上选中的那天
 let editingAccount = null; // 正在改名的账户 id
@@ -517,25 +519,46 @@ function openTxDialog(tx) {
   return dlg;
 }
 
-export function renderFinance(root) {
+export function renderFinance(root, sub = "") {
+  const onDebt = sub === "debt";
   if (!selected) selected = todayStr();
   const txs = table("finance.transactions");
+  const unsettled = splitBySettled(table("debt.items"), todayStr()).open.length;
 
   root.innerHTML = `
-    ${pageHeader("finance", `<button class="btn primary" data-act="add">${icon("plus", 16)}记一笔</button>`)}
-    <div class="fin-layout">
-      <div class="fin-main">
-        <section class="card" id="fin-calendar">${calendarCard(txs)}</section>
-        <section class="card" id="fin-ring">${ringCard(txs)}</section>
-      </div>
-      <div class="fin-side">
-        <section class="card" id="fin-overview">${overviewCard(txs)}</section>
-        <section class="card" id="fin-day">${dayCard(txs)}</section>
-        <section class="card" id="fin-accounts">${accountsCard(txs)}</section>
-      </div>
+    ${pageHeader(
+      "finance",
+      onDebt
+        ? `<button class="btn primary" data-act="debt-add">${icon("plus", 16)}加一笔债务</button>`
+        : `<button class="btn primary" data-act="add">${icon("plus", 16)}记一笔</button>`
+    )}
+    <div class="fin-subtabs">
+      <a class="fin-subtab${onDebt ? "" : " active"}" href="#finance">${icon("list", 16)}账目记录</a>
+      <a class="fin-subtab${onDebt ? " active" : ""}" href="#finance/debt">${icon("debt", 16)}债务欠款${
+        unsettled ? `<span class="fin-badge">${unsettled}</span>` : ""
+      }</a>
     </div>
+    ${
+      onDebt
+        ? `<div id="debt-host"></div>`
+        : `<div class="fin-layout">
+             <div class="fin-main">
+               <section class="card" id="fin-calendar">${calendarCard(txs)}</section>
+               <section class="card" id="fin-ring">${ringCard(txs)}</section>
+             </div>
+             <div class="fin-side">
+               <section class="card" id="fin-overview">${overviewCard(txs)}</section>
+               <section class="card" id="fin-day">${dayCard(txs)}</section>
+               <section class="card" id="fin-accounts">${accountsCard(txs)}</section>
+             </div>
+           </div>`
+    }
   `;
 
+  if (onDebt) {
+    renderDebtPage(root.querySelector("#debt-host"));
+    return; // 债务页自己的事件在 renderDebtPage 里绑（「加一笔债务」在 Task 5 接上）
+  }
   bindFresh(root, { click: onClick, submit: onSubmit, change: onChange });
 }
 

@@ -66,7 +66,7 @@ function render() {
   else if (id === "media") renderMedia(view);
   else if (id === "dev") renderDev(view, sub);
   else if (id === "study") renderStudy(view);
-  else if (id === "finance") renderFinance(view);
+  else if (id === "finance") renderFinance(view, sub);
   else if (id === "fitness") renderFitness(view);
   else if (id === "diet") renderDiet(view);
   else if (id === "game") renderGame(view);

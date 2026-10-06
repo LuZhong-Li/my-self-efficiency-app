@@ -1899,6 +1899,32 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
    会落回上面那条纯 --err，不至于变成别的颜色 */
 .fin-budget .progress-track > span.lv-over { background: color-mix(in srgb, var(--err) 78%, #2a0a06); }
 
+/* 记账的子 Tab（账目记录 / 债务欠款） */
+.fin-subtabs { display: flex; gap: 6px; margin: -8px 0 16px; }
+.fin-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  border: var(--bw) solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+.fin-subtab:hover { background: var(--hover); }
+.fin-subtab.active { background: var(--chip); border-color: var(--accent); color: var(--chip-ink); font-weight: 600; }
+.fin-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--err);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
 /* 概览下面那行说明：结余和总余额不是一回事，用一句话讲清楚 */
 .fin-note { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 

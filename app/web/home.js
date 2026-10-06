@@ -212,7 +212,9 @@ function simpleView(data, today) {
       </aside>
     </div>
     <section class="mod-grid">${cards.highlight.map((c) => modCard(c, false)).join("")}</section>
-    ${otherPanelHTML(cards.other, otherVisibleIn(data))}`;
+    ${otherPanelHTML(cards.other, otherVisibleIn(data))}
+    ${commandStripHTML()}
+    ${memoCardHTML()}`;
 }
 
 /* ---------------- 欢迎语与小零件 ---------------- */

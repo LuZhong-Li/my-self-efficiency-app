@@ -1209,6 +1209,8 @@ html[data-theme="dark"] .dlg-icon.danger { background: #3a2220; }
 
 @media (max-width: 620px) {
   .mod-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-money { grid-template-columns: minmax(0, 1fr); }
+  .hero-actions { width: 100%; justify-content: flex-start; }
   main { padding: 16px; }
 }
 

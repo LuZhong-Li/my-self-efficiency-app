@@ -17,6 +17,12 @@ export const MODULES = [
 /** 首页摘要卡片上要露脸的六个模块（首页、今日计划、设置不在这里） */
 export const SUMMARY_MODULES = ["media", "dev", "study", "fitness", "diet", "game", "finance"];
 
+/** 首页简洁模式默认露脸的高频模块（记账在核心区的财务摘要里，不在这一排重复） */
+export const HOME_HIGHLIGHT_MODULES = ["media", "dev", "study"];
+
+/** 首页简洁模式收进「其他模块」折叠面板的三个次要模块 */
+export const HOME_OTHER_MODULES = ["fitness", "diet", "game"];
+
 export function moduleOf(id) {
   return MODULES.find((m) => m.id === id) || MODULES[0];
 }

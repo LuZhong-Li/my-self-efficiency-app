@@ -20,6 +20,7 @@ import email.utils
 import mimetypes
 import os
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -276,7 +277,8 @@ def list_backups() -> list[dict]:
 def backup_kind(name: str) -> str:
     if name.startswith(KEEP_PREFIX):
         name = name[len(KEEP_PREFIX):]
-    for prefix, label in (("手动-", "手动"), ("导入前-", "导入前"), ("清空前-", "清空前")):
+    for prefix, label in (("手动-", "手动"), ("导入前-", "导入前"), ("清空前-", "清空前"),
+                          ("演示前-", "演示前")):
         if name.startswith(prefix):
             return label
     return "每日"
@@ -632,6 +634,29 @@ class AlreadyRunning(Exception):
         self.port = port
 
 
+class XiaoLiServer(ThreadingHTTPServer):
+    """本机小服务用的 HTTP 服务器。这里只为一件事：Windows 上关掉 SO_REUSEADDR。
+
+    Python 的 HTTPServer 默认 allow_reuse_address = True。在 Linux 上它的意思是
+    「重启时不用等旧连接散掉」；但在 Windows 上它的意思是「这个端口别人占着也
+    让你绑」——绑上去的那个新副本收不到任何连接，浏览器还是连到老的那个。
+    表现出来就是：在开发用的那一份里双击 启动.cmd，浏览器打开的却是日常在用的
+    那一份的旧界面，然后你以为刚改的东西没生效。
+
+    关掉之后，被占着的端口会老老实实报错，启动逻辑就会往下试 8766、8767……
+    再顺手加一道 SO_EXCLUSIVEADDRUSE，免得别的程序反过来抢我们这块端口。
+    """
+
+    daemon_threads = True
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self) -> None:
+        exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if os.name == "nt" and exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+        super().server_bind()
+
+
 def running_instance(port: int) -> bool:
     """端口上已经跑着我们的服务吗？
 
@@ -641,6 +666,10 @@ def running_instance(port: int) -> bool:
          但要是碰上防火墙 / 安全软件把连接「丢掉」而不是「拒绝」，
          就会一直等到超时——给长了，每个端口都要干等一趟；
       3. 只在「找到的第一个可用端口」上问这一句，不把 12 个端口全扫一遍。
+
+    还有一处讲究：必须是「同一份」才算。仓库和日常在用的那份各有各的
+    数据目录，另一份开着的时候双击本份的 启动.cmd，不该被它顶掉——
+    否则你会以为打开的是开发版，其实看到的是另一个副本的旧界面。
     """
     try:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=0.25)
@@ -648,9 +677,18 @@ def running_instance(port: int) -> bool:
         resp = conn.getresponse()
         data = json.loads(resp.read().decode("utf-8"))
         conn.close()
-        return resp.status == 200 and data.get("app") == APP_NAME
+        return resp.status == 200 and data.get("app") == APP_NAME and same_copy(data)
     except Exception:
         return False
+
+
+def same_copy(health: dict) -> bool:
+    """端口上那个小李，是「这一份」吗？看数据目录对不对得上。
+    老版本的健康信息里没有 dataFile，那就按老办法认（只认名字）。"""
+    data_file = str(health.get("dataFile") or "")
+    if not data_file:
+        return True
+    return os.path.dirname(os.path.abspath(data_file)) == os.path.abspath(DATA_DIR)
 
 
 def port_candidates() -> list[int]:
@@ -679,7 +717,7 @@ def start_server() -> tuple[ThreadingHTTPServer, int]:
         if running_instance(port):
             raise AlreadyRunning(port)
         try:
-            return ThreadingHTTPServer(("127.0.0.1", port), Handler), port
+            return XiaoLiServer(("127.0.0.1", port), Handler), port
         except OSError as exc:
             last_error = exc
     raise SystemExit("端口 %s 都占着，起不来：%s" % (ports, last_error))

@@ -1556,6 +1556,201 @@ html[data-skin="glass"] .card {
 html[data-skin="glass"] .btn:active,
 html[data-skin="glass"] .icon-btn:active { transform: scale(0.97); }
 
+/* --------------------------------------------------------------------------
+   月历：格子独立成卡片、今天柔和高亮、面板带氛围底（只动观感，不动结构）
+   --------------------------------------------------------------------------
+   只改「层级 / 光影 / 色彩 / 信息密度」四件事，格子骨架、圆点标记、点击逻辑
+   一个都没动（还是 .cal-grid / .cal-cell / .mk-* 那一套）：
+     · 面板铺一层浅蓝紫氛围底 + 三团柔光斑 + 细白高光边；
+     · 每个日期独立成一张小玻璃卡，hover 轻轻浮起；
+     · 「今天」是柔和的靛蓝高亮 + 一圈淡淡外发光，不刺眼；
+     · 选中态用靛蓝描边区分，和「今天」不打架；
+     · 圆点换成低饱和的一套颜色，正绿 / 正橙那种刺眼色不再出现。
+   只作用于 [data-skin="glass"]；极简 / 笔记 / 粗野各自保持原来的样子。
+   -------------------------------------------------------------------------- */
+
+html[data-skin="glass"] .card:has(> .cal-grid) {
+  border-color: rgba(255, 255, 255, 0.75);
+  background:
+    radial-gradient(58% 52% at 10% -8%, rgba(122, 162, 255, 0.30), transparent 66%),
+    radial-gradient(50% 48% at 90% 2%, rgba(178, 154, 255, 0.26), transparent 68%),
+    radial-gradient(56% 56% at 82% 106%, rgba(120, 216, 214, 0.18), transparent 70%),
+    linear-gradient(158deg, rgba(255, 255, 255, 0.74), rgba(244, 246, 255, 0.60) 52%,
+      rgba(247, 243, 255, 0.66));
+  box-shadow: 0 20px 48px rgba(43, 62, 140, 0.16),
+              inset 0 1px 0 rgba(255, 255, 255, 0.90);
+}
+
+html[data-skin="glass"][data-theme="dark"] .card:has(> .cal-grid) {
+  border-color: rgba(255, 255, 255, 0.18);
+  background:
+    radial-gradient(58% 52% at 10% -8%, rgba(90, 122, 232, 0.38), transparent 66%),
+    radial-gradient(50% 48% at 90% 2%, rgba(142, 112, 232, 0.30), transparent 68%),
+    radial-gradient(56% 56% at 82% 106%, rgba(58, 152, 150, 0.22), transparent 70%),
+    linear-gradient(158deg, rgba(38, 44, 62, 0.74), rgba(30, 34, 50, 0.66) 52%,
+      rgba(38, 34, 58, 0.72));
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45),
+              inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* 星期表头：稍微收紧字距，周末两天颜色淡一点 */
+html[data-skin="glass"] .cal-weekdays {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+html[data-skin="glass"] .cal-weekdays span:nth-child(6),
+html[data-skin="glass"] .cal-weekdays span:nth-child(7) {
+  color: rgba(126, 134, 176, 0.95);
+}
+
+html[data-skin="glass"][data-theme="dark"] .cal-weekdays span:nth-child(6),
+html[data-skin="glass"][data-theme="dark"] .cal-weekdays span:nth-child(7) {
+  color: rgba(154, 164, 204, 0.90);
+}
+
+/* 每个日期独立成一张小玻璃卡 */
+html[data-skin="glass"] .cal-grid { gap: 10px; }
+
+html[data-skin="glass"] .cal-cell {
+  min-height: 84px;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.50);
+  border: 1px solid rgba(255, 255, 255, 0.60);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.80),
+              0 6px 16px rgba(43, 62, 140, 0.09);
+}
+
+html[data-skin="glass"] .cal-cell:hover {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(255, 255, 255, 0.95);
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95),
+              0 14px 30px rgba(43, 62, 140, 0.18);
+}
+
+html[data-skin="glass"] .cal-cell.out { opacity: 0.42; }
+html[data-skin="glass"] .cal-num { font-size: 14px; font-weight: 650; }
+
+/* 选中：一层靛蓝描边，和「今天」的实心高亮分得开 */
+html[data-skin="glass"] .cal-cell.sel {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus),
+              0 8px 20px rgba(43, 62, 140, 0.16);
+}
+
+/* 今天：柔和靛蓝渐变 + 一圈淡淡外发光（hover 时散开一点，但不刺眼） */
+html[data-skin="glass"] .cal-cell.today {
+  background: linear-gradient(163deg, rgba(120, 150, 255, 0.94), rgba(129, 122, 240, 0.90));
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(74, 100, 220, 0.34),
+              0 0 20px rgba(120, 150, 255, 0.48),
+              inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+html[data-skin="glass"] .cal-cell.today:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(74, 100, 220, 0.42),
+              0 0 26px rgba(120, 150, 255, 0.60),
+              inset 0 1px 0 rgba(255, 255, 255, 0.50);
+}
+
+html[data-skin="glass"] .cal-cell.today .cal-num { color: #ffffff; }
+
+/* 靛蓝底上的圆点换成白色，不然低饱和的彩点糊在蓝底里看不清 */
+html[data-skin="glass"] .cal-cell.today .mk {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+}
+
+html[data-skin="glass"] .cal-cell.today .mk-planned {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+
+html[data-skin="glass"] .cal-cell.today.sel {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85),
+              0 12px 28px rgba(74, 100, 220, 0.34),
+              0 0 20px rgba(120, 150, 255, 0.48),
+              inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+/* 圆点：低饱和一套，微微一点投影，浮在卡片上 */
+html[data-skin="glass"] .mk {
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 1px 3px rgba(24, 36, 80, 0.22);
+}
+
+html[data-skin="glass"] .mk-task { background: #5f7fe0; }
+html[data-skin="glass"] .mk-fitness { background: #34a884; }
+html[data-skin="glass"] .mk-diet { background: #dfa24b; }
+html[data-skin="glass"] .mk-study { background: #8b7cf0; }
+html[data-skin="glass"] .mk-publish { background: #429ed4; }
+html[data-skin="glass"] .mk-planned { background: transparent; box-shadow: inset 0 0 0 1.5px #429ed4; }
+html[data-skin="glass"] .mk-dev { background: #dd8a52; }
+html[data-skin="glass"] .mk-weight { background: #9aa6bb; }
+html[data-skin="glass"] .mk.done { opacity: 0.32; }
+
+html[data-skin="glass"][data-theme="dark"] .cal-cell {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10),
+              0 6px 16px rgba(0, 0, 0, 0.30);
+}
+
+html[data-skin="glass"][data-theme="dark"] .cal-cell:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+html[data-skin="glass"][data-theme="dark"] .cal-cell.sel {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+html[data-skin="glass"][data-theme="dark"] .cal-cell.today {
+  background: linear-gradient(163deg, rgba(96, 128, 240, 0.94), rgba(112, 102, 228, 0.90));
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45),
+              0 0 22px rgba(104, 134, 255, 0.50),
+              inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+html[data-skin="glass"][data-theme="dark"] .cal-cell.today:hover {
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.50),
+              0 0 28px rgba(104, 134, 255, 0.60),
+              inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+html[data-skin="glass"][data-theme="dark"] .cal-cell.today.sel {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55),
+              0 12px 28px rgba(0, 0, 0, 0.45),
+              0 0 22px rgba(104, 134, 255, 0.50),
+              inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+html[data-skin="glass"][data-theme="dark"] .mk { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
+html[data-skin="glass"][data-theme="dark"] .mk-task { background: #7d9cf5; }
+html[data-skin="glass"][data-theme="dark"] .mk-fitness { background: #4fc39e; }
+html[data-skin="glass"][data-theme="dark"] .mk-diet { background: #e8b563; }
+html[data-skin="glass"][data-theme="dark"] .mk-study { background: #a99bf7; }
+html[data-skin="glass"][data-theme="dark"] .mk-publish { background: #5cb6e6; }
+html[data-skin="glass"][data-theme="dark"] .mk-planned {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px #5cb6e6;
+}
+html[data-skin="glass"][data-theme="dark"] .mk-dev { background: #e9a06b; }
+html[data-skin="glass"][data-theme="dark"] .mk-weight { background: #b3bdcf; }
+
+/* 系统开了「减少动态效果」就别浮起来了 */
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="glass"] .cal-cell:hover,
+  html[data-skin="glass"] .cal-cell.today:hover { transform: none; }
+}
+
 /* 不支持 backdrop-filter 的老浏览器：把底色调实一点，别糊成一片 */
 @supports not ((backdrop-filter: blur(4px)) or (-webkit-backdrop-filter: blur(4px))) {
   html[data-skin="glass"] {

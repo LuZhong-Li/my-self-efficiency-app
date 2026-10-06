@@ -6,14 +6,14 @@
  */
 
 import { store, table, todayStr, nowText, uid, touch, esc, moveToTrash } from "./store.js";
-import { pageHeader, bindFresh, emptyState } from "./ui.js";
+import { pageHeader, bindFresh, emptyState, options } from "./ui.js";
 import { icon } from "./icons.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, currentMonth, showMonth, dayLabel } from "./calendar.js";
 import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import {
   monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
-  accountBalanceCents, balanceTotals,
+  accountBalanceCents, balanceTotals, categoryBudgetStates,
 } from "./finance-calc.js";
 
 let selected = null; // 月历上选中的那天
@@ -102,7 +102,46 @@ function overviewCard(txs) {
     </div>
     <p class="fin-note">本月结余 = 本月收入 − 本月支出；账户总余额 = 期初 + 全部历史收支。</p>
     ${budgetBlock(st)}
+    ${categoryBudgetBlock(txs)}
   `;
+}
+
+/** 本月概览里的分类预算：设了预算的分类各一条进度条，下面跟着一个设预算的小表单。
+ *  超支只影响这一条（红），月历上的「超支日」还是按月度总预算算的。 */
+function categoryBudgetBlock(txs) {
+  const f = finance();
+  const rows = categoryBudgetStates(txs, currentMonth(), budgetOf().categoryCents);
+  const cats = ((f.categories || {}).expense || []).slice();
+  return `
+    <div class="fin-catbudget">
+      <div class="fin-catbudget-head">分类预算</div>
+      ${
+        rows.length
+          ? `<ul class="fin-catbudget-list">${rows.map(catBudgetRow).join("")}</ul>`
+          : `<p class="hint">还没设分类预算。给餐饮、交通这类单独定个上限，超了它自己会标红。</p>`
+      }
+      <form class="add-form" id="add-cat-budget" autocomplete="off">
+        <select name="category" title="分类">${options(cats)}</select>
+        <input name="amount" inputmode="decimal" maxlength="10" placeholder="预算金额">
+        <button class="btn small" type="submit">设预算</button>
+      </form>
+    </div>`;
+}
+
+function catBudgetRow(r) {
+  const pct = Math.round(Math.min(1, r.ratio) * 100);
+  const tail = r.level === "over"
+    ? `<i class="over">超 ${fmtMoney(r.usedCents - r.budgetCents)}</i>`
+    : `${pct}%`;
+  return `
+    <li class="fin-catbudget-item">
+      <span class="fin-catbudget-name">${catIcon("expense", r.category)} ${esc(r.category)}</span>
+      <span class="fin-catbudget-used">${fmtMoney(r.usedCents)} / ${fmtMoney(r.budgetCents)} · ${tail}</span>
+      <button class="link danger" data-act="catbudget-del" data-cat="${esc(r.category)}">移除</button>
+      <span class="progress-track fin-catbudget-bar">
+        <span class="lv-${r.level}" style="width:${pct}%"></span>
+      </span>
+    </li>`;
 }
 
 function budgetBlock(st) {
@@ -588,6 +627,15 @@ function onClick(e) {
     return;
   }
 
+  if (act === "catbudget-del") {
+    const cat = btn.dataset.cat;
+    const b = budgetOf();
+    if (b.categoryCents) delete b.categoryCents[cat];
+    touch(true);
+    toast(`已移除「${cat}」的分类预算`);
+    return;
+  }
+
   if (act === "acc-edit") {
     editingAccount = id;
     redraw();
@@ -641,6 +689,21 @@ function onClick(e) {
 }
 
 function onSubmit(e) {
+  if (e.target.id === "add-cat-budget") {
+    e.preventDefault();
+    const amount = yuanToCents(e.target.amount.value);
+    if (amount === null) {
+      toast("分类预算要填一个正数，最多两位小数", "err");
+      return;
+    }
+    const cat = e.target.category.value;
+    const b = budgetOf();
+    if (!b.categoryCents || typeof b.categoryCents !== "object") b.categoryCents = {};
+    b.categoryCents[cat] = amount;
+    touch(true);
+    toast(`已设「${cat}」预算 ${fmtMoney(amount)}`);
+    return;
+  }
   if (e.target.id !== "add-account") return;
   e.preventDefault();
   const name = e.target.name.value.trim();

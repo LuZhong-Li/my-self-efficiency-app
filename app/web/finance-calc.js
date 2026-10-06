@@ -79,6 +79,25 @@ export function budgetState(usedCents, budgetCents) {
   return { usedCents: used, budgetCents: budget, ratio, level };
 }
 
+/** 分类预算：每设了预算的分类一行，给出这个月用它多少、到哪一档。
+ *  只列「设了预算」的分类（没设的不占地方），按用掉的钱从多到少排。
+ *  categoryCents 形如 { "餐饮": 50000 }。 */
+export function categoryBudgetStates(transactions, month, categoryCents) {
+  const budgets = categoryCents || {};
+  const used = new Map();
+  for (const t of transactions || []) {
+    if (monthKey(t.date) !== month || t.type !== "expense") continue;
+    used.set(t.category, (used.get(t.category) || 0) + (Number(t.amountCents) || 0));
+  }
+  return Object.entries(budgets)
+    .filter(([, cents]) => (Number(cents) || 0) > 0)
+    .map(([category, cents]) => ({
+      category,
+      ...budgetState(used.get(category) || 0, cents),
+    }))
+    .sort((a, b) => b.usedCents - a.usedCents || (a.category < b.category ? -1 : 1));
+}
+
 /** 超支日：当月按天累计支出**第一次超过预算**之后，那些还有支出的日子。
  *  没设预算时返回空集合（没预算就没有「超支」可言）。 */
 export function overDays(transactions, month, budgetCents) {

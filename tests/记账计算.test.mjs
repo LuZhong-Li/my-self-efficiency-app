@@ -7,6 +7,7 @@ import {
   monthKey, daysInMonth, dayTotals, monthTotals, monthByDay,
   categoryTotals, budgetState, overDays, byCreatedAt,
   accountBalanceCents, balanceTotals,
+  categoryBudgetStates,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -159,6 +160,18 @@ eq(BT.totalCents, 317450, "总余额 = 列表合计 + 已删账户的净额（�
 // 账户列表空了，那三笔账就全都算「已删账户」的：3000 − 25.50 − 800 = 2174.50
 eq(balanceTotals([], ACC_TX).totalCents, 217450, "一个账户都没有时，全部账目都归到已删那一份");
 eq(balanceTotals([], ACC_TX).deletedCount, 2, "按 accountId 数出 2 个已删账户");
+
+// 分类预算：只列设了预算的，按用掉的钱从多到少排
+const CBS = categoryBudgetStates(TX, "2026-10", { 餐饮: 50000, 交通: 10000, 购物: 0 });
+eq(CBS.length, 2, "没设预算的分类（购物 0）不占地方");
+eq(CBS[0].category, "餐饮", "用得多排前面：餐饮 25.50 > 交通 12.00");
+eq(CBS[0].usedCents, 2550, "用掉多少照实算");
+eq(CBS[0].budgetCents, 50000, "预算原样带出来");
+eq(CBS[0].level, "ok", "用了 5% → ok");
+eq(CBS[1].category, "交通", "第二个是交通");
+eq(categoryBudgetStates(TX, "2026-10", { 交通: 1000 })[0].level, "over", "交通预算 10.00、花了 12.00 → over");
+eq(categoryBudgetStates(TX, "2026-09", { 餐饮: 50000 })[0].usedCents, 0, "那个月没花，就是 0");
+eq(categoryBudgetStates(TX, "2026-10", {}).length, 0, "没设任何分类预算就是空数组");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

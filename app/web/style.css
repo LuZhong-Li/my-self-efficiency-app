@@ -1902,6 +1902,24 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 /* 概览下面那行说明：结余和总余额不是一回事，用一句话讲清楚 */
 .fin-note { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
+/* 分类预算：设了预算的分类各一条，超了那条自己标红 */
+.fin-catbudget { margin-top: 12px; border-top: var(--bw) solid var(--divider); padding-top: 12px; }
+.fin-catbudget-head { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.fin-catbudget-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.fin-catbudget-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 3px 8px;
+  align-items: center;
+  padding: 5px 0;
+}
+.fin-catbudget-name { font-size: 13px; }
+.fin-catbudget-used { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fin-catbudget-used i { font-style: normal; }
+.fin-catbudget-used i.over { color: var(--err); font-weight: 600; }
+.fin-catbudget-bar { grid-column: 1 / -1; height: 6px; }
+.fin-catbudget .add-form { margin-top: 4px; }
+
 /* ---------------- 记账：当日明细与弹窗表单 ---------------- */
 
 .fin-day-sum { display: flex; gap: 12px; margin-bottom: 8px; font-size: 13px; }

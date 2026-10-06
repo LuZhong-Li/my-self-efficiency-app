@@ -298,6 +298,10 @@ html[data-theme="dark"] .card.danger-card { border-color: #5a2f2a; }
   margin-bottom: 16px;
 }
 
+/* 卡片标题右边那一组：说明文字 + 一个按钮 */
+.card-tools { display: flex; align-items: center; gap: 8px; }
+.card-tools .hint { margin: 0; }
+
 h2 { margin: 0; font-size: 17px; font-weight: 600; }
 
 .hint { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
@@ -395,6 +399,14 @@ input[type="file"] { padding: 6px 8px; font-size: 13px; }
 .btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.danger { border-color: var(--err); color: var(--err); }
 .btn.danger:hover { background: var(--err); border-color: var(--err); color: #fff; }
+/* 灰掉的按钮（账户弹窗里没填对时的「保存」）：点不动，也不能看着像能点 */
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:disabled:hover { border-color: var(--line); color: var(--ink); }
+.btn.primary:disabled:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
 
 .link {
   padding: 0 2px;
@@ -2041,10 +2053,12 @@ html[data-theme="dark"] .fin-row.is-income { background: rgba(52, 211, 153, 0.08
 .fin-acc-name { grid-column: 1; font-weight: 600; }
 .fin-acc-sub { grid-column: 1; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .fin-acc .i-actions { grid-column: 2; grid-row: 1 / span 2; }
-.fin-acc-edit { flex-wrap: wrap; }
-.fin-acc-edit .fin-init { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
 .fin-help { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.fin-acc-edit .fin-help { flex: 1 0 100%; }
+/* 字段底下那行红字（账户弹窗的校验提示）：占一行，不飘走 */
+.fin-err { margin: 2px 0 0; color: var(--err); font-size: 12px; line-height: 1.5; }
+.fin-err[hidden] { display: none; }
+/* 账户弹窗的期初余额别用「记一笔」那个 24px 的大金额样式 */
+.fin-init-input input { font-size: 15px; font-weight: 400; }
 .fin-total { border-top: var(--bw) solid var(--divider); padding-top: 8px; }
 .fin-total small { margin-left: 4px; color: var(--muted); font-size: 11px; }
 

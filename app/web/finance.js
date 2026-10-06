@@ -10,17 +10,16 @@ import { pageHeader, bindFresh, emptyState, options } from "./ui.js";
 import { icon } from "./icons.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, currentMonth, showMonth, dayLabel } from "./calendar.js";
-import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
+import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import {
   monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
-  accountBalanceCents, balanceTotals, categoryBudgetStates,
+  accountBalanceCents, balanceTotals, categoryBudgetStates, validateAccountInput,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
 import { splitBySettled } from "./debt-calc.js";
 
 let selected = null; // 月历上选中的那天
-let editingAccount = null; // 正在改名的账户 id
 let ringPick = null; // 环形图上点开的分类（展开明细用）
 let ringType = "expense"; // 环形图看哪一头：expense / income
 
@@ -301,12 +300,11 @@ function accountsCard(txs) {
   return `
     <div class="card-head">
       <h2>账户</h2>
-      <span class="hint">共 ${list.length} 个</span>
+      <div class="card-tools">
+        <span class="hint">共 ${list.length} 个</span>
+        <button class="btn primary small" data-act="acc-add">${icon("plus", 14)}添加账户</button>
+      </div>
     </div>
-    <form class="add-form" id="add-account" autocomplete="off">
-      <input name="name" class="grow" maxlength="20" required placeholder="微信 / 支付宝 / 银行卡…">
-      <button class="btn primary" type="submit">添加</button>
-    </form>
     ${
       list.length
         ? `<ul class="items">${list.map((a) => accountRow(a, txs)).join("")}</ul>`
@@ -335,17 +333,6 @@ function accountsCard(txs) {
 }
 
 function accountRow(a, txs) {
-  if (a.id === editingAccount) {
-    return `
-      <li class="item editing fin-acc-edit" data-id="${esc(a.id)}">
-        <input data-field="name" class="grow" maxlength="20" value="${esc(a.name)}" title="账户名">
-        <input data-field="init" class="fin-init" inputmode="decimal" maxlength="12"
-               value="${centsToYuan(a.initialBalanceCents || 0)}" title="期初余额">
-        <button class="btn primary small" data-act="acc-save">保存</button>
-        <button class="btn small" data-act="acc-cancel">取消</button>
-        <p class="fin-help">期初余额 = 这个账户在开始记账之前已有的资产；改它不会动已有账目。</p>
-      </li>`;
-  }
   const mine = txs.filter((t) => t.accountId === a.id);
   const balance = accountBalanceCents(a, txs);
   return `
@@ -360,6 +347,114 @@ function accountRow(a, txs) {
         <button class="link danger" data-act="acc-del">删除</button>
       </span>
     </li>`;
+}
+
+/** 添加 / 编辑账户的弹窗表单（两处共用一套）。只有两个字段：
+ *  名字（必填）+ 期初余额（可留空，按 0 算）。 */
+function accountFormHtml(v) {
+  return `
+    <label class="fin-label" for="acc-name">账户名称</label>
+    <input id="acc-name" type="text" maxlength="20" autocomplete="off"
+           placeholder="微信 / 支付宝 / 银行卡 / 现金" value="${esc(v.name)}">
+    <p class="fin-err" id="acc-name-err" hidden></p>
+    <label class="fin-label" for="acc-init">期初余额（可留空）</label>
+    <div class="fin-amount-input fin-init-input"><i>¥</i>
+      <input id="acc-init" type="text" inputmode="decimal" maxlength="12"
+             placeholder="0.00，留空按 0 记" value="${esc(v.init)}">
+    </div>
+    <p class="fin-err" id="acc-init-err" hidden></p>
+    <p class="fin-help">期初余额 = 开始记账前这个账户已有的钱。改它不会动你已经录入的账目。</p>`;
+}
+
+/** 打开「添加账户 / 编辑账户」。传 account 就是编辑，不传就是新增。
+ *
+ *  和「记一笔」一个规矩：Esc 关、点遮罩关、Tab 在弹窗里绕圈、回车保存。
+ *  不一样的地方是校验：错误写在字段下面（不飘走的 toast），
+ *  填对之前「保存」是灰的。 */
+function openAccountDialog(account) {
+  const editing = Boolean(account);
+  const selfId = editing ? account.id : "";
+  const dlg = openDialog({
+    title: editing ? "编辑账户" : "添加账户",
+    bodyHtml: accountFormHtml({
+      name: editing ? account.name : "",
+      // 新增时留空：占位提示写着「留空按 0 记」，比预填一个 0.00 更省事
+      init: editing ? centsToYuan(account.initialBalanceCents || 0) : "",
+    }),
+    buttons: [
+      { id: "cancel", label: "取消" },
+      { id: "save", label: "保存", kind: "primary" },
+    ],
+    onAction: (act, el) => {
+      if (act !== "save") return true;
+      const res = check();
+      paint(res, { all: true });
+      if (!res.ok) return false; // 留在弹窗里接着改
+      if (editing) {
+        // 只动名字和期初；历史账目一笔都不碰，余额是实时算出来的
+        account.name = res.name;
+        account.initialBalanceCents = res.initCents;
+      } else {
+        table("finance.accounts").push({
+          id: uid(), name: res.name, initialBalanceCents: res.initCents,
+        });
+      }
+      touch(true);
+      toast(editing ? "账户已更新" : "账户已添加");
+      return true;
+    },
+  });
+
+  const nameEl = dlg.el.querySelector("#acc-name");
+  const initEl = dlg.el.querySelector("#acc-init");
+  const saveBtn = dlg.el.querySelector('[data-dlg-act="save"]');
+  const touched = { name: false, init: false };
+
+  function check() {
+    return validateAccountInput({
+      name: nameEl.value, initText: initEl.value, accounts: accountsOf(), selfId,
+    });
+  }
+
+  // 错误只写在字段底下；没碰过的字段先不报错，免得一打开就红一片。
+  // 「保存」灰不灰按整体校验来，跟单字段有没有碰过无关。
+  function paint(res, { all = false } = {}) {
+    for (const [errSel, inputSel, msg, seen] of [
+      ["#acc-name-err", "#acc-name", res.nameErr, touched.name],
+      ["#acc-init-err", "#acc-init", res.initErr, touched.init],
+    ]) {
+      const box = dlg.el.querySelector(errSel);
+      const input = dlg.el.querySelector(inputSel);
+      const text = all || seen ? msg : "";
+      box.textContent = text;
+      box.hidden = !text;
+      if (text) input.setAttribute("aria-invalid", "true");
+      else input.removeAttribute("aria-invalid");
+    }
+    saveBtn.disabled = !res.ok;
+  }
+
+  for (const [el, field] of [[nameEl, "name"], [initEl, "init"]]) {
+    el.addEventListener("input", () => {
+      touched[field] = true;
+      paint(check());
+    });
+  }
+  paint(check());
+
+  // 打开就聚焦名字框并全选（编辑时多半是要改名）
+  setTimeout(() => {
+    nameEl.focus();
+    nameEl.select?.();
+  }, 0);
+
+  // 回车 = 保存。只在输入框里按回车才算，跟「记一笔」一样
+  dlg.el.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.target.tagName !== "INPUT") return;
+    e.preventDefault();
+    if (!saveBtn.disabled) saveBtn.click();
+  });
+  return dlg;
 }
 
 /** 弹窗里的表单。类型切换、分类格子都是按钮 —— 用 data-act 由弹窗自己
@@ -634,34 +729,13 @@ function onClick(e) {
     return;
   }
 
+  if (act === "acc-add") {
+    openAccountDialog(null);
+    return;
+  }
   if (act === "acc-edit") {
-    editingAccount = id;
-    redraw();
-    return;
-  }
-  if (act === "acc-cancel") {
-    editingAccount = null;
-    redraw();
-    return;
-  }
-  if (act === "acc-save") {
     const a = accountsOf().find((x) => x.id === id);
-    if (!a) return;
-    const name = li.querySelector('[data-field="name"]').value.trim();
-    if (!name) {
-      toast("名字不能是空的", "err");
-      return;
-    }
-    const raw = li.querySelector('[data-field="init"]').value.trim();
-    const init = raw === "" ? 0 : yuanToCentsNonNeg(raw);
-    if (init === null) {
-      toast("期初余额要填一个不小于 0 的数，最多两位小数", "err");
-      return;
-    }
-    a.name = name;
-    a.initialBalanceCents = init;
-    editingAccount = null;
-    touch(true);
+    if (a) openAccountDialog(a);
     return;
   }
   if (act === "acc-del") {
@@ -679,7 +753,6 @@ function onClick(e) {
       });
       if (!ok) return;
       moveToTrash("finance.accounts", a, a.name);
-      if (editingAccount === a.id) editingAccount = null;
       touch(true);
       toast("已移入回收站");
     })();
@@ -687,28 +760,19 @@ function onClick(e) {
 }
 
 function onSubmit(e) {
-  if (e.target.id === "add-cat-budget") {
-    e.preventDefault();
-    const amount = yuanToCents(e.target.amount.value);
-    if (amount === null) {
-      toast("分类预算要填一个正数，最多两位小数", "err");
-      return;
-    }
-    const cat = e.target.category.value;
-    const b = budgetOf();
-    if (!b.categoryCents || typeof b.categoryCents !== "object") b.categoryCents = {};
-    b.categoryCents[cat] = amount;
-    touch(true);
-    toast(`已设「${cat}」预算 ${fmtMoney(amount)}`);
+  if (e.target.id !== "add-cat-budget") return;
+  e.preventDefault();
+  const amount = yuanToCents(e.target.amount.value);
+  if (amount === null) {
+    toast("分类预算要填一个正数，最多两位小数", "err");
     return;
   }
-  if (e.target.id !== "add-account") return;
-  e.preventDefault();
-  const name = e.target.name.value.trim();
-  if (!name) return;
-  table("finance.accounts").push({ id: uid(), name, initialBalanceCents: 0 });
+  const cat = e.target.category.value;
+  const b = budgetOf();
+  if (!b.categoryCents || typeof b.categoryCents !== "object") b.categoryCents = {};
+  b.categoryCents[cat] = amount;
   touch(true);
-  toast("账户已添加");
+  toast(`已设「${cat}」预算 ${fmtMoney(amount)}`);
 }
 
 function onChange(e) {

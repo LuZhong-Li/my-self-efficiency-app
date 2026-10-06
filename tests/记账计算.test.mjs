@@ -7,7 +7,7 @@ import {
   monthKey, daysInMonth, dayTotals, monthTotals, monthByDay,
   categoryTotals, budgetState, overDays, byCreatedAt,
   accountBalanceCents, balanceTotals,
-  categoryBudgetStates,
+  categoryBudgetStates, validateAccountInput,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -160,6 +160,38 @@ eq(BT.totalCents, 317450, "总余额 = 列表合计 + 已删账户的净额（�
 // 账户列表空了，那三笔账就全都算「已删账户」的：3000 − 25.50 − 800 = 2174.50
 eq(balanceTotals([], ACC_TX).totalCents, 217450, "一个账户都没有时，全部账目都归到已删那一份");
 eq(balanceTotals([], ACC_TX).deletedCount, 2, "按 accountId 数出 2 个已删账户");
+
+// 账户表单的校验（添加 / 编辑共用）：名字 + 期初余额
+eq(validateAccountInput({ name: "   ", initText: "", accounts: ACC }).nameErr, "账户名称不能为空",
+  "空名字（纯空格也算空）不算过");
+const V1 = validateAccountInput({ name: "   ", initText: "", accounts: ACC });
+eq(V1.initCents, 0, "期初留空按 0 算");
+eq(V1.ok, false, "名字不过整张表就不过");
+eq(validateAccountInput({ name: " 微信 ", initText: "", accounts: ACC }).nameErr, "已经有同名账户了",
+  "重名不算过（比对前先把首尾空白 trim 掉）");
+eq(validateAccountInput({ name: "微信", initText: "", accounts: ACC, selfId: "a1" }).ok, true,
+  "改自己不算跟自己重名");
+eq(validateAccountInput({ name: " wechat ", initText: "", accounts: [{ id: "b1", name: "WeChat" }] }).nameErr,
+  "已经有同名账户了", "重名不区分大小写");
+eq(validateAccountInput({ name: "一".repeat(21), initText: "", accounts: [] }).nameErr,
+  "账户名称最多 20 个字", "超过 20 个字不算过");
+eq(validateAccountInput({ name: "一".repeat(20), initText: "", accounts: [] }).ok, true, "刚好 20 个字可以");
+
+eq(validateAccountInput({ name: "工资卡", initText: "-5", accounts: [] }).initErr, "期初余额不能小于 0",
+  "负数期初不算过");
+eq(validateAccountInput({ name: "工资卡", initText: "12.345", accounts: [] }).initErr,
+  "期初余额最多两位小数，只能填数字", "三位小数不算过");
+eq(validateAccountInput({ name: "工资卡", initText: "abc", accounts: [] }).initErr,
+  "期初余额最多两位小数，只能填数字", "非数字不算过");
+eq(validateAccountInput({ name: "工资卡", initText: "1000000", accounts: [] }).initErr,
+  "期初余额不能超过 999,999.99", "超过上限不算过");
+const V2 = validateAccountInput({ name: "工资卡", initText: "999999.99", accounts: [] });
+eq(V2.ok, true, "上限 999,999.99 可以");
+eq(V2.initCents, 99999999, "999999.99 元 = 99999999 分");
+const V3 = validateAccountInput({ name: "工资卡", initText: "1826.3", accounts: [] });
+eq(V3.ok, true, "名字和期初都对 → 整张表算过");
+eq(V3.initCents, 182630, "1826.3 元 = 182630 分");
+eq(V3.name, "工资卡", "通过时把 trim 好的名字带出来");
 
 // 分类预算：只列设了预算的，按用掉的钱从多到少排
 const CBS = categoryBudgetStates(TX, "2026-10", { 餐饮: 50000, 交通: 10000, 购物: 0 });

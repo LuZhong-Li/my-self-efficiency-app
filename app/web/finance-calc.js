@@ -3,6 +3,8 @@
  * 哪天算超支），单独放一个文件就能用 Node 一条条断言，不用开浏览器。
  */
 
+import { yuanToCentsNonNeg } from "./money.js";
+
 /** "2026-10-07" → "2026-10" */
 export function monthKey(date) {
   return String(date || "").slice(0, 7);
@@ -156,4 +158,48 @@ export function balanceTotals(accounts, transactions) {
     totalCents: listedCents + deletedCents,
     deletedCount: deletedIds.size,
   };
+}
+
+/** 账户表单（添加 / 编辑共用）的校验。纯函数：不碰 DOM，好在 Node 里一条条断言。
+ *  入参 { name, initText, accounts, selfId }，返回
+ *  { ok, name, initCents, nameErr, initErr }——ok 为 true 时两个 err 都是空串。
+ *
+ *  规矩（和设计文档一致）：
+ *  - 名字：先 trim；空、超过 20 个字、跟别的「在用」账户重名都不行
+ *    （重名忽略首尾空白和大小写；改自己时用 selfId 把自己排除掉）；
+ *  - 期初余额：留空按 0；不能负数；最多两位小数；上限 999,999.99 元
+ *    （跟「记一笔」的金额同一个上限，防手滑多打几个 0）。
+ */
+export function validateAccountInput({ name, initText, accounts, selfId = "" }) {
+  const out = { ok: false, name: "", initCents: 0, nameErr: "", initErr: "" };
+
+  const picked = String(name == null ? "" : name).trim();
+  out.name = picked;
+  if (!picked) {
+    out.nameErr = "账户名称不能为空";
+  } else if ([...picked].length > 20) {
+    out.nameErr = "账户名称最多 20 个字";
+  } else {
+    const key = picked.toLowerCase();
+    const clash = (accounts || []).some(
+      (a) => a && a.id !== selfId && String(a.name || "").trim().toLowerCase() === key
+    );
+    if (clash) out.nameErr = "已经有同名账户了";
+  }
+
+  const raw = String(initText == null ? "" : initText).trim();
+  if (raw === "") {
+    out.initCents = 0;
+  } else if (raw.startsWith("-")) {
+    out.initErr = "期初余额不能小于 0";
+  } else if (!/^\d+(\.\d{1,2})?$/.test(raw)) {
+    out.initErr = "期初余额最多两位小数，只能填数字";
+  } else {
+    const cents = yuanToCentsNonNeg(raw);
+    if (cents === null) out.initErr = "期初余额不能超过 999,999.99";
+    else out.initCents = cents;
+  }
+
+  out.ok = !out.nameErr && !out.initErr;
+  return out;
 }

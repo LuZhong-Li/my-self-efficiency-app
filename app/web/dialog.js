@@ -34,18 +34,28 @@ function closeDialog(result) {
   if (extra) extra();
 }
 
-/** Tab 在弹窗的按钮之间绕圈，别跑到背后的页面上去 */
+/** 弹窗里能被 Tab 到的元素，按出现顺序排（灰掉的按钮不算） */
+const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+
+/** Tab 在弹窗内部绕圈，别跑到背后的页面上去。
+ *  连输入框也一起圈：只圈 .btn 的话，在弹窗的输入框之间按 Tab 会溜到背景页，
+ *  而且焦点回不来（「记一笔」和账户弹窗里都有输入框）。 */
 function bindTabTrap(el) {
   el.addEventListener("keydown", (e) => {
     if (e.key !== "Tab") return;
-    const buttons = [...el.querySelectorAll(".btn")];
-    if (!buttons.length) return;
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
+    const items = [...el.querySelectorAll(FOCUSABLE)].filter(
+      (n) => !n.disabled && n.offsetParent !== null
+    );
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    // 焦点已经在背景页上时也拉回来（比如从别的弹窗留下来的那种情形）
+    const outside = !el.contains(active);
+    if (e.shiftKey && (active === first || outside)) {
       e.preventDefault();
       last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
+    } else if (!e.shiftKey && (active === last || outside)) {
       e.preventDefault();
       first.focus();
     }

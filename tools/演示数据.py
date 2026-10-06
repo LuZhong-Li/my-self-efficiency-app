@@ -191,16 +191,26 @@ COUNT_KEYS = [
     ("tasks", "任务"), ("contents", "自媒体"), ("projects", "项目"), ("issues", "问题"),
     ("progress", "进展"), ("subjects", "学习对象"), ("studies", "学习记录"),
     ("workoutLogs", "训练打卡"), ("weights", "体重"), ("meals", "饮食"),
-    ("water", "饮水"), ("games", "游戏"),
+    ("water", "饮水"), ("games", "游戏"), ("finance.transactions", "账目"),
 ]
 
 
 def counts(data: dict) -> list[tuple[str, int]]:
     out = []
     for key, label in COUNT_KEYS:
-        value = data.get(key)
+        value = dig(data, key)
         out.append((label, len(value) if isinstance(value, list) else 0))
     return out
+
+
+def dig(data: dict, path: str):
+    """按 "a.b" 取嵌套的值（记账的数据嵌在 finance 一个键里）。"""
+    cur = data
+    for part in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
 
 
 def has_content(data: dict) -> bool:
@@ -410,6 +420,59 @@ def demo_data(existing: dict | None) -> dict:
          "status": "弃坑", "progress": "打到第二层就懒得练了", "hours": 6},
     ]
 
+    accounts = [
+        {"id": "demo-a1", "name": "微信", "initialBalanceCents": 0},
+        {"id": "demo-a2", "name": "支付宝", "initialBalanceCents": 0},
+        {"id": "demo-a3", "name": "现金", "initialBalanceCents": 0},
+        {"id": "demo-a4", "name": "银行卡", "initialBalanceCents": 0},
+    ]
+
+    # 记账的日期按「本月几号」算，不按「今天偏移几」算：按偏移的话，
+    # 月初跑就有半套账落到上个月去了，看着像没数据，也看不到超支的红边。
+    last_day = (today.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+
+    def md(day: int) -> str:
+        return today.replace(day=min(day, last_day.day)).isoformat()
+
+    # 刻意让累计支出在中后段越过预算（¥3,200），这样月历上能看见几圈红边
+    tx_plan = [
+        (md(1), "expense", 220000, "住房", "demo-a4", "房租"),
+        (md(2), "expense", 18600, "餐饮", "demo-a1", "超市"),
+        (md(3), "expense", 10000, "交通", "demo-a2", "地铁月卡"),
+        (md(4), "expense", 19900, "学习", "demo-a2", "网课"),
+        (md(5), "expense", 2550, "餐饮", "demo-a1", "午饭 黄焖鸡"),
+        (md(6), "expense", 6890, "购物", "demo-a1", "日用品"),
+        (md(7), "expense", 12800, "餐饮", "demo-a1", "和朋友吃饭"),
+        (md(9), "expense", 4500, "娱乐", "demo-a1", "电影票"),
+        (md(10), "expense", 3200, "餐饮", "demo-a2", "外卖"),
+        (md(11), "expense", 3680, "医疗", "demo-a4", "感冒药"),
+        (md(13), "expense", 2200, "餐饮", "demo-a1", "午饭"),
+        (md(15), "expense", 2800, "交通", "demo-a2", "打车"),
+        (md(17), "expense", 29900, "购物", "demo-a2", "换季衣服"),
+        (md(19), "expense", 2900, "餐饮", "demo-a1", "咖啡"),
+        (md(21), "expense", 2550, "餐饮", "demo-a1", "午饭"),
+        (d(0), "expense", 500, "交通", "demo-a2", "地铁"),
+        (d(0), "expense", 3580, "购物", "demo-a1", "水果"),
+        (md(23), "expense", 4500, "学习", "demo-a2", "一本书"),
+        (md(25), "expense", 1500, "娱乐", "demo-a1", "视频会员"),
+        (md(5), "income", 800000, "工资", "demo-a4", "月薪"),
+        (md(12), "income", 120000, "兼职", "demo-a2", "帮人做了个小活"),
+        (md(20), "income", 20000, "红包", "demo-a1", "朋友发的"),
+    ]
+    transactions = [
+        {
+            "id": "demo-tx%03d" % i,
+            "type": kind,
+            "amountCents": cents,
+            "date": date_text,
+            "category": category,
+            "accountId": account,
+            "note": note,
+            "createdAt": "%s 12:00" % date_text,
+        }
+        for i, (date_text, kind, cents, category, account, note) in enumerate(tx_plan, start=1)
+    ]
+
     return {
         "version": 1,
         "rev": 0,                                   # 真正写的时候会重算
@@ -433,6 +496,16 @@ def demo_data(existing: dict | None) -> dict:
         "meals": meals,
         "water": water,
         "games": games,
+        "finance": {
+            "accounts": accounts,
+            "categories": {
+                "expense": ["餐饮", "交通", "购物", "学习", "娱乐", "住房", "医疗", "其他"],
+                "income": ["工资", "兼职", "红包", "退款", "其他"],
+            },
+            "transactions": transactions,
+            "budget": {"monthlyTotalCents": 320000, "categoryCents": {}},
+            "transfers": [],
+        },
         "settings": settings,                       # 你选的皮肤 / 明暗一律保留
         "trash": old.get("trash") or [],            # 回收站也原样留着
     }

@@ -136,7 +136,9 @@ export function monthGridHtml({ selected: sel, marksOf: marks, kinds = ALL_KINDS
           const lines = (extra && extra.lines) || [];
           return `<button type="button" class="cal-cell${d.inMonth ? "" : " out"}${
             d.date === today ? " today" : ""
-          }${d.date === sel ? " sel" : ""}${extra && extra.over ? " over" : ""}" data-day="${d.date}">
+          }${d.date === sel ? " sel" : ""}${extra && extra.over ? " over" : ""}" data-day="${d.date}"${
+            extra && extra.title ? ` title="${esc(extra.title)}"` : ""
+          }>
             <span class="cal-num">${Number(d.date.slice(-2))}</span>
             <span class="cal-marks">${ms
               .map((m) => `<i class="mk mk-${m.kind}${m.done ? " done" : ""}"></i>`)

@@ -1842,8 +1842,33 @@ html[data-skin="glass"] .fin-side { gap: 10px; }
 .cx-income { color: var(--ok); }
 .cx-muted { color: var(--muted); }
 
-/* 超支日：用 outline 而不是 border —— 不跟皮肤自己的阴影 / 边框打架 */
-.cal-cell.over { outline: 2px solid var(--err); outline-offset: -2px; }
+/* 超支日：用 outline 而不是 border —— 不跟皮肤自己的阴影 / 边框打架。
+   再补一圈很淡的外发光当预警，压着不刺眼。 */
+.cal-cell.over {
+  outline: 2px solid var(--err);
+  outline-offset: -2px;
+  box-shadow: 0 0 8px rgba(231, 76, 60, 0.28);
+}
+html[data-theme="dark"] .cal-cell.over { box-shadow: 0 0 8px rgba(248, 113, 113, 0.3); }
+
+/* 玻璃皮肤的格子自带阴影，上面那条会被它按特异性盖掉，所以在这里
+   把「自己的阴影 + 红色外发光」合起来写一遍（今天那格再多带一层靛蓝） */
+html[data-skin="glass"] .cal-cell.over {
+  box-shadow: 0 0 9px rgba(231, 76, 60, 0.32),
+              inset 0 1px 0 rgba(255, 255, 255, 0.80),
+              0 6px 16px rgba(43, 62, 140, 0.09);
+}
+html[data-skin="glass"][data-theme="dark"] .cal-cell.over {
+  box-shadow: 0 0 9px rgba(248, 113, 113, 0.34),
+              inset 0 1px 0 rgba(255, 255, 255, 0.10),
+              0 6px 16px rgba(0, 0, 0, 0.30);
+}
+html[data-skin="glass"] .cal-cell.today.over {
+  box-shadow: 0 0 9px rgba(231, 76, 60, 0.38),
+              0 12px 28px rgba(74, 100, 220, 0.34),
+              0 0 20px rgba(120, 150, 255, 0.48),
+              inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
 
 /* 「支出」那一类圆点（今日计划页的月历图例里会出现） */
 .mk-finance { background: #d9705a; }
@@ -1865,9 +1890,16 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-budget-input input { width: 96px; text-align: right; }
 .fin-budget-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .fin-budget-num { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fin-budget-num.over { color: var(--err); font-weight: 600; white-space: nowrap; }
 .fin-budget .progress-track > span.lv-ok { background: var(--accent); }
 .fin-budget .progress-track > span.lv-warn { background: var(--warn); }
 .fin-budget .progress-track > span.lv-over { background: var(--err); }
+/* 超支时用更深一档的红，强调「已经花超了」；不支持 color-mix 的浏览器
+   会落回上面那条纯 --err，不至于变成别的颜色 */
+.fin-budget .progress-track > span.lv-over { background: color-mix(in srgb, var(--err) 78%, #2a0a06); }
+
+/* 概览下面那行说明：结余和总余额不是一回事，用一句话讲清楚 */
+.fin-note { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 /* ---------------- 记账：当日明细与弹窗表单 ---------------- */
 

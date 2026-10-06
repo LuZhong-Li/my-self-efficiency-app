@@ -57,10 +57,15 @@ function calendarCard(txs) {
       const d = byDay.get(date);
       const isOver = over.has(date);
       if (!d) return isOver ? { lines: [], over: true } : null;
+      // 收入在上、支出在下；缩写（1.2k）之外，悬浮时给出完整金额
       const lines = [];
-      if (d.expenseCents) lines.push({ text: "-" + fmtMoneyShort(d.expenseCents), tone: "expense" });
       if (d.incomeCents) lines.push({ text: "+" + fmtMoneyShort(d.incomeCents), tone: "income" });
-      return { lines, over: isOver };
+      if (d.expenseCents) lines.push({ text: "-" + fmtMoneyShort(d.expenseCents), tone: "expense" });
+      const detail = [
+        d.expenseCents ? `支出 ${fmtMoney(d.expenseCents)}` : "",
+        d.incomeCents ? `收入 ${fmtMoney(d.incomeCents)}` : "",
+      ].filter(Boolean).join(" · ");
+      return { lines, over: isOver, title: `${dayLabel(date)} · ${detail}` };
     },
   });
 }
@@ -94,6 +99,7 @@ function overviewCard(txs) {
           : ""
       }
     </div>
+    <p class="fin-note">本月结余 = 本月收入 − 本月支出；账户总余额 = 期初 + 全部历史收支。</p>
     ${budgetBlock(st)}
   `;
 }
@@ -113,12 +119,13 @@ function budgetBlock(st) {
       <p class="hint">还没设本月预算，填一个数字就能看进度。</p></div>`;
   }
   const pct = Math.round(Math.min(1, st.ratio) * 100);
+  const overText = st.level === "over" ? `已超支 ${fmtMoney(st.usedCents - st.budgetCents)}` : `${pct}%`;
   return `
     <div class="fin-budget">
       ${head}
       <div class="fin-budget-bar">
         <div class="progress-track"><span class="lv-${st.level}" style="width:${pct}%"></span></div>
-        <span class="fin-budget-num">${pct}%</span>
+        <span class="fin-budget-num${st.level === "over" ? " over" : ""}">${overText}</span>
       </div>
       <p class="hint">已用 ${fmtMoney(st.usedCents)} / ${fmtMoney(st.budgetCents)}</p>
     </div>`;

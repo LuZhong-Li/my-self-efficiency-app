@@ -1926,6 +1926,10 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-debt.st-overdue .fin-debt-due { color: var(--err); font-weight: 600; }
 .fin-debt.st-overdue .fin-debt-remain { color: var(--err); }
 .fin-debt.st-done { opacity: 0.6; }
+/* 编辑弹窗里的还款记录 */
+.fin-repay { margin-top: 12px; border-top: var(--bw) solid var(--divider); padding-top: 12px; }
+.fin-repay-row { display: flex; align-items: center; gap: 8px; }
+.fin-repay-row .i-title { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
 .fin-badge {
   min-width: 18px;
   padding: 0 5px;

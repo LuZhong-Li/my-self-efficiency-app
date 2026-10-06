@@ -74,6 +74,8 @@ function debtRow(it) {
       <span class="fin-debt-due">${esc(dueText)}</span>
       <span class="i-actions">
         <button class="link" data-act="debt-edit">编辑</button>
+        <button class="link" data-act="debt-pay">记录还款</button>
+        <button class="link" data-act="debt-settle">${isSettled(it) ? "恢复待还" : "结清"}</button>
       </span>
     </li>`;
 }
@@ -98,7 +100,7 @@ export function openDebtDialog(item) {
   let type = v.type;
   const dlg = openDialog({
     title: editing ? "改一笔债务" : "加一笔债务",
-    bodyHtml: debtFormHtml(v, type),
+    bodyHtml: debtFormHtml(v, type) + (editing ? repaymentsHtml(item) : ""),
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
       { id: "cancel", label: "取消" },
@@ -160,6 +162,26 @@ export function openDebtDialog(item) {
   });
 
   dlg.el.addEventListener("click", (e) => {
+    if (e.target.closest('[data-act="repay-del"]')) {
+      const row = (item.repayments || [])[Number(e.target.closest("[data-index]").dataset.index)];
+      if (!row) return;
+      (async () => {
+        const after = remainCents(item) + row.amountCents; // 删掉之后剩余会变成多少
+        const ok = await askConfirm({
+          title: "删除这笔还款记录？",
+          message: `剩余金额将恢复 ${fmtMoney(after)}。\n\n对应的账目不会被删掉（账目是独立的记录）。`,
+          confirmLabel: "删除", danger: true,
+        });
+        if (!ok) return;
+        item.repayments.splice(item.repayments.indexOf(row), 1);
+        item.status = remainCents(item) <= 0 ? "done" : "pending";
+        touch(true);
+        toast("已删除这条还款记录");
+        redraw();
+        openDebtDialog(item); // 重新打开，还款记录跟着刷新
+      })();
+      return;
+    }
     const btn = e.target.closest('[data-act="debt-type"]');
     if (!btn) return;
     const keep = {
@@ -170,7 +192,8 @@ export function openDebtDialog(item) {
       note: dlg.el.querySelector("#debt-note").value,
     };
     type = btn.dataset.type;
-    dlg.el.querySelector(".dlg-form").innerHTML = debtFormHtml({ ...keep, type }, type);
+    dlg.el.querySelector(".dlg-form").innerHTML =
+      debtFormHtml({ ...keep, type }, type) + (editing ? repaymentsHtml(item) : "");
   });
   setTimeout(() => dlg.el.querySelector("#debt-name").focus(), 0);
   return dlg;
@@ -198,6 +221,123 @@ function debtFormHtml(v, type) {
     <input id="debt-note" type="text" maxlength="60" placeholder="比如：每月 20 号还款" value="${esc(v.note)}">`;
 }
 
+/** 记录还款：一个动作做三件事——写还款记录、生成一笔账目、重算状态。
+ *  债务只认自己的还款记录，那笔账目只是凭证（删了不影响债务）。 */
+function openPayDialog(item) {
+  const isIncome = item.type === "othersOweMe";
+  const remain = remainCents(item);
+  const dlg = openDialog({
+    title: `${item.name} · ${isIncome ? "记录收款" : "记录还款"}`,
+    bodyHtml: `
+      <label class="fin-label" for="pay-amount">${isIncome ? "收到金额" : "还款金额"}</label>
+      <div class="fin-amount-input"><i>¥</i>
+        <input id="pay-amount" type="text" inputmode="decimal" maxlength="12" value="${centsToYuan(remain)}">
+      </div>
+      <div class="fin-two">
+        <div><label class="fin-label" for="pay-date">日期</label>
+          <input id="pay-date" type="date" value="${todayStr()}"></div>
+        <div><label class="fin-label" for="pay-account">${isIncome ? "收到哪个账户" : "从哪个账户还"}</label>
+          <select id="pay-account">${accountOptionsHtml("")}</select></div>
+      </div>
+      <label class="fin-label" for="pay-note">备注</label>
+      <input id="pay-note" type="text" maxlength="60" value="${esc(item.name + (isIncome ? "收款" : "还款"))}">
+      <p class="fin-help">保存后会${isIncome ? "记一笔收入" : "记一笔支出"}（分类「${isIncome ? "债务收款" : "债务还款"}」），
+        留在账目记录里；之后删那笔账目不会影响这里的剩余金额。</p>`,
+    buttons: [
+      { id: "cancel", label: "取消" },
+      { id: "save", label: isIncome ? "收下了" : "还了", kind: "primary" },
+    ],
+    onAction: (act, el) => {
+      if (act !== "save") return true;
+      const cents = yuanToCents(el.querySelector("#pay-amount").value);
+      if (cents === null) { toast("金额要填一个正数，最多两位小数", "err"); return false; }
+      const left = remainCents(item);
+      if (cents > left) {
+        toast(`最多还能${isIncome ? "收" : "还"} ${fmtMoney(left)}`, "err");
+        return false;
+      }
+      recordRepayment(item, {
+        amountCents: cents,
+        date: el.querySelector("#pay-date").value || todayStr(),
+        accountId: el.querySelector("#pay-account").value,
+        note: el.querySelector("#pay-note").value.trim(),
+      });
+      return true;
+    },
+  });
+  setTimeout(() => dlg.el.querySelector("#pay-amount").select?.(), 0);
+  return dlg;
+}
+
+function recordRepayment(item, { amountCents, date, accountId, note }) {
+  const isIncome = item.type === "othersOweMe";
+  const tx = {
+    id: uid(),
+    type: isIncome ? "income" : "expense",
+    amountCents,
+    date,
+    category: isIncome ? "债务收款" : "债务还款",
+    accountId,
+    note,
+    createdAt: nowText(),
+  };
+  table("finance.transactions").push(tx);
+  if (!Array.isArray(item.repayments)) item.repayments = [];
+  item.repayments.push({ date, amountCents, txId: tx.id });
+  item.status = remainCents(item) <= 0 ? "done" : "pending";
+  touch(true);
+  toast(`${isIncome ? "已收" : "已还"} ${fmtMoney(amountCents)}，${isIncome ? "记了一笔收入" : "记了一笔支出"}`);
+}
+
+/** 手动结清 / 恢复待还。结清不生成任何账目（本来就没钱流动）。 */
+function toggleSettle(item) {
+  const settled = isSettled(item);
+  (async () => {
+    const ok = await askConfirm(
+      settled
+        ? { title: `把「${item.name}」恢复成待还？`, message: "它会被挪回未结清那一组。", confirmLabel: "恢复" }
+        : {
+            title: `把「${item.name}」标记为已结清？`,
+            message: "用在「这笔钱不用还了」这种时候——不会生成任何账目。",
+            confirmLabel: "标记结清",
+          }
+    );
+    if (!ok) return;
+    item.status = settled ? "pending" : "done";
+    touch(true);
+    toast(settled ? "已恢复待还" : "已标记结清");
+  })();
+}
+
+/** 编辑弹窗下半部分的还款记录。txId 有值但账目找不到时标一句。 */
+function repaymentsHtml(item) {
+  if (!item) return "";
+  const list = item.repayments || [];
+  const txIds = new Set(table("finance.transactions").map((t) => t.id));
+  return `
+    <div class="fin-repay">
+      <div class="fin-catbudget-head">还款记录</div>
+      ${
+        list.length
+          ? `<ul class="items">
+               ${list
+                 .map(
+                   (r, i) => `<li class="item fin-repay-row" data-index="${i}">
+                     <span class="i-title">${esc(r.date)} 还了 ${fmtMoney(r.amountCents)}</span>
+                     ${r.txId && !txIds.has(r.txId) ? `<span class="i-meta">对应账目已删除</span>` : ""}
+                     ${!r.txId ? `<span class="i-meta">没有对应账目</span>` : ""}
+                     <span class="i-actions">
+                       <button class="link danger" data-act="repay-del">删除</button>
+                     </span>
+                   </li>`
+                 )
+                 .join("")}
+             </ul>`
+          : `<p class="hint">还没还过。</p>`
+      }
+    </div>`;
+}
+
 function redraw() {
   renderDebtPage(document.getElementById("debt-host"));
 }
@@ -211,6 +351,8 @@ function onClick(e) {
   const item = table("debt.items").find((x) => x.id === id);
 
   if (act === "debt-edit") { if (item) openDebtDialog(item); return; }
+  if (act === "debt-pay") { if (item) openPayDialog(item); return; }
+  if (act === "debt-settle") { if (item) toggleSettle(item); return; }
 }
 
 function onSubmit() {}

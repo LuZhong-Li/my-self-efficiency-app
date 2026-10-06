@@ -1868,3 +1868,46 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-budget .progress-track > span.lv-ok { background: var(--accent); }
 .fin-budget .progress-track > span.lv-warn { background: var(--warn); }
 .fin-budget .progress-track > span.lv-over { background: var(--err); }
+
+/* ---------------- 记账：当日明细与弹窗表单 ---------------- */
+
+.fin-day-sum { display: flex; gap: 12px; margin-bottom: 8px; font-size: 13px; }
+.fin-row .fin-cat { font-size: 15px; line-height: 1; }
+.fin-row .fin-amount { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.dlg-title { margin: 0 0 16px; font-size: 16px; }
+.dlg-form { display: flex; flex-direction: column; gap: 8px; }
+.fin-label { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.fin-tabs { display: inline-flex; gap: 4px; }
+.fin-tab {
+  padding: 6px 16px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  border: var(--bw) solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+.fin-tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.fin-amount-input { display: flex; align-items: center; gap: 6px; }
+.fin-amount-input > i { font-style: normal; font-size: 20px; color: var(--muted); }
+.fin-amount-input input { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fin-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fin-two > div { display: flex; flex-direction: column; gap: 4px; }
+.fin-cats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.fin-cat-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  font-size: 11px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  border: var(--bw) solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+.fin-cat-pick > span { font-size: 18px; line-height: 1; }
+.fin-cat-pick.active { border-color: var(--accent); background: var(--chip); color: var(--chip-ink); }

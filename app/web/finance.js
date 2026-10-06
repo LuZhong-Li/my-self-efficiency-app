@@ -5,15 +5,24 @@
  * 计算全在 money.js 和 finance-calc.js 里，这个文件只管画和接事件。
  */
 
-import { store, table, todayStr, touch, esc } from "./store.js";
-import { pageHeader, bindFresh } from "./ui.js";
+import { store, table, todayStr, nowText, uid, touch, esc, moveToTrash } from "./store.js";
+import { pageHeader, bindFresh, emptyState } from "./ui.js";
 import { icon } from "./icons.js";
-import { toast } from "./dialog.js";
-import { monthGridHtml, calendarAction } from "./calendar.js";
+import { askConfirm, toast, openDialog } from "./dialog.js";
+import { monthGridHtml, calendarAction, dayLabel } from "./calendar.js";
 import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
-import { monthKey, monthTotals, monthByDay, overDays, budgetState } from "./finance-calc.js";
+import {
+  monthKey, dayTotals, monthTotals, monthByDay, overDays, budgetState, byCreatedAt,
+} from "./finance-calc.js";
 
 let selected = null; // 月历上选中的那天
+
+const EXPENSE_ICON = { 餐饮: "🍜", 交通: "🚌", 购物: "🛒", 学习: "📚", 娱乐: "🎮", 住房: "🏠", 医疗: "💊", 其他: "📦" };
+const INCOME_ICON = { 工资: "💰", 兼职: "💼", 红包: "🧧", 退款: "↩️", 其他: "📦" };
+
+function catIcon(type, category) {
+  return (type === "income" ? INCOME_ICON : EXPENSE_ICON)[category] || "📦";
+}
 
 /** 记账的数据都嵌在 finance 这一个键里；老数据可能还没有它，
  *  这里顺手补上空壳（和 store.js 的 table() 一个脾气）。 */
@@ -108,6 +117,210 @@ function monthCN(month) {
   return `${y}年${m}月`;
 }
 
+/** 右栏第二张：选中那天的一笔笔账（点一行就能改）。 */
+function dayCard(txs) {
+  const list = txs.filter((t) => t.date === selected).sort(byCreatedAt);
+  if (!list.length) {
+    return `
+      <div class="card-head"><h2>当日明细</h2><span class="hint">${esc(dayLabel(selected))}</span></div>
+      ${emptyState("这天还没记账", "右上角「记一笔」记上第一笔。", "", "money")}`;
+  }
+  const totals = dayTotals(txs, selected);
+  return `
+    <div class="card-head">
+      <h2>当日明细</h2>
+      <span class="hint">${esc(dayLabel(selected))}</span>
+    </div>
+    <div class="fin-day-sum">
+      <span class="fin-amount expense">-${fmtMoney(totals.expenseCents)}</span>
+      <span class="fin-amount income">+${fmtMoney(totals.incomeCents)}</span>
+    </div>
+    <ul class="items">${list.map(txRow).join("")}</ul>`;
+}
+
+function txRow(t) {
+  const account = accountsOf().find((a) => a.id === t.accountId);
+  const accountName = t.accountId ? (account ? account.name : "（账户已删）") : "";
+  const note = t.note || t.category;
+  return `
+    <li class="item fin-row" data-id="${esc(t.id)}">
+      <span class="fin-cat">${catIcon(t.type, t.category)}</span>
+      <span class="i-title">${esc(note)}</span>
+      ${accountName ? `<span class="i-meta">${esc(accountName)}</span>` : ""}
+      <span class="fin-amount ${t.type === "income" ? "income" : "expense"}">
+        ${t.type === "income" ? "+" : "-"}${fmtMoney(t.amountCents)}
+      </span>
+      <span class="i-actions">
+        <button class="link" data-act="tx-edit">编辑</button>
+        <button class="link danger" data-act="tx-del">删除</button>
+      </span>
+    </li>`;
+}
+
+/** 弹窗里的表单。类型切换、分类格子都是按钮 —— 用 data-act 由弹窗自己
+ *  的 click 处理，不经过 bindFresh（弹窗挂在 body 上，不在 #view 里）。 */
+function txFormHtml(v, type, f) {
+  const cats = (f.categories || {})[type] || [];
+  const accounts = f.accounts || [];
+  const accOpts = [
+    ...(v.accountId && !accounts.some((a) => a.id === v.accountId)
+      ? [`<option value="${esc(v.accountId)}" selected>（账户已删）</option>`]
+      : []),
+    ...accounts.map(
+      (a) => `<option value="${esc(a.id)}"${a.id === v.accountId ? " selected" : ""}>${esc(a.name)}</option>`
+    ),
+  ].join("");
+  return `
+    <div class="fin-tabs">
+      <button type="button" class="fin-tab${type === "expense" ? " active" : ""}" data-act="tx-type" data-type="expense">支出</button>
+      <button type="button" class="fin-tab${type === "income" ? " active" : ""}" data-act="tx-type" data-type="income">收入</button>
+    </div>
+    <label class="fin-label" for="tx-amount">金额</label>
+    <div class="fin-amount-input"><i>¥</i>
+      <input id="tx-amount" type="text" inputmode="decimal" maxlength="12" placeholder="0.00" value="${esc(v.amount)}">
+    </div>
+    <div class="fin-two">
+      <div>
+        <label class="fin-label" for="tx-date">日期</label>
+        <input id="tx-date" type="date" value="${esc(v.date)}">
+      </div>
+      <div>
+        <label class="fin-label" for="tx-account">账户</label>
+        <select id="tx-account">${accOpts || `<option value="">（还没建账户）</option>`}</select>
+      </div>
+    </div>
+    <label class="fin-label">分类</label>
+    <div class="fin-cats">
+      ${cats
+        .map(
+          (c) => `<button type="button" class="fin-cat-pick${c === v.category ? " active" : ""}"
+                    data-act="tx-cat" data-cat="${esc(c)}">
+                    <span>${catIcon(type, c)}</span>${esc(c)}</button>`
+        )
+        .join("")}
+    </div>
+    <label class="fin-label" for="tx-note">备注</label>
+    <input id="tx-note" type="text" maxlength="60" placeholder="比如：午饭 黄焖鸡" value="${esc(v.note)}">`;
+}
+
+/** 打开「记一笔 / 改一笔」。传 tx 就是改，不传就是新增。 */
+function openTxDialog(tx) {
+  const editing = Boolean(tx);
+  const f = finance();
+  const type0 = editing ? tx.type : "expense";
+  const v = editing
+    ? {
+        amount: centsToYuan(tx.amountCents), date: tx.date, category: tx.category,
+        accountId: tx.accountId || "", note: tx.note || "",
+      }
+    : {
+        amount: "", date: selected, category: "其他",
+        accountId: (accountsOf()[0] || {}).id || "", note: "",
+      };
+
+  let type = type0;
+  const dlg = openDialog({
+    title: editing ? "改一笔" : "记一笔",
+    bodyHtml: txFormHtml(v, type, f),
+    buttons: [
+      ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
+      { id: "cancel", label: "取消" },
+      { id: "save", label: "保存", kind: "primary" },
+    ],
+    onAction: (act, el) => {
+      const read = () => ({
+        amount: el.querySelector("#tx-amount").value,
+        date: el.querySelector("#tx-date").value || selected,
+        accountId: el.querySelector("#tx-account").value,
+        note: el.querySelector("#tx-note").value.trim(),
+      });
+
+      // 类型切换和点分类是弹窗内部的按钮，不走 onAction（见下面那段 click），
+      // 这里只会收到 save / cancel / delete 三个。
+      if (act === "cancel") return true;
+      if (act === "delete") {
+        (async () => {
+          const ok = await askConfirm({
+            title: "删除这一笔？",
+            message: `${tx.note || tx.category}\n\n会放进回收站。`,
+            confirmLabel: "删除",
+            danger: true,
+          });
+          if (!ok) return;
+          moveToTrash("finance.transactions", tx, tx.note || tx.category);
+          touch(true);
+          toast("已移入回收站");
+        })();
+        return true;
+      }
+      if (act === "save") {
+        const next = read();
+        const cents = yuanToCents(next.amount);
+        if (cents === null) {
+          toast("金额要填一个正数，最多两位小数", "err");
+          return false; // 留在弹窗里接着改
+        }
+        if (editing) {
+          Object.assign(tx, {
+            type, amountCents: cents, date: next.date, category: v.category,
+            accountId: next.accountId, note: next.note,
+          });
+        } else {
+          table("finance.transactions").push({
+            id: uid(), type, amountCents: cents, date: next.date, category: v.category,
+            accountId: next.accountId, note: next.note, createdAt: nowText(),
+          });
+        }
+        selected = next.date; // 记完停在那一天，方便核对
+        touch(true);
+        toast(`已记一笔 ${fmtMoney(cents)}`);
+        return true;
+      }
+    },
+  });
+
+  // 弹窗内部的交互（改类型、点分类）自己绑：openDialog 只认它自己的那几个按钮
+  dlg.el.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    if (btn.dataset.act === "tx-type") {
+      const before = {
+        amount: dlg.el.querySelector("#tx-amount").value,
+        date: dlg.el.querySelector("#tx-date").value,
+        note: dlg.el.querySelector("#tx-note").value,
+        accountId: dlg.el.querySelector("#tx-account").value,
+      };
+      type = btn.dataset.type;
+      const cats = (f.categories || {})[type] || [];
+      v.category = cats.includes(v.category) ? v.category : "其他";
+      dlg.el.querySelector(".dlg-form").innerHTML = txFormHtml(
+        { ...before, category: v.category }, type, f
+      );
+    } else if (btn.dataset.act === "tx-cat") {
+      v.category = btn.dataset.cat;
+      for (const b of dlg.el.querySelectorAll(".fin-cat-pick")) {
+        b.classList.toggle("active", b.dataset.cat === v.category);
+      }
+    }
+  });
+
+  // 打开就聚焦金额，并全选（改一笔时通常是要改金额）
+  const amount = dlg.el.querySelector("#tx-amount");
+  setTimeout(() => {
+    amount.focus();
+    amount.select?.();
+  }, 0);
+
+  // 回车 = 保存。只在输入框里按回车才算——焦点要是在分类按钮上，
+  // 回车应该是「选中这个分类」（按钮自己的默认行为），不该把人家的输入提交掉。
+  dlg.el.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.target.tagName !== "INPUT") return;
+    e.preventDefault();
+    dlg.el.querySelector('[data-dlg-act="save"]')?.click();
+  });
+  return dlg;
+}
+
 export function renderFinance(root) {
   if (!selected) selected = todayStr();
   const txs = table("finance.transactions");
@@ -121,7 +334,7 @@ export function renderFinance(root) {
       </div>
       <div class="fin-side">
         <section class="card" id="fin-overview">${overviewCard(txs)}</section>
-        <section class="card" id="fin-day"></section>
+        <section class="card" id="fin-day">${dayCard(txs)}</section>
         <section class="card" id="fin-accounts"></section>
       </div>
     </div>
@@ -139,6 +352,38 @@ function onClick(e) {
   if (cal.handled) {
     if (cal.selected) selected = cal.selected;
     redraw();
+    return;
+  }
+
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const li = btn.closest("[data-id]");
+  const id = li ? li.dataset.id : "";
+
+  if (act === "add") {
+    openTxDialog(null);
+    return;
+  }
+  if (act === "tx-edit" || act === "tx-del") {
+    const tx = table("finance.transactions").find((t) => t.id === id);
+    if (!tx) return;
+    if (act === "tx-edit") {
+      openTxDialog(tx);
+      return;
+    }
+    (async () => {
+      const ok = await askConfirm({
+        title: "删除这一笔？",
+        message: `${tx.note || tx.category}\n\n会放进回收站，误删可以去「数据与设置」找回。`,
+        confirmLabel: "删除",
+        danger: true,
+      });
+      if (!ok) return;
+      moveToTrash("finance.transactions", tx, tx.note || tx.category);
+      touch(true);
+      toast("已移入回收站");
+    })();
   }
 }
 function onSubmit() {}

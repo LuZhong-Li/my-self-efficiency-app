@@ -9,7 +9,8 @@ import { esc } from "./store.js";
 import { icon } from "./icons.js";
 
 let backdrop = null;
-let resolveFn = null;
+let resolveFn = null;   // askConfirm 用
+let extraClose = null;  // openDialog 用（关的时候做点收尾）
 
 function onKey(e) {
   if (!backdrop) return;
@@ -23,11 +24,32 @@ function closeDialog(result) {
   if (!backdrop) return;
   const el = backdrop;
   const fn = resolveFn;
+  const extra = extraClose;
   backdrop = null;
   resolveFn = null;
+  extraClose = null;
   document.removeEventListener("keydown", onKey, true);
   el.remove();
   if (fn) fn(result);
+  if (extra) extra();
+}
+
+/** Tab 在弹窗的按钮之间绕圈，别跑到背后的页面上去 */
+function bindTabTrap(el) {
+  el.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    const buttons = [...el.querySelectorAll(".btn")];
+    if (!buttons.length) return;
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
 }
 
 /** 返回 Promise<boolean>：用户点了确认就是 true */
@@ -69,20 +91,51 @@ export function askConfirm({
       const btn = e.target.closest("[data-dlg]");
       if (btn) closeDialog(btn.dataset.dlg === "yes");
     });
-    el.addEventListener("keydown", (e) => {
-      if (e.key !== "Tab" || !buttons.length) return;
-      const first = buttons[0];
-      const last = buttons[buttons.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    });
+    bindTabTrap(el);
     document.addEventListener("keydown", onKey, true);
   });
+}
+
+/**
+ * 通用弹窗：内容自己拼、按钮自己定。askConfirm 的兄弟，共用同一套
+ * .dlg-backdrop / .dlg 样式与行为（Esc 关、点遮罩关、Tab 在按钮间绕圈、
+ * 同一时间只留一个）。记账的「记一笔」用的就是它。
+ *
+ * @param {{title: string, bodyHtml?: string,
+ *          buttons?: {id: string, label: string, kind?: string}[],
+ *          onAction?: (id: string, el: HTMLElement) => (boolean | void)}} options
+ *        onAction 返回 false 表示别关；返回别的（或什么都不返回）就关掉。
+ * @returns {{ el: HTMLElement, close: () => void }}
+ */
+export function openDialog({ title, bodyHtml = "", buttons = [], onAction }) {
+  closeDialog(null); // 同时只留一个
+  const el = document.createElement("div");
+  el.className = "dlg-backdrop";
+  el.innerHTML = `
+    <div class="dlg" role="dialog" aria-modal="true">
+      <h3 class="dlg-title">${esc(title)}</h3>
+      <div class="dlg-form">${bodyHtml}</div>
+      <div class="dlg-actions">
+        ${buttons
+          .map((b) => `<button class="btn ${b.kind || ""}" data-dlg-act="${esc(b.id)}">${esc(b.label)}</button>`)
+          .join("")}
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  backdrop = el;
+  extraClose = null;
+
+  const close = () => closeDialog(null);
+  el.addEventListener("click", (e) => {
+    if (e.target === el) return close();
+    const btn = e.target.closest("[data-dlg-act]");
+    if (!btn) return;
+    if (onAction && onAction(btn.dataset.dlgAct, el) === false) return;
+    close();
+  });
+  bindTabTrap(el);
+  document.addEventListener("keydown", onKey, true);
+  return { el, close };
 }
 
 /** 右下角浮一下的小提示，2 秒后自己消失 */

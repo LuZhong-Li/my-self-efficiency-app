@@ -1930,6 +1930,9 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-repay { margin-top: 12px; border-top: var(--bw) solid var(--divider); padding-top: 12px; }
 .fin-repay-row { display: flex; align-items: center; gap: 8px; }
 .fin-repay-row .i-title { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
+/* 债务页月历上的到期标记 */
+.mk-debt { background: #d9534f; }
+html[data-skin="glass"] .mk-debt { background: #e0685f; }
 .fin-badge {
   min-width: 18px;
   padding: 0 5px;

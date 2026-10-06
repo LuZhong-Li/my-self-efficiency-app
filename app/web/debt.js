@@ -4,8 +4,9 @@
 import { table, todayStr, nowText, uid, touch, esc, moveToTrash } from "./store.js";
 import { bindFresh, emptyState } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
-import { yuanToCents, centsToYuan, fmtMoney } from "./money.js";
+import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import { financeOf, accountOptionsHtml } from "./finance-shared.js";
+import { monthGridHtml, calendarAction, dayLabel } from "./calendar.js";
 import {
   remainCents, isSettled, dueState, daysUntil, totals, upcoming, splitBySettled,
 } from "./debt-calc.js";
@@ -17,15 +18,16 @@ export function renderDebtPage(root) {
   if (!selected) selected = todayStr();
   const items = table("debt.items");
   const { open, done } = splitBySettled(items, todayStr());
+  const dueThatDay = items.filter((it) => !isSettled(it) && it.dueDate === selected);
 
   root.innerHTML = `
     <div class="fin-layout">
       <div class="fin-main">
-        <section class="card" id="debt-calendar"></section>
+        <section class="card" id="debt-calendar">${debtCalendarCard(items)}</section>
       </div>
       <div class="fin-side">
         <section class="card" id="debt-overview">${debtOverviewCard(items)}</section>
-        <section class="card" id="debt-list">${debtListCard(open, done)}</section>
+        <section class="card" id="debt-list">${debtListCard(open, done, dueThatDay)}</section>
       </div>
     </div>
   `;
@@ -72,11 +74,15 @@ function debtOverviewCard(items) {
 }
 
 /** 债务列表：未结清在上（按到期日近的在前），已结清折叠在下面。 */
-function debtListCard(open, done) {
+function debtListCard(open, done, dueThatDay = []) {
   return `
     <div class="card-head">
       <h2>债务列表</h2>
-      <span class="hint">未结清 ${open.length} 笔${done.length ? ` · 已结清 ${done.length} 笔` : ""}</span>
+      <span class="hint">${
+        dueThatDay.length
+          ? `${dayLabel(selected)} · 到期 ${dueThatDay.length} 笔`
+          : `未结清 ${open.length} 笔${done.length ? ` · 已结清 ${done.length} 笔` : ""}`
+      }</span>
     </div>
     ${
       open.length
@@ -378,11 +384,44 @@ function repaymentsHtml(item) {
     </div>`;
 }
 
+/** 左栏：月历。只标没结清债务的到期日——那天一个红点，格子里写「到期 ¥350.00」。
+ *  kinds 只给这一页用「到期」这一种，不改全站的 ALL_KINDS，别的页面图例一动不动。 */
+function debtCalendarCard(items) {
+  const live = items.filter((it) => !isSettled(it) && it.dueDate);
+  const byDay = new Map();
+  for (const it of live) {
+    const cur = byDay.get(it.dueDate) || [];
+    cur.push(it);
+    byDay.set(it.dueDate, cur);
+  }
+  return monthGridHtml({
+    selected,
+    kinds: [["debt", "到期"]],
+    marksOf: (date) => (byDay.has(date) ? [{ kind: "debt" }] : []),
+    dayExtraOf: (date) => {
+      const list = byDay.get(date);
+      if (!list) return null;
+      const sum = list.reduce((s, it) => s + remainCents(it), 0);
+      return {
+        lines: [{ text: `到期 ${fmtMoneyShort(sum)}`, tone: "expense" }],
+        title: list.map((it) => `${it.name} ${fmtMoney(remainCents(it))}`).join(" · "),
+      };
+    },
+  });
+}
+
 function redraw() {
   renderDebtPage(document.getElementById("debt-host"));
 }
 
 function onClick(e) {
+  const cal = calendarAction(e);
+  if (cal.handled) {
+    if (cal.selected) selected = cal.selected;
+    redraw();
+    return;
+  }
+
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
   const act = btn.dataset.act;

@@ -1914,6 +1914,18 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 }
 .fin-subtab:hover { background: var(--hover); }
 .fin-subtab.active { background: var(--chip); border-color: var(--accent); color: var(--chip-ink); font-weight: 600; }
+/* 债务列表：每行两行文字 + 右侧动作 */
+.fin-debt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.fin-debt-name { grid-column: 1; font-weight: 600; }
+.fin-debt-type { grid-column: 1; color: var(--muted); font-size: 12px; }
+.fin-debt-remain { grid-column: 1; font-variant-numeric: tabular-nums; font-size: 13px; }
+.fin-debt-due { grid-column: 1; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fin-debt .i-actions { grid-column: 2; grid-row: 1 / span 4; flex-direction: column; align-items: flex-end; gap: 2px; }
+/* 状态色：7 天内橙、逾期红、已结清灰 */
+.fin-debt.st-soon .fin-debt-due { color: var(--warn); }
+.fin-debt.st-overdue .fin-debt-due { color: var(--err); font-weight: 600; }
+.fin-debt.st-overdue .fin-debt-remain { color: var(--err); }
+.fin-debt.st-done { opacity: 0.6; }
 .fin-badge {
   min-width: 18px;
   padding: 0 5px;

@@ -16,7 +16,7 @@ import {
   accountBalanceCents, balanceTotals, categoryBudgetStates,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
-import { renderDebtPage } from "./debt.js";
+import { renderDebtPage, openDebtDialog } from "./debt.js";
 import { splitBySettled } from "./debt-calc.js";
 
 let selected = null; // 月历上选中的那天
@@ -557,7 +557,13 @@ export function renderFinance(root, sub = "") {
 
   if (onDebt) {
     renderDebtPage(root.querySelector("#debt-host"));
-    return; // 债务页自己的事件在 renderDebtPage 里绑（「加一笔债务」在 Task 5 接上）
+    // 页头那个「加一笔债务」在 #debt-host 外面，所以在这里接一下
+    bindFresh(root, {
+      click: (e) => {
+        if (e.target.closest('[data-act="debt-add"]')) openDebtDialog(null);
+      },
+    });
+    return;
   }
   bindFresh(root, { click: onClick, submit: onSubmit, change: onChange });
 }

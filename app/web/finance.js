@@ -16,6 +16,7 @@ import {
 } from "./finance-calc.js";
 
 let selected = null; // 月历上选中的那天
+let editingAccount = null; // 正在改名的账户 id
 
 const EXPENSE_ICON = { 餐饮: "🍜", 交通: "🚌", 购物: "🛒", 学习: "📚", 娱乐: "🎮", 住房: "🏠", 医疗: "💊", 其他: "📦" };
 const INCOME_ICON = { 工资: "💰", 兼职: "💼", 红包: "🧧", 退款: "↩️", 其他: "📦" };
@@ -153,6 +154,46 @@ function txRow(t) {
       <span class="i-actions">
         <button class="link" data-act="tx-edit">编辑</button>
         <button class="link danger" data-act="tx-del">删除</button>
+      </span>
+    </li>`;
+}
+
+/** 右栏第三张：账户列表。第一版只有名字，余额和转账是第二版的事。 */
+function accountsCard() {
+  const list = accountsOf();
+  return `
+    <div class="card-head">
+      <h2>账户</h2>
+      <span class="hint">共 ${list.length} 个</span>
+    </div>
+    <form class="add-form" id="add-account" autocomplete="off">
+      <input name="name" class="grow" maxlength="20" required placeholder="微信 / 支付宝 / 银行卡…">
+      <button class="btn primary" type="submit">添加</button>
+    </form>
+    ${
+      list.length
+        ? `<ul class="items">${list.map(accountRow).join("")}</ul>`
+        : emptyState("还没有账户", "加一个之后，记一笔时就能选它了。", "", "money")
+    }`;
+}
+
+function accountRow(a) {
+  if (a.id === editingAccount) {
+    return `
+      <li class="item editing" data-id="${esc(a.id)}">
+        <input data-field="name" class="grow" maxlength="20" value="${esc(a.name)}">
+        <button class="btn primary small" data-act="acc-save">保存</button>
+        <button class="btn small" data-act="acc-cancel">取消</button>
+      </li>`;
+  }
+  const used = table("finance.transactions").filter((t) => t.accountId === a.id).length;
+  return `
+    <li class="item" data-id="${esc(a.id)}">
+      <span class="i-title">${esc(a.name)}</span>
+      <span class="i-meta">${used ? `${used} 笔账在用它` : "还没用过"}</span>
+      <span class="i-actions">
+        <button class="link" data-act="acc-edit">改名</button>
+        <button class="link danger" data-act="acc-del">删除</button>
       </span>
     </li>`;
 }
@@ -335,7 +376,7 @@ export function renderFinance(root) {
       <div class="fin-side">
         <section class="card" id="fin-overview">${overviewCard(txs)}</section>
         <section class="card" id="fin-day">${dayCard(txs)}</section>
-        <section class="card" id="fin-accounts"></section>
+        <section class="card" id="fin-accounts">${accountsCard()}</section>
       </div>
     </div>
   `;
@@ -384,9 +425,64 @@ function onClick(e) {
       touch(true);
       toast("已移入回收站");
     })();
+    return;
+  }
+
+  if (act === "acc-edit") {
+    editingAccount = id;
+    redraw();
+    return;
+  }
+  if (act === "acc-cancel") {
+    editingAccount = null;
+    redraw();
+    return;
+  }
+  if (act === "acc-save") {
+    const a = accountsOf().find((x) => x.id === id);
+    if (!a) return;
+    const name = li.querySelector('[data-field="name"]').value.trim();
+    if (!name) {
+      toast("名字不能是空的", "err");
+      return;
+    }
+    a.name = name;
+    editingAccount = null;
+    touch(true);
+    return;
+  }
+  if (act === "acc-del") {
+    const a = accountsOf().find((x) => x.id === id);
+    if (!a) return;
+    const used = table("finance.transactions").filter((t) => t.accountId === a.id).length;
+    (async () => {
+      const ok = await askConfirm({
+        title: `删除账户「${a.name}」？`,
+        message: used
+          ? `有 ${used} 笔账在用这个账户。删掉之后那些账还在，只是账户那一栏会显示「（账户已删）」。`
+          : "会放进回收站。",
+        confirmLabel: "删除",
+        danger: true,
+      });
+      if (!ok) return;
+      moveToTrash("finance.accounts", a, a.name);
+      if (editingAccount === a.id) editingAccount = null;
+      touch(true);
+      toast("已移入回收站");
+    })();
   }
 }
-function onSubmit() {}
+
+function onSubmit(e) {
+  if (e.target.id !== "add-account") return;
+  e.preventDefault();
+  const name = e.target.name.value.trim();
+  if (!name) return;
+  table("finance.accounts").push({ id: uid(), name, initialBalanceCents: 0 });
+  touch(true);
+  toast("账户已添加");
+}
+
 function onChange(e) {
   if (e.target.id !== "budget-input") return;
   const text = e.target.value.trim();

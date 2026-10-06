@@ -1,7 +1,7 @@
 /* 全局搜索：在已经读进来的数据里找，点结果跳到对应模块。
  * 纯粹前端过滤，不新增接口、不新增数据。 */
 
-import { store, esc } from "./store.js";
+import { store, esc, table } from "./store.js";
 
 const SOURCES = [
   { table: "tasks", module: "plan", label: "任务", fields: ["text", "note"] },
@@ -15,6 +15,7 @@ const SOURCES = [
   { table: "weights", module: "fitness", label: "体重", fields: ["date"] },
   { table: "meals", module: "diet", label: "饮食", fields: ["breakfast", "lunch", "dinner", "snack"] },
   { table: "games", module: "game", label: "游戏", fields: ["name", "platform", "progress"] },
+  { table: "finance.transactions", module: "finance", label: "账目", fields: ["note", "category"] },
 ];
 
 const MAX = 12;
@@ -24,7 +25,7 @@ function searchAll(query) {
   if (!needle || !store.data) return [];
   const out = [];
   for (const src of SOURCES) {
-    const rows = store.data[src.table];
+    const rows = table(src.table); // table() 认得 "finance.transactions" 这种带点的路径
     if (!Array.isArray(rows)) continue;
     for (const row of rows) {
       const hit = src.fields.find((f) =>

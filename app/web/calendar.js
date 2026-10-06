@@ -99,6 +99,9 @@ function marksOf(date) {
   const hasWater = table("water").some((w) => w.date === date && Number(w.cups) > 0);
   if (hasMeal || hasWater) marks.push({ kind: "diet" });
   if (table("studies").some((s) => s.date === date)) marks.push({ kind: "study" });
+  if (table("finance.transactions").some((t) => t.date === date && t.type === "expense")) {
+    marks.push({ kind: "finance" });
+  }
   if (table("contents").some((c) => c.publishDate === date)) marks.push({ kind: "publish" });
   else if (table("contents").some((c) => c.planDate === date)) marks.push({ kind: "planned" });
   if (table("progress").some((p) => p.date === date)) marks.push({ kind: "dev" });

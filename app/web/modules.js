@@ -15,7 +15,7 @@ export const MODULES = [
 ];
 
 /** 首页摘要卡片上要露脸的六个模块（首页、今日计划、设置不在这里） */
-export const SUMMARY_MODULES = ["media", "dev", "study", "fitness", "diet", "game"];
+export const SUMMARY_MODULES = ["media", "dev", "study", "fitness", "diet", "game", "finance"];
 
 export function moduleOf(id) {
   return MODULES.find((m) => m.id === id) || MODULES[0];

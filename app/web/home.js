@@ -4,6 +4,8 @@ import { store, touch, table, esc, todayStr, formatDateCN, dateStr } from "./sto
 import { bindFresh, emptyState } from "./ui.js";
 import { SUMMARY_MODULES, moduleOf } from "./modules.js";
 import { icon } from "./icons.js";
+import { monthTotals, dayTotals } from "./finance-calc.js";
+import { fmtMoney } from "./money.js";
 
 let memoTimer = null;
 
@@ -179,6 +181,17 @@ function summary(id) {
         : last
         ? `最近：${last.date} ${last.content || ""}`.trim()
         : "还没有学习记录",
+    };
+  }
+  if (id === "finance") {
+    const txs = table("finance.transactions");
+    const today = todayStr();
+    const month = today.slice(0, 7);
+    const day = dayTotals(txs, today);
+    const totals = monthTotals(txs, month);
+    return {
+      main: `今日支出 ${fmtMoney(day.expenseCents)}`,
+      sub: txs.length ? `本月结余 ${fmtMoney(totals.balanceCents)}` : "还没有记账",
     };
   }
   if (id === "fitness") {

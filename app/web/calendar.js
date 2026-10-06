@@ -30,6 +30,7 @@ const ALL_KINDS = [
   ["planned", "计划发布"],
   ["dev", "进展"],
   ["weight", "体重"],
+  ["finance", "支出"],
 ];
 
 export const KIND_TASK = [ALL_KINDS[0]];
@@ -37,6 +38,8 @@ export const KIND_FITNESS = [ALL_KINDS[1]];
 export const KIND_DIET = [ALL_KINDS[2]];
 export const KIND_STUDY = [ALL_KINDS[3]];
 export const KIND_PUBLISH = [ALL_KINDS[4], ALL_KINDS[5]];
+// 「支出」那一类单独导出去，给记账页用（它的格子里画金额、不画圆点）
+export const KIND_FINANCE = ALL_KINDS.filter(([kind]) => kind === "finance");
 
 let cursor = null;   // 正在看的月份 "YYYY-MM"（全站共用一个）
 let selected = null; // 今日计划页选中的那天
@@ -94,7 +97,7 @@ function marksOf(date) {
 
 /** 月历本体（工具条 + 星期表头 + 42 格 + 图例）。
  *  marksOf(date) 由调用方给：返回那些天的圆点数组。 */
-export function monthGridHtml({ selected: sel, marksOf: marks, kinds = ALL_KINDS } = {}) {
+export function monthGridHtml({ selected: sel, marksOf: marks, kinds = ALL_KINDS, dayExtraOf } = {}) {
   ensureState();
   const today = todayStr();
   const marksFn = marks || marksOf;
@@ -113,21 +116,34 @@ export function monthGridHtml({ selected: sel, marksOf: marks, kinds = ALL_KINDS
       ${monthDays(cursor)
         .map((d) => {
           const ms = marksFn(d.date) || [];
+          const extra = dayExtraOf ? dayExtraOf(d.date) : null;
+          const lines = (extra && extra.lines) || [];
           return `<button type="button" class="cal-cell${d.inMonth ? "" : " out"}${
             d.date === today ? " today" : ""
-          }${d.date === sel ? " sel" : ""}" data-day="${d.date}">
+          }${d.date === sel ? " sel" : ""}${extra && extra.over ? " over" : ""}" data-day="${d.date}">
             <span class="cal-num">${Number(d.date.slice(-2))}</span>
             <span class="cal-marks">${ms
               .map((m) => `<i class="mk mk-${m.kind}${m.done ? " done" : ""}"></i>`)
               .join("")}</span>
+            ${
+              lines.length
+                ? `<span class="cal-extra">${lines
+                    .map((l) => `<i class="cx cx-${esc(l.tone)}">${esc(l.text)}</i>`)
+                    .join("")}</span>`
+                : ""
+            }
           </button>`;
         })
         .join("")}
     </div>
 
-    <div class="cal-legend">
-      ${kinds.map(([k, label]) => `<span><i class="mk mk-${k}"></i>${label}</span>`).join("")}
-    </div>
+    ${
+      kinds.length
+        ? `<div class="cal-legend">
+             ${kinds.map(([k, label]) => `<span><i class="mk mk-${k}"></i>${label}</span>`).join("")}
+           </div>`
+        : ""
+    }
   `;
 }
 

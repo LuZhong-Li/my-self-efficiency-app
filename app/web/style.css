@@ -1822,3 +1822,29 @@ html[data-skin="glass"] .fin-side { gap: 10px; }
 @media (max-width: 1100px) {
   .fin-layout { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------------- 记账：月历格子里的两行小字 ----------------
+   支出红、收入绿，跟概览卡片用同一组颜色（--err / --ok）。 */
+
+.cal-cell { min-height: 84px; }
+
+.cal-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 10px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.cx { font-style: normal; }
+.cx-expense { color: var(--err); }
+.cx-income { color: var(--ok); }
+.cx-muted { color: var(--muted); }
+
+/* 超支日：用 outline 而不是 border —— 不跟皮肤自己的阴影 / 边框打架 */
+.cal-cell.over { outline: 2px solid var(--err); outline-offset: -2px; }
+
+/* 「支出」那一类圆点（今日计划页的月历图例里会出现） */
+.mk-finance { background: #d9705a; }
+html[data-skin="glass"] .mk-finance { background: #e08a70; }

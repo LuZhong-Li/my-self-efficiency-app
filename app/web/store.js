@@ -14,6 +14,7 @@ export const store = {
   saving: false,
   pendingSave: false,
   dirty: false,   // 有改动还没落盘
+  pendingForm: false, // 有表单填了一半还没提交（关窗口前要提醒）
   timer: null,
   lastSavedAt: null,
 };
@@ -121,11 +122,44 @@ async function saveNow() {
 }
 
 window.addEventListener("beforeunload", (e) => {
-  if (store.saving || store.dirty) {
+  if (store.saving || store.dirty || store.pendingForm) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
+
+/** 表单填了一半（没点保存/添加）时打个标记，关窗口前会提醒一句 */
+export function markPendingForm(on) {
+  const next = Boolean(on);
+  if (store.pendingForm === next) return;
+  store.pendingForm = next;
+  if (next) setStatus("有还没保存的改动（记得点保存）", "err");
+  else setStatus("已连接 · 数据读取正常", "ok");
+}
+
+// 这些字段是「停笔即存」的，不用算进「没保存的改动」里
+const AUTOSAVE_FIELDS = "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter";
+
+document.addEventListener(
+  "input",
+  (e) => {
+    const el = e.target;
+    if (!el || !el.matches || !el.closest("main")) return;
+    if (el.matches(AUTOSAVE_FIELDS)) return;
+    if (el.matches("input, textarea, select")) markPendingForm(true);
+  },
+  true
+);
+
+// 提交表单、或点了任何带 data-act 的按钮（保存/取消/删除…），就不再算「没保存」
+document.addEventListener("submit", () => markPendingForm(false), true);
+document.addEventListener(
+  "click",
+  (e) => {
+    if (e.target.closest("[data-act]")) markPendingForm(false);
+  },
+  true
+);
 
 /* ---------------- 多个窗口之间同步 ----------------
  * 双击两次启动文件会开两个标签页，两边各拿一份数据。用浏览器自带的

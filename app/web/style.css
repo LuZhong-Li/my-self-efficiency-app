@@ -585,6 +585,21 @@ code {
 .proj-counts { font-size: 13px; }
 .proj-meta { margin-top: 8px; color: var(--muted); font-size: 12px; }
 
+/* 开发工作页：项目筛选条 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0 12px;
+  padding-top: 16px;
+  border-top: var(--bw) dashed var(--divider);
+}
+
+.filter-bar input { flex: 1 1 200px; min-width: 0; }
+.filter-bar select { flex: 0 0 auto; }
+#proj-grid-host .empty-state { padding: 24px 16px; }
+
 /* 项目卡片拖拽排序（只在开发工作页启用） */
 .proj-grid .proj-card { cursor: grab; }
 .proj-grid .proj-card:active { cursor: grabbing; }

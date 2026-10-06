@@ -12,13 +12,20 @@ const CLOSED = ["已解决", "已关闭"];
 let editProject = false;
 let editing = null; // {kind: "todo"|"issue", id}
 let sorter = null;  // 项目卡片的拖拽实例（每次重画都要重建）
+let hostRoot = null;
+let editSnapshot = null; // 进编辑时拍的快照，点「取消」用它真正回滚
+
+// 筛选状态：只影响显示，不动数据
+let filterText = "";
+let filterStatus = "all";
 
 export function renderDev(root, sub) {
+  hostRoot = root;
   const project = table("projects").find((p) => p.id === sub);
   if (sub && project) renderDetail(root, project);
   else renderList(root);
 
-  bindFresh(root, { submit: onSubmit, click: onClick, change: onChange });
+  bindFresh(root, { submit: onSubmit, click: onClick, change: onChange, input: onInput });
   setupDragSort(root);
 }
 
@@ -51,10 +58,19 @@ function setupDragSort(root) {
       // 拖完把 DOM 顺序读回来，重排 projects 数组，整份落盘
       const ids = [...grid.querySelectorAll("[data-id]")].map((el) => el.dataset.id);
       const all = table("projects");
-      const ordered = ids.map((id) => all.find((p) => p.id === id)).filter(Boolean);
-      for (const p of all) if (!ordered.includes(p)) ordered.push(p); // 兜底：一个都不能丢
+      const byId = new Map(all.map((p) => [p.id, p]));
+      const visible = ids.map((id) => byId.get(id)).filter(Boolean);
+      const visibleIds = new Set(visible.map((p) => p.id));
+      // 按位置合并：看得见的按新顺序填回去，被筛掉的留在原位不动
+      const merged = [];
+      let i = 0;
+      for (const p of all) {
+        if (visibleIds.has(p.id)) merged.push(visible[i++]);
+        else merged.push(p);
+      }
+      for (const p of all) if (!merged.includes(p)) merged.push(p); // 兜底：一条都不能丢
       all.length = 0;
-      all.push(...ordered);
+      all.push(...merged);
       touch(true);
       toast("顺序已保存");
     },
@@ -83,9 +99,11 @@ function progressList(projectId) {
 /* ---------------- 项目列表 ---------------- */
 
 function renderList(root) {
-  const projects = table("projects");
+  const all = table("projects");
+  const list = visibleProjects();
+  const filtering = Boolean(filterText.trim()) || filterStatus !== "all";
   root.innerHTML = `
-    ${pageHeader("dev", `<span class="date-chip">${projects.length} 个项目</span>`)}
+    ${pageHeader("dev", `<span class="date-chip">${all.length} 个项目</span>`)}
     <section class="card">
       <form class="add-form" id="add-project" autocomplete="off">
         <input name="name" class="grow" maxlength="80" required placeholder="项目名…">
@@ -96,12 +114,57 @@ function renderList(root) {
       </form>
 
       ${
-        projects.length
-          ? `<div class="proj-grid">${projects.map(projCard).join("")}</div>`
-          : emptyState("还没有项目", "每个项目一条线：待办、问题、进展。", "", "dev")
+        all.length
+          ? `<div class="filter-bar">
+               <input id="project-filter" class="grow" maxlength="60" autocomplete="off"
+                      placeholder="筛选项目名 / 简介…" value="${esc(filterText)}">
+               <select id="project-status-filter" title="按状态筛选">
+                 <option value="all"${filterStatus === "all" ? " selected" : ""}>全部状态</option>
+                 ${PROJECT_STATUS.map(
+                   (s) => `<option value="${esc(s)}"${filterStatus === s ? " selected" : ""}>${esc(s)}</option>`
+                 ).join("")}
+               </select>
+               <button class="btn small" data-act="filter-clear">清空筛选</button>
+               <span class="hint" id="filter-count">${filtering ? `筛出 ${list.length} / ${all.length} 个` : ""}</span>
+             </div>`
+          : ""
       }
+
+      <div id="proj-grid-host">${gridHtml()}</div>
     </section>
   `;
+}
+
+/** 按关键词 + 状态筛出要显示的项目（只读，不动数据） */
+function visibleProjects() {
+  const kw = filterText.trim().toLowerCase();
+  return table("projects").filter((p) => {
+    if (filterStatus !== "all" && p.status !== filterStatus) return false;
+    if (!kw) return true;
+    return [p.name, p.intro, p.status].some((v) => String(v || "").toLowerCase().includes(kw));
+  });
+}
+
+function gridHtml() {
+  const all = table("projects");
+  if (!all.length) return emptyState("还没有项目", "每个项目一条线：待办、问题、进展。", "", "dev");
+  const list = visibleProjects();
+  if (!list.length) return emptyState("没有匹配的项目", "换个关键词，或者点「清空筛选」。", "", "dev");
+  return `<div class="proj-grid">${list.map(projCard).join("")}</div>`;
+}
+
+/** 只重画卡片区，不动上面的输入框——否则边打字边重画会把光标弄丢 */
+function applyFilter() {
+  if (!hostRoot) return;
+  const host = hostRoot.querySelector("#proj-grid-host");
+  if (!host) return;
+  host.innerHTML = gridHtml();
+  const count = hostRoot.querySelector("#filter-count");
+  if (count) {
+    const filtering = Boolean(filterText.trim()) || filterStatus !== "all";
+    count.textContent = filtering ? `筛出 ${visibleProjects().length} / ${table("projects").length} 个` : "";
+  }
+  setupDragSort(hostRoot);
 }
 
 function projCard(p) {
@@ -273,6 +336,71 @@ function currentProjectId() {
   return location.hash.split("/")[1] || "";
 }
 
+/** 点「取消」时把记录退回进编辑前的样子（因为编辑期间是自动保存的） */
+function restoreSnapshot() {
+  if (!editSnapshot || !editSnapshot.id) return;
+  for (const key of ["projects", "tasks", "issues"]) {
+    const row = table(key).find((x) => x.id === editSnapshot.id);
+    if (row) {
+      Object.assign(row, editSnapshot);
+      return;
+    }
+  }
+}
+
+/**
+ * 输入框边打边存。
+ * - 筛选框：只重画卡片区，不动输入框（否则光标会跳）
+ * - 行内编辑：静默保存（touch(false, true) 只写数据不重画），
+ *   所以关窗口、断电都不会丢；想反悔就点「取消」，那里有快照可以退回。
+ */
+function onInput(e) {
+  const el = e.target;
+
+  if (el.id === "project-filter") {
+    filterText = el.value;
+    applyFilter();
+    return;
+  }
+
+  const form = el.closest("#edit-project");
+  if (form) {
+    const p = table("projects").find((x) => x.id === currentProjectId());
+    if (!p) return;
+    const name = form.querySelector('[name="name"]').value.trim();
+    if (!name) return; // 名字不能是空的，这一次先不存
+    p.name = name;
+    p.status = form.querySelector('[name="status"]').value;
+    p.intro = form.querySelector('[name="intro"]').value.trim();
+    p.startDate = form.querySelector('[name="startDate"]').value || "";
+    touch(false, true);
+    return;
+  }
+
+  const row = el.closest("li.editing[data-id]");
+  if (!row) return;
+  const id = row.dataset.id;
+
+  if (row.classList.contains("task")) {
+    const t = findTodo(id);
+    if (!t) return;
+    const text = row.querySelector('[data-field="text"]').value.trim();
+    if (!text) return;
+    t.text = text;
+    t.note = row.querySelector('[data-field="note"]').value.trim();
+    touch(false, true);
+  } else {
+    const i = findIssue(id);
+    if (!i) return;
+    const title = row.querySelector('[data-field="title"]').value.trim();
+    if (!title) return;
+    i.title = title;
+    i.severity = row.querySelector('[data-field="severity"]').value;
+    i.status = row.querySelector('[data-field="status"]').value;
+    touch(false, true);
+  }
+}
+
 function findTodo(id) {
   return table("tasks").find((t) => t.id === id) || null;
 }
@@ -360,10 +488,16 @@ async function onClick(e) {
   const pid = currentProjectId();
 
   if (act === "p-edit") {
+    editSnapshot = JSON.parse(JSON.stringify(table("projects").find((x) => x.id === pid) || {}));
     editProject = true;
     redraw();
   } else if (act === "p-cancel") {
+    restoreSnapshot();
     editProject = false;
+    touch(true); // 退回也要落盘，否则界面回去了、磁盘还留着改后的值
+  } else if (act === "filter-clear") {
+    filterText = "";
+    filterStatus = "all";
     redraw();
   } else if (act === "p-delete") {
     const p = table("projects").find((x) => x.id === pid);
@@ -385,11 +519,13 @@ async function onClick(e) {
     touch(true);
     toast("项目已移入回收站");
   } else if (act === "todo-edit") {
+    editSnapshot = JSON.parse(JSON.stringify(findTodo(id) || {}));
     editing = { kind: "todo", id };
     redraw();
   } else if (act === "todo-cancel") {
+    restoreSnapshot();
     editing = null;
-    redraw();
+    touch(true);
   } else if (act === "todo-save") {
     const t = findTodo(id);
     if (!t) return;
@@ -400,6 +536,7 @@ async function onClick(e) {
     }
     t.text = text;
     t.note = li.querySelector('[data-field="note"]').value.trim();
+    editSnapshot = null;
     editing = null;
     touch(true);
   } else if (act === "todo-del") {
@@ -416,11 +553,13 @@ async function onClick(e) {
     touch(true);
     toast("已移入回收站");
   } else if (act === "issue-edit") {
+    editSnapshot = JSON.parse(JSON.stringify(findIssue(id) || {}));
     editing = { kind: "issue", id };
     redraw();
   } else if (act === "issue-cancel") {
+    restoreSnapshot();
     editing = null;
-    redraw();
+    touch(true);
   } else if (act === "issue-save") {
     const i = findIssue(id);
     if (!i) return;
@@ -432,6 +571,7 @@ async function onClick(e) {
     i.title = title;
     i.severity = li.querySelector('[data-field="severity"]').value;
     i.status = li.querySelector('[data-field="status"]').value;
+    editSnapshot = null;
     editing = null;
     touch(true);
   } else if (act === "issue-done") {
@@ -469,6 +609,11 @@ async function onClick(e) {
 }
 
 function onChange(e) {
+  if (e.target.id === "project-status-filter") {
+    filterStatus = e.target.value;
+    applyFilter();
+    return;
+  }
   const box = e.target.closest('[data-act="todo-toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");

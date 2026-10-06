@@ -6,7 +6,9 @@ import { bindFresh, emptyState } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { yuanToCents, centsToYuan, fmtMoney } from "./money.js";
 import { financeOf, accountOptionsHtml } from "./finance-shared.js";
-import { remainCents, isSettled, dueState, daysUntil, splitBySettled } from "./debt-calc.js";
+import {
+  remainCents, isSettled, dueState, daysUntil, totals, upcoming, splitBySettled,
+} from "./debt-calc.js";
 
 let selected = null; // 债务页月历上选中的那天
 
@@ -22,13 +24,51 @@ export function renderDebtPage(root) {
         <section class="card" id="debt-calendar"></section>
       </div>
       <div class="fin-side">
-        <section class="card" id="debt-overview"></section>
+        <section class="card" id="debt-overview">${debtOverviewCard(items)}</section>
         <section class="card" id="debt-list">${debtListCard(open, done)}</section>
       </div>
     </div>
   `;
 
   bindFresh(root, { click: onClick, submit: onSubmit });
+}
+
+/** 右栏第一张：我欠 / 别人欠我 / 净额 + 近 30 天到期。 */
+function debtOverviewCard(items) {
+  const today = todayStr();
+  const t = totals(items);
+  const soon = upcoming(items, today, 30);
+  const netLabel = t.netCents >= 0 ? "净负债" : "净债权";
+  return `
+    <div class="card-head"><h2>债务总览</h2><span class="hint">只算没结清的</span></div>
+    <div class="fin-sum">
+      <div class="fin-sum-item"><span>我欠别人</span>
+        <strong class="fin-amount expense">${fmtMoney(t.oweCents)}</strong></div>
+      <div class="fin-sum-item"><span>别人欠我</span>
+        <strong class="fin-amount income">${fmtMoney(t.owedCents)}</strong></div>
+      <div class="fin-sum-item fin-total"><span>${netLabel}</span>
+        <strong class="fin-amount ${t.netCents > 0 ? "expense" : "income"}">${fmtMoney(Math.abs(t.netCents))}</strong></div>
+    </div>
+    <div class="fin-catbudget">
+      <div class="fin-catbudget-head">近 30 天到期</div>
+      ${
+        soon.length
+          ? `<ul class="items">${soon
+              .map((it) => {
+                const state = dueState(it, today);
+                const days = daysUntil(it.dueDate, today);
+                const tag = state === "overdue"
+                  ? `已逾期 ${-days} 天`
+                  : days === 0 ? "今天到期" : `${days} 天后`;
+                return `<li class="item fin-debt st-${state}" data-id="${esc(it.id)}">
+                  <span class="fin-debt-name">${esc(it.name)}</span>
+                  <span class="fin-debt-due">${esc(tag)} · 剩余 ${fmtMoney(remainCents(it))}</span>
+                </li>`;
+              })
+              .join("")}</ul>`
+          : `<p class="hint">30 天内没有要到期的。</p>`
+      }
+    </div>`;
 }
 
 /** 债务列表：未结清在上（按到期日近的在前），已结清折叠在下面。 */

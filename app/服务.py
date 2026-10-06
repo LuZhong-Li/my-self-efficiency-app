@@ -74,6 +74,7 @@ COUNT_KEYS = [
     ("water", "饮水记录"),
     ("games", "游戏"),
     ("finance.transactions", "账目"),
+    ("debt.items", "债务"),
 ]
 
 
@@ -116,6 +117,15 @@ def default_finance() -> dict:
     }
 
 
+def default_debt() -> dict:
+    """债务欠款的空骨架（和 finance 并列的一个顶层键）。"""
+    return {"items": []}
+
+
+# 记账里这两个分类跟着债务一起加：还款算支出、别人还钱算收入
+DEBT_CATEGORIES = {"expense": "债务还款", "income": "债务收款"}
+
+
 def default_data() -> dict:
     """第一次运行时用的空数据骨架，字段与设计文档第 5 节一致。"""
     return {
@@ -140,6 +150,7 @@ def default_data() -> dict:
         "water": [],
         "games": [],
         "finance": default_finance(),
+        "debt": default_debt(),
         "settings": {
             "theme": "light",
             "backupKeep": DEFAULT_BACKUP_KEEP,
@@ -210,6 +221,14 @@ def migrate(data: dict) -> dict:
         for key, value in default_finance().items():
             if key not in data["finance"]:
                 data["finance"][key] = value
+    if not isinstance(data.get("debt"), dict) or not isinstance(data["debt"].get("items"), list):
+        data["debt"] = default_debt()
+    # 两个债务分类也要给老数据补上（缺了才加，有了不动）
+    cats = data.setdefault("finance", {}).setdefault("categories", {})
+    for kind, name in DEBT_CATEGORIES.items():
+        bucket = cats.setdefault(kind, [])
+        if name not in bucket:
+            bucket.append(name)
     return data
 
 

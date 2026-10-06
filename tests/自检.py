@@ -127,7 +127,7 @@ def main() -> int:
         status, data = call(port, "/api/data")
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
-                "games", "settings", "finance"]
+                "games", "settings", "finance", "debt"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -199,6 +199,25 @@ def main() -> int:
               back2["finance"]["transactions"][0]["amountCents"] == 2550
               and back2["finance"]["budget"]["monthlyTotalCents"] == 200000)
 
+        # 债务：导出导入也要带着走
+        cur = call(port, "/api/data")[1]
+        cur["debt"]["items"] = [{
+            "id": "debt-selftest", "name": "自检债务", "type": "oweOthers",
+            "totalCents": 10000, "creditor": "", "dueDate": "2026-10-20",
+            "note": "", "status": "pending", "repayments": [],
+        }]
+        call(port, "/api/data", "POST", cur)
+        status, exp3 = call(port, "/api/export", "POST", {})
+        exported3 = json.loads(Path(exp3["path"]).read_text(encoding="utf-8"))
+        call(port, "/api/clear", "POST", {})
+        call(port, "/api/import", "POST", exported3)
+        back3 = call(port, "/api/data")[1]
+        check("导出导入往返带着债务数据", back3["debt"]["items"][0]["totalCents"] == 10000)
+
+        cats = call(port, "/api/data")[1]["finance"]["categories"]
+        check("记账分类里有「债务还款 / 债务收款」",
+              "债务还款" in cats.get("expense", []) and "债务收款" in cats.get("income", []))
+
         # 清空
         status, cleared = call(port, "/api/clear", "POST", {})
         now = call(port, "/api/data")[1]
@@ -206,6 +225,7 @@ def main() -> int:
         check("清空后记账回到空骨架",
               now.get("finance", {}).get("transactions") == []
               and now.get("finance", {}).get("budget", {}).get("monthlyTotalCents") == 0)
+        check("清空后债务回到空骨架", now.get("debt", {}).get("items") == [])
         check("清空前会自动留一份快照",
               (data_dir / "备份" / cleared["snapshot"]).exists(), cleared.get("snapshot", ""))
 

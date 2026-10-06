@@ -40,6 +40,7 @@ const PATHS = {
   bug: '<path d="M12 8a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0v-2a5 5 0 0 1 5-5Z"/><path d="M12 8V5.5M9.5 5 8 3.5M14.5 5 16 3.5M7 11H4M17 11h3M7.5 15 5 17M16.5 15 19 17"/>',
   bulb: '<path d="M9 17h6M10 20h4"/><path d="M12 3.5a5.5 5.5 0 0 1 3.2 9.9c-.5.4-.7.8-.7 1.4v.7h-5v-.7c0-.6-.2-1-.7-1.4A5.5 5.5 0 0 1 12 3.5Z"/>',
   list: '<path d="M8 6.5h12M8 12h12M8 17.5h12M4 6.5h.01M4 12h.01M4 17.5h.01"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>',
 };
 
 export function icon(name, size = 18) {

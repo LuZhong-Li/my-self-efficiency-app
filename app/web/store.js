@@ -5,6 +5,8 @@
  * 不用为每个字段写接口。
  */
 
+import { normalizeHomeView } from "./home-view.js";
+
 const changeHandlers = [];
 const statusHandlers = [];
 
@@ -318,6 +320,22 @@ export function setSkin(skin) {
   if (!store.data.settings) store.data.settings = {};
   store.data.settings.skin = SKINS.includes(skin) ? skin : "glass";
   applySkin(store.data.settings.skin);
+  touch(true);
+}
+
+/* ---------------- 首页视图（简洁 / 完整） ----------------
+ * 和主题、皮肤一样存在 settings 里，不用 localStorage：
+ * 换数据文件跟着走，两个窗口开着也会同步过去（走的是同一套保存机制）。 */
+
+export function homeViewOf() {
+  const settings = (store.data && store.data.settings) || {};
+  return normalizeHomeView(settings.homeView);
+}
+
+export function setHomeView(view) {
+  if (!store.data) return;
+  if (!store.data.settings) store.data.settings = {};
+  store.data.settings.homeView = normalizeHomeView(view);
   touch(true);
 }
 

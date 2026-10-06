@@ -1139,6 +1139,26 @@ html[data-theme="dark"] .dlg-icon.danger { background: #3a2220; }
   .home-core { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* 简洁模式最下面那个「其他模块」折叠面板 */
+.home-more { margin-top: 16px; }
+
+.home-more > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.home-more > summary:hover { border-color: var(--accent); color: var(--ink); }
+.home-more[open] > summary { margin-bottom: 16px; color: var(--ink); }
+
 .mod-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -8,7 +8,7 @@
  */
 
 import { store, touch, table, esc, todayStr, homeViewOf, setHomeView } from "./store.js";
-import { progressOf, overdueTasks, cardsFor, financeBriefOf, financeTextOf } from "./home-view.js";
+import { progressOf, overdueTasks, cardsFor, otherVisibleIn, financeBriefOf, financeTextOf } from "./home-view.js";
 import { bindFresh, emptyState } from "./ui.js";
 import { icon } from "./icons.js";
 
@@ -116,6 +116,17 @@ function modCard(card, showSub = false) {
     </a>`;
 }
 
+/** 「其他模块」折叠面板：用原生 <details>，零 JS、键盘也能开。
+ *  三个次要模块一条数据都没有时，整个面板不渲染（不留空壳）。 */
+function otherPanelHTML(cards, visible) {
+  if (!visible) return "";
+  return `
+    <details class="home-more">
+      <summary>${icon("grid", 16)}其他模块（健身计划、饮食计划、游戏娱乐）</summary>
+      <div class="mod-grid">${cards.map((c) => modCard(c, false)).join("")}</div>
+    </details>`;
+}
+
 /* ---------------- 完整模式（原布局） ---------------- */
 
 function overviewStripHTML(p) {
@@ -155,6 +166,7 @@ function simpleView(data, today) {
   const overdue = overdueTasks(data, today);
   const brief = financeBriefOf(data, today);
   const money = financeTextOf(brief);
+  const cards = cardsFor("simple", data, today);
   return `
     ${heroHTML("simple")}
     <div class="home-core">
@@ -198,7 +210,9 @@ function simpleView(data, today) {
             : ""
         }
       </aside>
-    </div>`;
+    </div>
+    <section class="mod-grid">${cards.highlight.map((c) => modCard(c, false)).join("")}</section>
+    ${otherPanelHTML(cards.other, otherVisibleIn(data))}`;
 }
 
 /* ---------------- 欢迎语与小零件 ---------------- */

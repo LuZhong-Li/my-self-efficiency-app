@@ -1848,3 +1848,23 @@ html[data-skin="glass"] .fin-side { gap: 10px; }
 /* 「支出」那一类圆点（今日计划页的月历图例里会出现） */
 .mk-finance { background: #d9705a; }
 html[data-skin="glass"] .mk-finance { background: #e08a70; }
+
+/* ---------------- 记账：本月概览与预算 ---------------- */
+
+.fin-sum { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.fin-sum-item { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.fin-sum-item > span { color: var(--muted); font-size: 13px; }
+.fin-amount { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fin-amount.expense { color: var(--err); }
+.fin-amount.income { color: var(--ok); }
+
+.fin-budget { border-top: var(--bw) solid var(--divider); padding-top: 12px; }
+.fin-budget-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fin-budget-input { display: inline-flex; align-items: center; gap: 4px; }
+.fin-budget-input > i { font-style: normal; color: var(--muted); font-size: 13px; }
+.fin-budget-input input { width: 96px; text-align: right; }
+.fin-budget-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.fin-budget-num { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fin-budget .progress-track > span.lv-ok { background: var(--accent); }
+.fin-budget .progress-track > span.lv-warn { background: var(--warn); }
+.fin-budget .progress-track > span.lv-over { background: var(--err); }

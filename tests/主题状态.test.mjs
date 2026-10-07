@@ -87,8 +87,13 @@ console.log("store.js：老数据从 settings.theme 迁过来");
 Store.store.data.settings = { theme: "dark" };
 eq(Store.themeModeOf(), "dark", "只有老字段 theme=dark → 当深色模式");
 eq(Store.themeOf(), "dark", "界面照旧是深色");
+Store.applyTheme();
+eq(Store.store.data.settings.themeMode, "dark", "老数据一保存就自动补齐 themeMode = dark");
+eq(Store.store.data.settings.theme, "dark", "theme 同时被规范化");
 Store.store.data.settings = {};
 eq(Store.themeModeOf(), "light", "两个字段都没有 → 浅色（默认）");
+Store.applyTheme();
+eq(Store.store.data.settings.themeMode, "light", "什么都没有时补齐成浅色，不崩");
 
 console.log("store.js：回到前台补读一次（睡眠唤醒后状态不错位）");
 Store.setThemeMode("system");

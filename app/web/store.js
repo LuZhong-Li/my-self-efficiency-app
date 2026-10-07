@@ -329,8 +329,15 @@ export function themeOf() {
 export function applyTheme() {
   const theme = themeOf();
   document.documentElement.dataset.theme = theme;
-  // theme 这个老字段跟着写一份「当前实际明暗」，老版本的数据文件也读得懂
-  if (store.data && store.data.settings) store.data.settings.theme = theme;
+  const settings = store.data && store.data.settings;
+  if (settings) {
+    // 两个字段都补齐：themeMode 是用户选的策略，theme 是当前实际明暗（老版本认这个）。
+    // 老数据文件只有 theme、没有 themeMode，这样它下次一保存就自动带上新字段，
+    // 不用手动改文件；反过来旧版本打开这份文件也照样能读。
+    const mode = themeModeOf();
+    settings.theme = theme;
+    settings.themeMode = mode;
+  }
   emitTheme();
 }
 

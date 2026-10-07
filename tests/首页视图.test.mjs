@@ -3,7 +3,7 @@
  * 说明：这个测试不进「自检.cmd」——自检是给用户一键跑的，保持纯 Python。 */
 
 import {
-  normalizeHomeView, rows, weekStartOf, todayTasks, overdueTasks, HOME_TASK_LIMIT,
+  normalizeHomeView, normalizeMemoCollapsed, rows, weekStartOf, todayTasks, overdueTasks, HOME_TASK_LIMIT,
   progressOf, summaryOf, cardOf, cardsFor, hasData, otherVisibleIn,
   debtWarningOf, financeBriefOf, financeTextOf,
 } from "../app/web/home-view.js";
@@ -109,6 +109,9 @@ eq(normalizeHomeView("full"), "full", "认得出完整模式");
 eq(normalizeHomeView("simple"), "simple", "认得出简洁模式");
 eq(normalizeHomeView(undefined), "simple", "没设置过 → 简洁（默认）");
 eq(normalizeHomeView("乱写的"), "simple", "认不出 → 简洁，不崩");
+eq(normalizeMemoCollapsed(true), true, "备忘收起状态存的是 true");
+eq(normalizeMemoCollapsed(undefined), false, "老数据没有这个键 → 展开");
+eq(normalizeMemoCollapsed("true"), false, "只认真正的布尔 true，字符串不算");
 
 console.log("home-view.js：取表与周起点");
 eqDeep(rows(DATA, "finance.transactions").map((t) => t.id), ["x1", "x2", "x3"], "带点的路径能取到嵌套表");
@@ -119,16 +122,16 @@ eq(weekStartOf("2026-10-05"), "2026-10-05", "周一 → 它自己");
 eq(weekStartOf("2026-10-11"), "2026-10-05", "周日算这一周的最后一天，不是下一周");
 
 console.log("home-view.js：今日进度");
-eq(HOME_TASK_LIMIT, 5, "简洁模式最多列 5 条");
+eq(HOME_TASK_LIMIT, 4, "简洁模式最多列 4 条");
 const p = progressOf(DATA, TODAY);
 eq(p.total, 6, "今天 6 条任务");
 eq(p.done, 2, "做完 2 条");
 eq(p.open, 4, "没做完 4 条");
 eq(p.untimed, 2, "待安排 2 条（没填时间点）");
 eq(p.percent, 33, "2 / 6 → 33%");
-eq(p.shown.length, 5, "只列前 5 条");
-eq(p.hidden, 1, "还有 1 条没列出来");
-eqDeep(p.shown.map((t) => t.id), ["t1", "t4", "t5", "t6", "t2"],
+eq(p.shown.length, 4, "只列前 4 条");
+eq(p.hidden, 2, "还有 2 条没列出来");
+eqDeep(p.shown.map((t) => t.id), ["t1", "t4", "t5", "t6"],
   "没做完的在前、按时间点排，做完的排最后");
 eqDeep(todayTasks(DATA.tasks, TODAY).map((t) => t.id), ["t1", "t4", "t5", "t6", "t2", "t3"],
   "todayTasks 给全量且顺序一致");
@@ -153,7 +156,16 @@ eq(cardOf("game", DATA, TODAY).main, "在玩 1 款", "游戏只数在玩的");
 eq(cardOf("game", DATA, TODAY).tip, "塞尔达传说：王国之泪", "游戏的提示");
 eq(cardOf("finance", DATA, TODAY).main, "今日支出 ¥168.80", "记账卡正面");
 eq(cardOf("finance", DATA, TODAY).sub, "本月结余 ¥7,572.50", "完整模式下记账卡的第二行");
-eq(cardOf("fitness", { ...DATA, workoutLogs: [] }, TODAY).main, "本周练了 0 次", "没数据时给数字而不是空白");
+eq(cardOf("fitness", { ...DATA, workoutLogs: [{ id: "w9", date: "2026-09-01" }] }, TODAY).main,
+  "本周练了 0 次", "有记录但本周没练 → 照常给数字");
+eq(cardOf("fitness", { ...DATA, workoutLogs: [], weights: [] }, TODAY).main, "暂无数据",
+  "一条记录都没有 → 说「暂无数据」");
+eq(cardOf("fitness", { ...DATA, workoutLogs: [], weights: [] }, TODAY).empty, true,
+  "空模块带 empty 标记（卡片画成浅灰）");
+eq(cardOf("media", { contents: [] }, TODAY).main, "暂无数据", "自媒体一条都没有");
+eq(cardOf("media", { contents: [] }, TODAY).tip, "", "空模块不编 hover 提示");
+eq(cardOf("game", { games: [{ id: "g", status: "已通关" }] }, TODAY).main, "没有在玩的游戏",
+  "有游戏记录但都不在玩 → 照实说，不是「暂无数据」");
 eq(cardOf("dev", DATA, TODAY).extra, "", "没有额外信息时 extra 是空串，不是 undefined");
 
 console.log("home-view.js：哪个视图显示哪些卡");
@@ -196,9 +208,11 @@ eq(debtWarningOf({ debt: { items: [{ ...DATA.debt.items[1], status: "done" }] } 
 
 const empty = { finance: { transactions: [] } };
 const emptyText = financeTextOf(financeBriefOf(empty, TODAY));
-eq(emptyText.expenseText, "今日暂无支出", "没有账目时说人话，不写 ¥0.00");
+eq(emptyText.expenseText, "¥0.00", "今天没花钱就显示 ¥0.00");
+eq(emptyText.expenseMuted, true, "¥0.00 要走浅灰那一档");
 eq(emptyText.balanceText, "", "没有账目时不显示本月结余");
 eq(financeTextOf(brief).expenseText, "¥168.80", "有支出就显示金额");
+eq(financeTextOf(brief).expenseMuted, false, "有支出就不浅灰");
 eq(financeTextOf(brief).balanceText, "¥7,572.50", "有账目就显示本月结余");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);

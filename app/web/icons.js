@@ -21,6 +21,7 @@ const PATHS = {
 
   // 界面零碎
   plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+  minus: '<path d="M5.5 12h13"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   arrowRight: '<path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',

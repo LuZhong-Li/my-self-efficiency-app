@@ -11,12 +11,17 @@ import { dayTotals, monthTotals } from "./finance-calc.js";
 import { fmtMoney } from "./money.js";
 import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
 
-/** 简洁模式最多直接列几条待办，多的收进「还有 N 条」 */
-export const HOME_TASK_LIMIT = 5;
+/** 简洁模式最多直接列几条待办，多的收进「查看更多待办」 */
+export const HOME_TASK_LIMIT = 4;
 
 /** 视图设置：认不出的一律当简洁（和 store.js 里 skinOf() 的兜底一个写法） */
 export function normalizeHomeView(raw) {
   return raw === "full" ? "full" : "simple";
+}
+
+/** 快速备忘是不是收起了：只有明确的 true 才算收起（老数据没这个键 = 展开） */
+export function normalizeMemoCollapsed(raw) {
+  return raw === true;
 }
 
 /** 按 "finance.transactions" 这种路径取一张表；缺键、类型不对都给空数组，不抛。 */
@@ -114,11 +119,13 @@ export function financeBriefOf(data, today) {
   };
 }
 
-/** 财务摘要那两格要显示的字：没数据时说人话，不显示 ¥0.00，也不留空壳 */
+/** 财务摘要那两格要显示的字：今天没花钱就是 ¥0.00（浅灰），
+ *  一笔账都还没有时「本月结余」整格不渲染（不留空壳）。 */
 export function financeTextOf(brief) {
   return {
     expenseLabel: "今日支出",
-    expenseText: brief.hasTodayExpense ? brief.expense : "今日暂无支出",
+    expenseText: brief.expense,
+    expenseMuted: !brief.hasTodayExpense,
     balanceLabel: "本月结余",
     balanceText: brief.hasAny ? brief.balance : "",
   };
@@ -127,6 +134,9 @@ export function financeTextOf(brief) {
 /** 一张卡片的内容：main 是卡片正面那一行，sub / extra 是完整模式用的第二行，
  *  tip 是鼠标悬浮提示（正面只留核心数字，次要信息都进这里）。 */
 export function summaryOf(id, data, today) {
+  // 一条记录都没有的模块不摆「0 条」「0 分钟」这种空数字，直接说「暂无数据」；
+  // 有记录但当天/本周是 0 的，照常给数字——「本周练了 0 次」本身就是有用的信息。
+  if (!hasData(id, data)) return { main: "暂无数据", sub: "" };
   if (id === "media") {
     const items = rows(data, "contents");
     const n = (s) => items.filter((x) => x.status === s).length;
@@ -209,6 +219,7 @@ export function cardOf(id, data, today) {
     name: m.name,
     icon: m.icon,
     main: s.main,
+    empty: !hasData(id, data),
     sub,
     extra,
     tip: [sub, extra].filter(Boolean).join(" · "),

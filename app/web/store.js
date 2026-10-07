@@ -5,7 +5,7 @@
  * 不用为每个字段写接口。
  */
 
-import { normalizeHomeView } from "./home-view.js";
+import { normalizeHomeView, normalizeMemoCollapsed } from "./home-view.js";
 
 const changeHandlers = [];
 const statusHandlers = [];
@@ -336,6 +336,20 @@ export function setHomeView(view) {
   if (!store.data) return;
   if (!store.data.settings) store.data.settings = {};
   store.data.settings.homeView = normalizeHomeView(view);
+  touch(true);
+}
+
+/* 快速备忘的收起状态：和视图选择一样存进 settings，刷新、换窗口都记得 */
+
+export function memoCollapsedOf() {
+  const settings = (store.data && store.data.settings) || {};
+  return normalizeMemoCollapsed(settings.memoCollapsed);
+}
+
+export function setMemoCollapsed(collapsed) {
+  if (!store.data) return;
+  if (!store.data.settings) store.data.settings = {};
+  store.data.settings.memoCollapsed = normalizeMemoCollapsed(collapsed);
   touch(true);
 }
 

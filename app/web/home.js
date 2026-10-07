@@ -7,8 +7,14 @@
  * home-view.js 里算（纯函数，有单测）；这个文件只管画和接事件。
  */
 
-import { store, touch, table, esc, todayStr, homeViewOf, setHomeView } from "./store.js";
-import { progressOf, overdueTasks, cardsFor, otherVisibleIn, financeBriefOf, financeTextOf } from "./home-view.js";
+import {
+  store, touch, table, esc, todayStr,
+  homeViewOf, setHomeView, memoCollapsedOf, setMemoCollapsed,
+} from "./store.js";
+import {
+  HOME_TASK_LIMIT, progressOf, overdueTasks, cardsFor, otherVisibleIn,
+  financeBriefOf, financeTextOf,
+} from "./home-view.js";
 import { bindFresh, emptyState } from "./ui.js";
 import { icon } from "./icons.js";
 
@@ -41,9 +47,9 @@ function heroHTML(mode) {
       <div class="hero-actions">
         <span class="view-switch" role="group" aria-label="首页视图">
           <button class="btn small${mode === "simple" ? " active" : ""}" data-act="home-view"
-            data-view="simple" title="简洁模式：只看今日核心和高频模块">${icon("list", 16)}简洁模式</button>
+            data-view="simple" title="日常仪表盘｜聚焦今日任务与财务">${icon("list", 16)}简洁模式</button>
           <button class="btn small${mode === "full" ? " active" : ""}" data-act="home-view"
-            data-view="full" title="完整模式：所有模块一次看完">${icon("grid", 16)}完整模式</button>
+            data-view="full" title="全模块总览｜适合复盘查看全部模块数据">${icon("grid", 16)}完整模式</button>
         </span>
         <a class="btn primary" href="#plan">${icon("plus", 16)}新建待办</a>
       </div>
@@ -65,10 +71,22 @@ function commandStripHTML() {
 }
 
 function memoCardHTML() {
+  const collapsed = memoCollapsedOf();
   return `
-    <section class="card">
-      <div class="card-head"><h2>${icon("pencil", 18)}快速备忘</h2><span class="hint" id="memo-state">—</span></div>
-      <textarea id="memo" class="memo-input" placeholder="随手写点什么，停笔自动保存…"></textarea>
+    <section class="card memo-card">
+      <div class="card-head">
+        <h2>${icon("pencil", 18)}快速备忘</h2>
+        <span class="card-tools">
+          <span class="hint" id="memo-state">—</span>
+          <button class="memo-toggle" data-act="memo-toggle" aria-expanded="${collapsed ? "false" : "true"}"
+            title="${collapsed ? "展开快速备忘" : "收起快速备忘"}">${icon(collapsed ? "plus" : "minus", 16)}</button>
+        </span>
+      </div>
+      ${
+        collapsed
+          ? ""
+          : `<textarea id="memo" class="memo-input" placeholder="随手写点什么，停笔自动保存…"></textarea>`
+      }
     </section>`;
 }
 
@@ -78,7 +96,7 @@ function memoCardHTML() {
 function taskListHTML(p, limit = 0) {
   if (!p.total) {
     return emptyState(
-      "今天还没有任务",
+      "今日暂无任务",
       "把最重要的一件事先写下来。",
       `<a class="btn primary" href="#plan">${icon("plus", 16)}加一条</a>`,
       "plan"
@@ -97,11 +115,11 @@ function taskListHTML(p, limit = 0) {
     }
     ${
       untimed.length
-        ? `<div class="list-head"><span>待安排</span><span class="hint">${untimed.length} 条</span></div>
+        ? `<div class="list-head${timed.length ? " sep" : ""}"><span>待安排</span><span class="hint">${untimed.length} 条</span></div>
            <ul class="tasks">${untimed.map(row).join("")}</ul>`
         : ""
     }
-    ${rest ? `<p class="more-link"><a class="link" href="#plan">还有 ${rest} 条，打开今日计划 →</a></p>` : ""}`;
+    ${rest ? `<p class="more-link"><a class="link" href="#plan">还有 ${rest} 条，查看更多待办 →</a></p>` : ""}`;
 }
 
 /* ---------------- 模块卡片 ---------------- */
@@ -110,7 +128,7 @@ function modCard(card, showSub = false) {
   return `
     <a class="mod-card" href="#${card.id}" title="${esc(card.tip)}">
       <div class="mod-title"><span class="mod-icon">${icon(card.icon, 18)}</span>${esc(card.name)}</div>
-      <div class="mod-main">${esc(card.main)}</div>
+      <div class="mod-main${card.empty ? " mod-main-none" : ""}">${esc(card.main)}</div>
       ${showSub && card.sub ? `<div class="mod-sub">${esc(card.sub)}</div>` : ""}
       ${showSub && card.extra ? `<div class="mod-extra">${esc(card.extra)}</div>` : ""}
     </a>`;
@@ -173,15 +191,14 @@ function simpleView(data, today) {
       <section class="card home-progress">
         <div class="card-head">
           <h2>${icon("plan", 18)}今日进度</h2>
-          <span class="hint">已完成 ${p.done} / ${p.total}</span>
+          <span class="home-head-note">已完成 ${p.done} / ${p.total} ｜ 待安排 ${p.untimed} 条</span>
         </div>
         <div class="home-progress-row">
           <strong class="home-percent">${p.percent}<small>%</small></strong>
           <div class="progress-track"><span style="width:${p.percent}%"></span></div>
-          <div class="ov-item"><span>待安排</span><strong>${p.untimed}<small> 条</small></strong></div>
         </div>
         ${overdueTip(overdue)}
-        ${taskListHTML(p, 5)}
+        ${taskListHTML(p, HOME_TASK_LIMIT)}
       </section>
       <aside class="card home-finance" data-act="go" data-hash="#finance" title="打开记账">
         <div class="card-head">
@@ -243,8 +260,9 @@ function row(t) {
 
 function overdueTip(items) {
   if (!items.length) return "";
-  return `<p class="tip">昨天及更早还有 ${items.length} 条没做完，
-    <a class="link" href="#plan">去今日计划处理 →</a></p>`;
+  // 整条都能点，不用非去戳那行蓝字
+  return `<a class="tip tip-link" href="#plan">昨天及更早还有 ${items.length} 条没做完，
+    去今日计划处理 →</a>`;
 }
 
 /* ---------------- 事件 ---------------- */
@@ -269,6 +287,7 @@ function onClick(e) {
   const act = btn.dataset.act;
   if (act === "go") location.hash = btn.dataset.hash;
   else if (act === "home-view") setHomeView(btn.dataset.view);
+  else if (act === "memo-toggle") setMemoCollapsed(!memoCollapsedOf());
   else if (act === "focus-memo") {
     const memo = document.getElementById("memo");
     if (memo) {

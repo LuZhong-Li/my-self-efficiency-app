@@ -145,7 +145,8 @@ export function markPendingForm(on) {
 const AUTOSAVE_FIELDS =
   "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, " +
   "#budget-input, #media-filter, #media-cal-platform, #media-list-platform, #media-list-status, " +
-  "#media-list-sort";
+  "#media-list-sort, #attach-max-edge, .attach-input, " +
+  "#issue-filter-status, #issue-filter-severity, #issue-filter-module";
 
 document.addEventListener(
   "input",

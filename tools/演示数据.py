@@ -231,11 +231,100 @@ def print_counts(title: str, data: dict) -> None:
 
 
 # --------------------------------------------------------------------------
+# 演示用的「小票截图」
+# --------------------------------------------------------------------------
+#
+# 图片附件这块光有数据看不出来，所以顺手画两张假的小票 / 付款截图放进去。
+# 手写 PNG（标准库 zlib + struct）而不是装 Pillow：为两张演示图装个库不划算。
+# 文件名必须长成 日期_随机.扩展名 —— 服务端只认这种名字（见 服务.py 的 attach_parse），
+# 用「demo-1.png」这种会被当成非法路径，图根本发不出去。
+
+def _png_bytes(width: int, height: int, pixels: bytes) -> bytes:
+    import struct
+    import zlib
+
+    raw = bytearray()
+    stride = width * 3
+    for y in range(height):
+        raw.append(0)                      # 每行开头那个 filter 字节
+        raw += pixels[y * stride:(y + 1) * stride]
+
+    def chunk(tag: bytes, body: bytes) -> bytes:
+        return (struct.pack(">I", len(body)) + tag + body
+                + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF))
+
+    head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head)
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b""))
+
+
+def _receipt_png(accent: tuple[int, int, int], width: int = 420, height: int = 560) -> bytes:
+    """画一张像付款截图的图：顶上一块色条 + 几行浅灰的「字」。
+    故意不画汉字 —— 这里没有字体，硬凑反而四不像。"""
+    px = bytearray()
+    body_top, body_bottom = 96, height - 68
+    for y in range(height):
+        for x in range(width):
+            if y < 64:
+                color = accent
+            elif y >= height - 30:
+                color = (236, 239, 244)
+            elif body_top <= y < body_bottom and (y - body_top) % 36 < 11:
+                line = (y - body_top) // 36
+                if 34 <= x < 56:                       # 行首的小圆点
+                    color = accent
+                elif 68 <= x < width - 44 - (line % 3) * 52:
+                    color = (203, 208, 217)
+                else:
+                    color = (255, 255, 255)
+            else:
+                color = (255, 255, 255)
+            px += bytes(color)
+    return _png_bytes(width, height, bytes(px))
+
+
+# 模块、文件名后缀、配色、宽、高。文件名一律是「今天_后缀.png」：
+# 服务端只认「8 位日期_字母数字.白名单扩展名」这种名字，随手起名会发不出去。
+DEMO_IMAGES = [
+    ("finance", "demo0001", (72, 122, 216), 420, 560),    # 挂「和朋友吃饭」
+    ("finance", "demo0002", (52, 168, 132), 420, 560),    # 挂「换季衣服」
+    ("buglog", "demo0001", (214, 108, 96), 640, 400),     # 挂那条焦点丢失的 bug
+    ("progress", "demo0001", (146, 116, 226), 560, 360),  # 挂一条项目进展
+    ("today_plan", "demo0001", (86, 132, 210), 520, 360),   # 挂今天的一条任务
+    ("dev_todo", "demo0001", (206, 138, 84), 560, 340),     # 挂项目里的一条待办
+    ("study_record", "demo0001", (96, 168, 140), 480, 360),  # 挂一条学习记录
+    ("study_item", "demo0001", (176, 124, 196), 300, 420),   # 挂一本「书」
+    ("fitness", "demo0001", (198, 116, 116), 480, 420),      # 挂一次训练
+    ("game", "demo0001", (110, 150, 178), 640, 360),         # 挂一款游戏
+]
+
+
+def demo_image_paths(data_dir: str) -> dict[str, list[str]]:
+    """把演示图写进 数据\\attachments\\<模块>\\，返回各模块该存进 JSON 的相对路径。
+    文件名是固定的，重复载入演示数据不会越攒越多。"""
+    stamp = date.today().strftime("%Y%m%d")
+    out: dict[str, list[str]] = {}
+    for module, stem, accent, width, height in DEMO_IMAGES:
+        folder = os.path.join(data_dir, "attachments", module)
+        os.makedirs(folder, exist_ok=True)
+        name = "%s_%s.png" % (stamp, stem)
+        with open(os.path.join(folder, name), "wb") as f:
+            f.write(_receipt_png(accent, width, height))
+        out.setdefault(module, []).append("attachments/%s/%s" % (module, name))
+    return out
+
+
+# --------------------------------------------------------------------------
 # 样例数据：全部按「今天」算，什么时候跑都是当下这个月的
 # --------------------------------------------------------------------------
 
-def demo_data(existing: dict | None) -> dict:
+def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = None) -> dict:
     today = date.today()
+    shots = demo_images or {}
+    # 某个模块的演示图：没有就给空列表，模板里照样能拼
+    def shot(module: str, index: int = 0) -> list[str]:
+        paths = shots.get(module) or []
+        return [paths[index]] if index < len(paths) else []
 
     def d(offset: int) -> str:
         return (today + timedelta(days=offset)).isoformat()
@@ -415,24 +504,46 @@ def demo_data(existing: dict | None) -> dict:
         {"id": "demo-mf3", "accountId": "demo-ma3", "date": d(-4), "count": 880},
     ]
 
+    # bug 条目：详细描述、关联模块、创建/修复时间、截图 —— 五个状态各来一条
     issues = [
         {"id": "demo-i1", "projectId": "demo-p1", "title": "切模块时输入框焦点丢了",
-         "severity": "中", "status": "待处理"},
+         "severity": "中", "status": "进行中", "module": "通用",
+         "desc": "复现步骤：\n1. 在「今日计划」里点开一条待办\n"
+                 "2. 不点保存，直接切到别的模块\n3. 再切回来，刚才打的字没了\n\n"
+                 "预期：切走之前应该静默存一次。\n实际：整行退回编辑前的样子。",
+         "imagePaths": shot("buglog"), "createdAt": "%s 10:20" % d(-4), "fixedAt": ""},
         {"id": "demo-i2", "projectId": "demo-p1", "title": "深色下月历圆点对比度偏低",
-         "severity": "低", "status": "已解决"},
+         "severity": "低", "status": "已修复", "module": "首页总览",
+         "desc": "深色下绿色圆点和背景糊在一起，看不太出哪天有安排。\n\n"
+                 "改法：圆点换成低饱和那套，并加一层很淡的投影。",
+         "imagePaths": [], "createdAt": "%s 21:05" % d(-6), "fixedAt": "%s 15:40" % d(-5)},
         {"id": "demo-i3", "projectId": "demo-p2", "title": "生词本没按词频排",
-         "severity": "低", "status": "待处理"},
+         "severity": "低", "status": "待处理", "module": "学习工作",
+         "desc": "", "imagePaths": [], "createdAt": "%s 19:12" % d(-2), "fixedAt": ""},
         {"id": "demo-i4", "projectId": "demo-p1", "title": "拖拽后偶尔留一个空占位",
-         "severity": "高", "status": "已关闭"},
+         "severity": "高", "status": "已关闭", "module": "首页总览",
+         "desc": "只在快速拖到边界外时出现，重画一次就没了，先不修。",
+         "imagePaths": [], "createdAt": "%s 11:30" % d(-9), "fixedAt": "%s 09:00" % d(-8)},
+        {"id": "demo-i5", "projectId": "demo-p1", "title": "记一笔里选图片后弹窗被顶出屏幕",
+         "severity": "高", "status": "已复现", "module": "记账",
+         "desc": "窗口高 764px 时弹窗有 902px，底下那两个按钮点不着。\n"
+                 "复现：加两张图之后按 Tab 到底就是。",
+         "imagePaths": [], "createdAt": "%s 14:05" % d(-1), "fixedAt": ""},
     ]
 
     progress = [
-        {"id": "demo-g1", "projectId": "demo-p1", "date": d(-6), "text": "月历加了氛围底和卡片格子"},
-        {"id": "demo-g2", "projectId": "demo-p2", "date": d(-5), "text": "精读做到 Unit 3"},
-        {"id": "demo-g3", "projectId": "demo-p1", "date": d(-3), "text": "顺手把圆点换成低饱和那套"},
-        {"id": "demo-g4", "projectId": "demo-p1", "date": d(-1), "text": "补了一遍自检，21 项全过"},
-        {"id": "demo-g5", "projectId": "demo-p2", "date": d(0), "text": "整理了一份句型清单"},
-        {"id": "demo-g6", "projectId": "demo-p1", "date": d(0), "text": "给演示准备了一份样例数据"},
+        {"id": "demo-g1", "projectId": "demo-p1", "date": d(-6),
+         "text": "月历加了氛围底和卡片格子", "imagePaths": []},
+        {"id": "demo-g2", "projectId": "demo-p2", "date": d(-5),
+         "text": "精读做到 Unit 3", "imagePaths": []},
+        {"id": "demo-g3", "projectId": "demo-p1", "date": d(-3),
+         "text": "顺手把圆点换成低饱和那套，截了张对比图", "imagePaths": shot("progress")},
+        {"id": "demo-g4", "projectId": "demo-p1", "date": d(-1),
+         "text": "补了一遍自检，30 项全过", "imagePaths": []},
+        {"id": "demo-g5", "projectId": "demo-p2", "date": d(0),
+         "text": "整理了一份句型清单", "imagePaths": []},
+        {"id": "demo-g6", "projectId": "demo-p1", "date": d(0),
+         "text": "给演示准备了一份样例数据", "imagePaths": []},
     ]
 
     workout_logs = [
@@ -528,10 +639,35 @@ def demo_data(existing: dict | None) -> dict:
             "category": category,
             "accountId": account,
             "note": note,
+            "imagePaths": [],
             "createdAt": "%s 12:00" % date_text,
         }
         for i, (date_text, kind, cents, category, account, note) in enumerate(tx_plan, start=1)
     ]
+    # 两笔账带上「小票截图」，演示图片备注长什么样（图片见 demo_image_paths）
+    note_images = {"和朋友吃饭": 0, "换季衣服": 1}
+    for tx in transactions:
+        slot = note_images.get(tx["note"])
+        if slot is not None:
+            tx["imagePaths"] = shot("finance", slot)
+
+    # 新字段：这几张表 2026-10-07 起都能带图片备注了，先给每条铺一个空数组，
+    # 再从里面挑几条挂上演示图 —— 这样列表上的小图片标记在演示里看得见
+    for rows in (subjects, studies, tasks, workout_logs, games):
+        for row in rows:
+            row.setdefault("imagePaths", [])
+    for task in tasks:
+        task.setdefault("priority", "")
+    for row, module in (
+        (tasks[0], "today_plan"),
+        (next((t for t in tasks if str(t.get("belong", "")).startswith("dev:")), None), "dev_todo"),
+        (studies[0], "study_record"),
+        (subjects[0], "study_item"),
+        (workout_logs[0], "fitness"),
+        (games[0], "game"),
+    ):
+        if row is not None:
+            row["imagePaths"] = shot(module)
 
     debt_items = [
         {
@@ -645,7 +781,8 @@ def do_load(data_dir: str, assume_yes: bool) -> None:
         shutil.copyfile(data_file_of(data_dir), os.path.join(backup_dir_of(data_dir), snapshot))
         print("  你原来的数据已备份成：%s" % snapshot)
 
-    payload = demo_data(existing)
+    # 先画好两张演示图（图片是文件，得先落盘），再带上它们的相对路径写数据
+    payload = demo_data(existing, demo_image_paths(data_dir))
     how = apply_data(data_dir, payload)
     write_marker(data_dir, snapshot or earlier_snapshot)
 

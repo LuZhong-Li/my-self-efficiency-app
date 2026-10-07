@@ -19,6 +19,8 @@ import {
 import { THEME_MODE_LABEL } from "./theme.js";
 import { bindFresh, pageHeader } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
+import { attachmentSettings, setAttachmentSettings, purgeRowAttachments } from "./attachment.js";
+import { COMPRESS_PRESETS, presetLabel, humanSize } from "./attachment-calc.js";
 
 let health = null;
 
@@ -123,6 +125,47 @@ export async function renderSettings(el) {
     </section>
 
     <section class="card">
+      <h2>图片附件</h2>
+      <p class="hint">
+        记账、bug 登记里的图片单独存在 <code>数据\\attachments\\</code> 下面，主数据文件里只记住路径——
+        几张截图不会把 <code>数据.json</code> 撑大，备份时把整个 <code>数据</code> 文件夹复制走就行。
+        图片按模块分格放：<code>finance</code> 是记账，<code>buglog</code> 是 bug 登记。
+      </p>
+      <dl class="facts" id="attach-facts"></dl>
+
+      <div class="pref-row">
+        <div class="pref-label">
+          <strong>彻底删除记录时，连图片一起删</strong>
+          <small>关着（默认）：图片留在附件文件夹里，误删了还能找回来</small>
+        </div>
+        <div class="row">
+          <button class="btn" data-act="attach-prune" data-on="0">保留图片</button>
+          <button class="btn" data-act="attach-prune" data-on="1">跟着删掉</button>
+        </div>
+      </div>
+
+      <div class="pref-row">
+        <div class="pref-label">
+          <strong>图片压缩尺寸</strong>
+          <small>长边超过这个尺寸就先缩到它再存，省地方</small>
+        </div>
+        <div class="row">
+          <select id="attach-max-edge" title="图片压缩档位">
+            ${COMPRESS_PRESETS.map(
+              (p) => `<option value="${p.value}">${esc(p.label)}</option>`
+            ).join("")}
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="btn" data-act="open" data-which="attach">打开附件文件夹</button>
+        <span class="hint">移动数据目录（<code>XIAOLI_DATA_DIR</code>）时，附件跟着一起搬。</span>
+      </div>
+      <p class="msg" id="attach-msg"></p>
+    </section>
+
+    <section class="card">
       <div class="card-head">
         <h2>回收站</h2>
         <span class="hint" id="trash-count"></span>
@@ -159,17 +202,23 @@ export async function renderSettings(el) {
 
   bindFresh(el, { click: onClick, change: onChange, input: onInput, keydown: onKeydown });
 
-  if (!health) {
-    try {
-      health = await (await fetch("/api/health", { cache: "no-store" })).json();
-    } catch {
-      /* 拿不到就在下面显示 — */
-    }
-  }
   renderFacts();
   renderThemeButtons();
+  renderAttach();
   renderTrash();
+  await refreshHealth();   // 文件大小 / 附件占用这两处会变，进来就重新问一次
   await refreshBackups();
+}
+
+/** 重新问一遍服务端：数据文件多大、附件多少张占多少地方 */
+async function refreshHealth() {
+  try {
+    health = await (await fetch("/api/health", { cache: "no-store" })).json();
+  } catch {
+    health = null;   // 拿不到就显示 —
+  }
+  renderFacts();
+  renderAttach();
 }
 
 /* ---------------- 画 ---------------- */
@@ -191,6 +240,29 @@ function renderFacts() {
   dl.innerHTML = factsData()
     .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`)
     .join("");
+}
+
+/** 附件那一块：目录在哪、一共多少张占多少地方、当前开关和档位 */
+function renderAttach() {
+  const s = attachmentSettings();
+  const dl = document.getElementById("attach-facts");
+  if (dl) {
+    dl.innerHTML = [
+      ["附件目录", health ? health.attachDir : "—"],
+      [
+        "已有图片",
+        health ? `${health.attachCount || 0} 张 · ${humanSize(health.attachBytes || 0)}` : "—",
+      ],
+      ["压缩档位", presetLabel(s.maxEdge)],
+    ]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`)
+      .join("");
+  }
+  for (const btn of document.querySelectorAll('[data-act="attach-prune"]')) {
+    btn.classList.toggle("active", (btn.dataset.on === "1") === s.pruneOnDelete);
+  }
+  const sel = document.getElementById("attach-max-edge");
+  if (sel) sel.value = String(s.maxEdge);
 }
 
 function renderThemeButtons() {
@@ -356,9 +428,13 @@ async function onClick(e) {
         danger: true,
       });
       if (!ok) return;
+      // 图片要不要跟着删，看「图片附件」那一块的开关（默认保留）
+      const row = entry.row;
       dropFromTrash(entry);
       await touch(true);
-      toast("已彻底删除");
+      const files = await purgeRowAttachments(row);
+      if (files) await refreshHealth();
+      toast(files ? `已彻底删除，连 ${files} 张图片一起删了` : "已彻底删除");
     } else if (act === "trash-empty") {
       if (!trash().length) {
         toast("回收站本来就是空的", "err");
@@ -372,11 +448,24 @@ async function onClick(e) {
         danger: true,
       });
       if (!ok) return;
+      const rows = trash().map((e) => e.row);
       emptyTrash();
       await touch(true);
-      toast("回收站已清空");
+      let files = 0;
+      for (const row of rows) files += await purgeRowAttachments(row);
+      if (files) await refreshHealth();
+      toast(files ? `回收站已清空，连 ${files} 张图片一起删了` : "回收站已清空");
     } else if (act === "import") {
       await doImport();
+    } else if (act === "attach-prune") {
+      const on = btn.dataset.on === "1";
+      setAttachmentSettings({ pruneOnDelete: on });
+      renderAttach();   // 落盘会重画整页，这里在新的 DOM 上把选中态刷一下
+      setMsg(
+        "attach-msg",
+        on ? "以后彻底删除记录时，它的图片也会一起删掉。" : "以后彻底删除记录时，图片会留着。",
+        "ok"
+      );
     } else if (act === "theme") {
       setThemeMode(btn.dataset.theme);
       renderThemeButtons();
@@ -489,6 +578,16 @@ async function onChange(e) {
     store.data.settings.slogan = e.target.value.trim();
     await touch(true);
     setMsg("slogan-msg", "标语已保存，回首页就能看到。", "ok");
+    return;
+  }
+  if (e.target.id === "attach-max-edge") {
+    const next = setAttachmentSettings({ maxEdge: Number(e.target.value) });
+    renderAttach();
+    setMsg(
+      "attach-msg",
+      `以后新加的图片按「${presetLabel(next.maxEdge)}」存；已经存下的不动。`,
+      "ok"
+    );
     return;
   }
   if (e.target.id !== "keep-input") return;

@@ -9,7 +9,7 @@ const SOURCES = [
   { table: "mediaAccounts", module: "media", label: "自媒体账号",
     fields: ["name", "platform", "intro", "note"] },
   { table: "projects", module: "dev", label: "项目", fields: ["name", "intro"] },
-  { table: "issues", module: "dev", label: "问题", fields: ["title"] },
+  { table: "issues", module: "dev", label: "问题", fields: ["title", "desc", "module"] },
   { table: "progress", module: "dev", label: "进展", fields: ["text"] },
   { table: "subjects", module: "study", label: "学习对象", fields: ["name", "source", "note"] },
   { table: "studies", module: "study", label: "学习", fields: ["content", "takeaway"] },

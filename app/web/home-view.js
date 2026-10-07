@@ -11,6 +11,7 @@ import { dayTotals, monthTotals } from "./finance-calc.js";
 import { fmtMoney } from "./money.js";
 import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
 import { fmtCount, growthText, overviewOf, isArchived, isPublished, weekRangeOf } from "./media-calc.js";
+import { isIssueClosed } from "./dev-calc.js";
 
 /** 简洁模式最多直接列几条待办，多的收进「查看更多待办」 */
 export const HOME_TASK_LIMIT = 4;
@@ -156,7 +157,8 @@ export function summaryOf(id, data, today) {
   }
   if (id === "dev") {
     const running = rows(data, "projects").filter((p) => p.status === "进行中").length;
-    const open = rows(data, "issues").filter((i) => !["已解决", "已关闭"].includes(i.status)).length;
+    // 「哪些算没解决」的口径和开发工作页共用一套（见 dev-calc.js 的 isIssueClosed）
+    const open = rows(data, "issues").filter((i) => !isIssueClosed(i.status)).length;
     return { main: `${running} 个项目进行中`, sub: `未解决 bug ${open} 条` };
   }
   if (id === "study") {

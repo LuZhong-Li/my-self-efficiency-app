@@ -18,6 +18,10 @@ import {
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
 import { splitBySettled } from "./debt-calc.js";
+import {
+  createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
+  purgeRowAttachments, thumbsHtml, rowPaths,
+} from "./attachment.js";
 
 let selected = null; // 月历上选中的那天
 let ringPick = null; // 环形图上点开的分类（展开明细用）
@@ -274,10 +278,14 @@ function txRow(t) {
   const account = accountsOf().find((a) => a.id === t.accountId);
   const accountName = t.accountId ? (account ? account.name : "（账户已删）") : "";
   const note = t.note || t.category;
+  // 有图片备注就在备注下面铺一行小缩略图；没有的话 thumbsHtml 给空串，一点空白都不占
   return `
     <li class="item fin-row ${t.type === "income" ? "is-income" : "is-expense"}" data-id="${esc(t.id)}">
       <span class="fin-cat">${catIcon(t.type, t.category)}</span>
-      <span class="i-title">${esc(note)}</span>
+      <span class="fin-main">
+        <span class="i-title">${esc(note)}</span>
+        ${thumbsHtml(rowPaths(t))}
+      </span>
       ${accountName ? `<span class="i-meta">${esc(accountName)}</span>` : ""}
       <span class="fin-amount ${t.type === "income" ? "income" : "expense"}">
         ${t.type === "income" ? "+" : "-"}${fmtMoney(t.amountCents)}
@@ -492,7 +500,8 @@ function txFormHtml(v, type, f) {
         .join("")}
     </div>
     <label class="fin-label" for="tx-note">备注</label>
-    <input id="tx-note" type="text" maxlength="60" placeholder="比如：午饭 黄焖鸡" value="${esc(v.note)}">`;
+    <input id="tx-note" type="text" maxlength="60" placeholder="比如：午饭 黄焖鸡" value="${esc(v.note)}">
+    <div class="attach-host" id="tx-attach"></div>`;
 }
 
 /** 打开「记一笔 / 改一笔」。传 tx 就是改，不传就是新增。 */
@@ -511,6 +520,11 @@ function openTxDialog(tx) {
       };
 
   let type = type0;
+  // 这条账目原来带着的图片路径（保存时用它算「哪几张被移除了」）
+  const beforePaths = editing ? rowPaths(tx) : [];
+  // 图片备注：已存下的路径 + 刚挑进来还没写盘的，都攒在这一个 state 里。
+  // 点「取消」时一个字节都没落盘，不会留下没人认领的图片（见 attachment.js）。
+  const attach = createAttach({ module: "finance", paths: beforePaths });
   const dlg = openDialog({
     title: editing ? "改一笔" : "记一笔",
     bodyHtml: txFormHtml(v, type, f),
@@ -519,6 +533,7 @@ function openTxDialog(tx) {
       { id: "cancel", label: "取消" },
       { id: "save", label: "保存", kind: "primary" },
     ],
+    onClose: () => disposeAttach(attach),
     onAction: (act, el) => {
       const read = () => ({
         amount: el.querySelector("#tx-amount").value,
@@ -547,31 +562,54 @@ function openTxDialog(tx) {
         return false;
       }
       if (act === "save") {
-        const next = read();
-        const cents = yuanToCents(next.amount);
-        if (cents === null) {
-          toast("金额要填一个正数，最多两位小数", "err");
-          return false; // 留在弹窗里接着改
-        }
-        if (editing) {
-          Object.assign(tx, {
-            type, amountCents: cents, date: next.date, category: v.category,
-            accountId: next.accountId, note: next.note,
-          });
-        } else {
-          table("finance.transactions").push({
-            id: uid(), type, amountCents: cents, date: next.date, category: v.category,
-            accountId: next.accountId, note: next.note, createdAt: nowText(),
-          });
-        }
-        selected = next.date; // 记完停在那一天，方便核对
-        showMonth(monthKey(next.date)); // 补记到别的月份时，日历跟着翻过去
-        touch(true);
-        toast(`已记一笔 ${fmtMoney(cents)}`);
-        return true;
+        // 保存要走两步（先写图片、再存 JSON），是异步的，所以这里一律
+        // 先返回 false 把弹窗留住，做完再自己关——中途出错就停在原地接着改。
+        (async () => {
+          const next = read();
+          const cents = yuanToCents(next.amount);
+          if (cents === null) {
+            toast("金额要填一个正数，最多两位小数", "err");
+            return;
+          }
+          let uploaded = [];
+          try {
+            // 先把图片写进 数据\attachments\finance\，再动 JSON（顺序反了会留下
+            // 指着不存在文件的路径）
+            uploaded = await uploadPending(attach);
+          } catch (err) {
+            toast("图片没存下：" + err.message, "err");
+            return;
+          }
+          commitUploads(attach, uploaded);
+          const imagePaths = attach.paths.slice();
+          if (editing) {
+            Object.assign(tx, {
+              type, amountCents: cents, date: next.date, category: v.category,
+              accountId: next.accountId, note: next.note, imagePaths,
+            });
+          } else {
+            table("finance.transactions").push({
+              id: uid(), type, amountCents: cents, date: next.date, category: v.category,
+              accountId: next.accountId, note: next.note, imagePaths, createdAt: nowText(),
+            });
+          }
+          selected = next.date; // 记完停在那一天，方便核对
+          showMonth(monthKey(next.date)); // 补记到别的月份时，日历跟着翻过去
+          touch(true);
+          dlg.close();
+          toast(`已记一笔 ${fmtMoney(cents)}`);
+          // 从这条账目上被单独移掉的图：设置里那个开关开着才连文件一起删
+          const removed = beforePaths.filter((p) => !imagePaths.includes(p));
+          if (removed.length) purgeRowAttachments({ imagePaths: removed });
+        })();
+        return false;
       }
     },
   });
+
+  // 附件区挂在「备注」下面。切换支出/收入会把整个表单重画一遍，
+  // 所以那边重画之后要再挂一次（state 没丢，缩略图照旧）。
+  mountAttach(dlg.el.querySelector("#tx-attach"), attach);
 
   // 弹窗内部的交互（改类型、点分类）自己绑：openDialog 只认它自己的那几个按钮
   dlg.el.addEventListener("click", (e) => {
@@ -590,6 +628,7 @@ function openTxDialog(tx) {
       dlg.el.querySelector(".dlg-form").innerHTML = txFormHtml(
         { ...before, category: v.category }, type, f
       );
+      mountAttach(dlg.el.querySelector("#tx-attach"), attach);
     } else if (btn.dataset.act === "tx-cat") {
       v.category = btn.dataset.cat;
       for (const b of dlg.el.querySelectorAll(".fin-cat-pick")) {

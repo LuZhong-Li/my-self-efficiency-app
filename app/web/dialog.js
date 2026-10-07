@@ -14,6 +14,9 @@ let extraClose = null;  // openDialog 用（关的时候做点收尾）
 
 function onKey(e) {
   if (!backdrop) return;
+  // 全屏看图盖在弹窗上面时，Esc 该关的是图，不是底下那个弹窗
+  // （看图那层自己会处理 Esc，见 attachment.js 的 openViewer）
+  if (e.key === "Escape" && document.querySelector(".viewer-backdrop")) return;
   if (e.key === "Escape") {
     e.preventDefault();
     closeDialog(false);
@@ -113,11 +116,13 @@ export function askConfirm({
  *
  * @param {{title: string, bodyHtml?: string,
  *          buttons?: {id: string, label: string, kind?: string}[],
- *          onAction?: (id: string, el: HTMLElement) => (boolean | void)}} options
+ *          onAction?: (id: string, el: HTMLElement) => (boolean | void),
+ *          onClose?: () => void}} options
  *        onAction 返回 false 表示别关；返回别的（或什么都不返回）就关掉。
+ *        onClose 在弹窗关掉（不管怎么关的）之后叫一次，用来收回占着的东西。
  * @returns {{ el: HTMLElement, close: () => void }}
  */
-export function openDialog({ title, bodyHtml = "", buttons = [], onAction }) {
+export function openDialog({ title, bodyHtml = "", buttons = [], onAction, onClose }) {
   closeDialog(null); // 同时只留一个
   const el = document.createElement("div");
   el.className = "dlg-backdrop";
@@ -133,7 +138,7 @@ export function openDialog({ title, bodyHtml = "", buttons = [], onAction }) {
     </div>`;
   document.body.appendChild(el);
   backdrop = el;
-  extraClose = null;
+  extraClose = typeof onClose === "function" ? onClose : null;
 
   const close = () => closeDialog(null);
   el.addEventListener("click", (e) => {

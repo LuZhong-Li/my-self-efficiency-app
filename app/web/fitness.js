@@ -1,13 +1,15 @@
 /* 健身计划：每周训练安排 / 训练打卡 / 体重记录 */
 
 import { store, touch, uid, table, esc, todayStr, moveToTrash } from "./store.js";
-import { sectionHead, emptyLine, emptyState, chip, options, bindFresh, pageHeader } from "./ui.js";
+import { emptyLine, emptyState, chip, bindFresh, pageHeader } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
+import { icon } from "./icons.js";
 import { monthGridHtml, calendarAction, dayLabel, KIND_FITNESS } from "./calendar.js";
+import { imgBadge } from "./attachment.js";
+import { openItemDialog } from "./item-dialog.js";
 
 const DAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-let editingLog = null;
 let selected = null; // 正在看哪一天（默认今天）
 
 export function renderFitness(root) {
@@ -37,18 +39,15 @@ export function renderFitness(root) {
     <section class="card">
       <div class="card-head">
         <h2>训练打卡</h2>
-        <span class="hint">${esc(dayLabel(selected))}</span>
+        <div class="card-tools">
+          <span class="hint">${esc(dayLabel(selected))}</span>
+          <button class="btn primary small" data-act="l-add">${icon("plus", 14)}记一次</button>
+        </div>
       </div>
-      <form class="add-form" id="add-log" autocomplete="off">
-        <input name="date" type="date" value="${selected}" title="日期">
-        <input name="moves" class="grow" maxlength="200" required placeholder="练了什么（动作、组数 / 重量）…">
-        <input name="note" class="grow-note" maxlength="120" placeholder="备注（可不填）">
-        <button class="btn primary" type="submit">记一次</button>
-      </form>
       ${
         logs.length
           ? `<ul class="items">${logs.map(logRow).join("")}</ul>`
-          : emptyState("这天还没有训练记录", "上面可以补记一条，日历上也能看到哪天练过。", "", "fitness")
+          : emptyState("这天还没有训练记录", "点右上角「记一次」补记一条，日历上也能看到哪天练过。", "", "fitness")
       }
     </section>
 
@@ -118,20 +117,11 @@ function weightHint(weights) {
 /* ---------------- 画 ---------------- */
 
 function logRow(l) {
-  if (l.id === editingLog) {
-    return `
-      <li class="item editing" data-id="${esc(l.id)}">
-        <input data-field="date" type="date" value="${esc(l.date || "")}">
-        <input data-field="moves" class="grow" maxlength="200" value="${esc(l.moves || "")}">
-        <input data-field="note" class="grow-note" maxlength="120" placeholder="备注" value="${esc(l.note || "")}">
-        <button class="btn primary small" data-act="l-save">保存</button>
-        <button class="btn small" data-act="l-cancel">取消</button>
-      </li>`;
-  }
   return `
     <li class="item" data-id="${esc(l.id)}">
       <span class="i-meta">${esc(l.date || "")}</span>
       <span class="i-title">${esc(l.moves || "")}</span>
+      ${imgBadge(l.imagePaths, "图")}
       <span class="i-note">${esc(l.note || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="l-edit">编辑</button>
@@ -168,19 +158,7 @@ function redraw() {
 
 function onSubmit(e) {
   const form = e.target;
-  if (form.id === "add-log") {
-    e.preventDefault();
-    const moves = form.moves.value.trim();
-    if (!moves) return;
-    selected = form.date.value || todayStr(); // 补记别的日期时，跟着切过去
-    table("workoutLogs").push({
-      id: uid(),
-      date: form.date.value || todayStr(),
-      moves,
-      note: form.note.value.trim(),
-    });
-    touch(true);
-  } else if (form.id === "add-weight") {
+  if (form.id === "add-weight") {
     e.preventDefault();
     const kg = Number(form.kg.value);
     if (!kg) return;
@@ -205,6 +183,19 @@ async function onClick(e) {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
   const act = btn.dataset.act;
+
+  // 「记一次」在卡片头上，没有 data-id，所以要在找行之前先接住
+  if (act === "l-add") {
+    openItemDialog("fitness", null, {
+      date: selected,
+      onSaved: (saved) => {
+        selected = saved.date || selected; // 补记到别的日期时，跟着切过去
+        redraw();
+      },
+    });
+    return;
+  }
+
   const li = btn.closest("[data-id]");
   const id = li ? li.dataset.id : "";
   const rows = act.startsWith("w-") ? table("weights") : table("workoutLogs");
@@ -212,23 +203,12 @@ async function onClick(e) {
   if (!row) return;
 
   if (act === "l-edit") {
-    editingLog = id;
-    redraw();
-  } else if (act === "l-cancel") {
-    editingLog = null;
-    redraw();
-  } else if (act === "l-save") {
-    const val = (name) => li.querySelector(`[data-field="${name}"]`).value;
-    const moves = val("moves").trim();
-    if (!moves) {
-      toast("内容不能是空的", "err");
-      return;
-    }
-    row.date = val("date") || todayStr();
-    row.moves = moves;
-    row.note = val("note").trim();
-    editingLog = null;
-    touch(true);
+    openItemDialog("fitness", row, {
+      onSaved: (saved) => {
+        selected = saved.date || selected; // 改到别的日期就跟着切过去
+        redraw();
+      },
+    });
   } else if (act === "l-del") {
     const ok = await askConfirm({
       title: `删除 ${row.date} 这次打卡？`,
@@ -238,7 +218,6 @@ async function onClick(e) {
     });
     if (!ok) return;
     moveToTrash("workoutLogs", row, row.moves);
-    if (editingLog === id) editingLog = null;
     touch(true);
     toast("已移入回收站");
   } else if (act === "w-del") {

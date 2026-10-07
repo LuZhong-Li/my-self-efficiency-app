@@ -1,18 +1,17 @@
-/* 今日计划：今天的任务增删改勾，外加「昨天没做完的」一键挪到今天 */
+/* 今日计划：今天的任务增删改勾，外加「昨天没做完的」一键挪到今天。
+ * 2026-10-07 起录入改成弹窗（和别的模块一套），卡片上只留一个「添加任务」按钮。 */
 
-import { touch, uid, todayStr, formatDateCN, table, esc, moveToTrash } from "./store.js";
+import { touch, todayStr, formatDateCN, table, esc, moveToTrash } from "./store.js";
 import { bindFresh, pageHeader, markEnter } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { renderCalendar } from "./calendar.js";
+import { icon } from "./icons.js";
+import { imgBadge } from "./attachment.js";
+import { openItemDialog } from "./item-dialog.js";
 
-const CATEGORIES = ["工作", "生活", "运动", "其他"];
-
-let host = null;      // 承载当前视图的元素
-let editingId = null; // 正在行内编辑的那条
 let mode = "today";   // today = 今天的清单，month = 月历
 
 export function renderPlan(root) {
-  host = root;
   const today = todayStr();
 
   root.innerHTML = `
@@ -53,31 +52,25 @@ function renderTodayView(body) {
 
   body.innerHTML = `
     <section class="card">
-      <form class="add-form" id="add-form" autocomplete="off">
-        <input name="text" class="grow" maxlength="200" required placeholder="今天要做什么…">
-        <input name="time" type="time" title="时间点（可不填）">
-        <select name="category" title="分类">
-          ${CATEGORIES.map((c) => `<option>${c}</option>`).join("")}
-        </select>
-        <input name="note" class="grow-note" maxlength="200" placeholder="备注（可不填）">
-        <button class="btn primary" type="submit">添加</button>
-      </form>
+      <div class="card-head">
+        <h2>今天的任务</h2>
+        <div class="card-tools">
+          <span class="hint">${esc(summary(todayTasks))}</span>
+          <button class="btn primary small" data-act="add">${icon("plus", 14)}添加任务</button>
+        </div>
+      </div>
 
       ${overdueBlock(overdue)}
 
-      <div class="list-head">
-        <span>今天的任务</span>
-        <span class="hint">${esc(summary(todayTasks))}</span>
-      </div>
       ${
         todayTasks.length
           ? `<ul class="tasks">${todayTasks.map(row).join("")}</ul>`
-          : `<p class="empty">今天还没有任务，在上面加一条。</p>`
+          : `<p class="empty">今天还没有任务，点右上角「添加任务」加一条。</p>`
       }
     </section>
   `;
 
-  bindFresh(body, { submit: onSubmit, click: onClick, change: onChange });
+  bindFresh(body, { click: onClick, change: onChange });
 }
 
 /* ---------------- 排序与统计 ---------------- */
@@ -131,7 +124,6 @@ function overdueBlock(items) {
 }
 
 function row(t) {
-  if (t.id === editingId) return editRow(t);
   return `
     <li class="task ${t.done ? "done" : ""}" data-id="${esc(t.id)}">
       <label class="check" title="${t.done ? "取消完成" : "标记完成"}">
@@ -139,6 +131,7 @@ function row(t) {
       </label>
       <span class="t-time">${t.time ? esc(t.time) : "—"}</span>
       <span class="t-text">${esc(t.text)}</span>
+      ${imgBadge(t.imagePaths, "图")}
       <span class="t-cat">${esc(t.category || "其他")}</span>
       <span class="t-note">${esc(t.note || "")}</span>
       <span class="t-actions">
@@ -148,51 +141,10 @@ function row(t) {
     </li>`;
 }
 
-function editRow(t) {
-  return `
-    <li class="task editing" data-id="${esc(t.id)}">
-      <input data-field="text" class="grow" maxlength="200" value="${esc(t.text)}">
-      <input data-field="time" type="time" value="${esc(t.time || "")}">
-      <select data-field="category">
-        ${CATEGORIES.map(
-          (c) => `<option ${c === t.category ? "selected" : ""}>${c}</option>`
-        ).join("")}
-      </select>
-      <input data-field="note" class="grow-note" maxlength="200" placeholder="备注" value="${esc(t.note || "")}">
-      <button class="btn primary small" data-act="save">保存</button>
-      <button class="btn small" data-act="cancel">取消</button>
-    </li>`;
-}
-
-function redraw() {
-  if (host) renderPlan(host);
-}
-
 /* ---------------- 事件 ---------------- */
 
 function findTask(id) {
   return table("tasks").find((t) => t.id === id) || null;
-}
-
-function onSubmit(e) {
-  if (!e.target.matches("#add-form")) return;
-  e.preventDefault();
-  const form = e.target;
-  const text = form.text.value.trim();
-  if (!text) return;
-
-  table("tasks").push({
-    id: uid(),
-    date: todayStr(),
-    text,
-    time: form.time.value || "",
-    category: form.category.value,
-    done: false,
-    note: form.note.value.trim(),
-    belong: "plan",
-    createdAt: new Date().toISOString(),
-  });
-  touch(true); // 增删改这类明确动作立刻落盘
 }
 
 async function onClick(e) {
@@ -200,6 +152,11 @@ async function onClick(e) {
   if (!btn) return;
   const act = btn.dataset.act;
   if (act === "toggle") return; // 勾选走 change
+
+  if (act === "add") {
+    openItemDialog("todayPlan", null, { date: todayStr() });
+    return;
+  }
 
   if (act === "move-all") {
     const today = todayStr();
@@ -219,24 +176,7 @@ async function onClick(e) {
   if (!task) return;
 
   if (act === "edit") {
-    editingId = task.id;
-    redraw();
-  } else if (act === "cancel") {
-    editingId = null;
-    redraw();
-  } else if (act === "save") {
-    const val = (name) => li.querySelector(`[data-field="${name}"]`).value;
-    const text = val("text").trim();
-    if (!text) {
-      toast("内容不能是空的", "err");
-      return;
-    }
-    task.text = text;
-    task.time = val("time") || "";
-    task.category = val("category");
-    task.note = val("note").trim();
-    editingId = null;
-    touch(true);
+    openItemDialog("todayPlan", task);
   } else if (act === "move") {
     task.date = todayStr();
     touch(true);
@@ -249,7 +189,6 @@ async function onClick(e) {
     });
     if (!ok) return;
     moveToTrash("tasks", task, task.text);
-    if (editingId === task.id) editingId = null;
     touch(true);
     toast("已移入回收站");
   }

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -26,6 +27,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SERVER = ROOT / "app" / "服务.py"
 WEB = ROOT / "app" / "web"
+
+# 一张 1×1 的 png（67 字节），够用来验证「上传 → 落盘 → 取回 → 删掉」这条线
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 ok_list: list[str] = []
 bad_list: list[str] = []
@@ -79,6 +85,18 @@ def check_no_external() -> None:
         for m in re.finditer(r"https?://[^\s\"')]+", text):
             bad.append("%s → %s" % (f.name, m.group(0)))
     check("界面文件里没有任何外部链接（断网也能用）", not bad, "；".join(bad[:3]))
+
+
+def fetch_raw(port: int, path: str):
+    """取原始字节。call() 是按 JSON 解析的，图片这类二进制得走这一条。"""
+    req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path))
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+    except Exception as exc:  # 连不上之类
+        return 0, str(exc).encode("utf-8")
 
 
 def main() -> int:
@@ -217,6 +235,125 @@ def main() -> int:
         cats = call(port, "/api/data")[1]["finance"]["categories"]
         check("记账分类里有「债务还款 / 债务收款」",
               "债务还款" in cats.get("expense", []) and "债务收款" in cats.get("income", []))
+
+        # 图片附件：上传 → 落盘 → 取回 → 删除，一条线走完
+        status, up = call(port, "/api/attachment", "POST", {
+            "module": "finance", "ext": "png",
+            "data": base64.b64encode(TINY_PNG).decode("ascii"),
+        })
+        check("能上传一张图片附件", status == 200 and up.get("ok"), str(up)[:80])
+        rel = str(up.get("path") or "")
+        on_disk = data_dir / "attachments" / "finance" / rel.rsplit("/", 1)[-1]
+        check("图片落在 数据\\attachments\\finance\\ 里",
+              rel.startswith("attachments/finance/") and on_disk.exists(),
+              rel)
+        check("图片的字节数没变", on_disk.exists() and on_disk.stat().st_size == len(TINY_PNG))
+        status, served = fetch_raw(port, "/" + rel)
+        check("图片能按相对路径取回来", status == 200 and served == TINY_PNG)
+        health2 = call(port, "/api/health")[1]
+        check("健康信息里带着附件目录和占用",
+              str(health2.get("attachDir", "")).endswith("attachments")
+              and health2.get("attachCount", 0) >= 1,
+              "%s 张 / %s 字节" % (health2.get("attachCount"), health2.get("attachBytes")))
+
+        status, bad = call(port, "/api/attachment", "POST", {
+            "module": "别的地方", "ext": "png",
+            "data": base64.b64encode(TINY_PNG).decode("ascii"),
+        })
+        check("往白名单以外的模块传图会被拒", status == 400 and not bad.get("ok"))
+        status, bad2 = call(port, "/api/attachment", "POST", {
+            "module": "finance", "ext": "gif",
+            "data": base64.b64encode(TINY_PNG).decode("ascii"),
+        })
+        check("gif 这类不是白名单的格式会被拒", status == 400 and not bad2.get("ok"))
+        status, bad3 = call(port, "/attachments/finance/..%2F..%2F%E6%95%B0%E6%8D%AE.json")
+        check("拿 .. 去读附件目录以外的文件会被拒", status == 403, str(status))
+        status, bad4 = call(port, "/attachments/finance/%E9%9A%8F%E4%BE%BF.png")
+        check("文件名不合规的附件路径会被拒", status == 403, str(status))
+        status, bad5 = call(port, "/attachments/%E5%88%AB%E7%9A%84/20261007_deadbeef.png")
+        check("白名单以外的模块目录会被拒", status == 403, str(status))
+
+        status, gone = call(port, "/api/attachment-delete", "POST", {"paths": [
+            rel, "attachments/finance/../../数据.json", "attachments/buglog/20261007_deadbeef.png",
+        ]})
+        check("能删掉指定的图片",
+              status == 200 and gone.get("deleted") == 1
+              and gone.get("missing") == 1 and gone.get("refused") == 1,
+              str(gone))
+        check("删完文件真的不在了", not on_disk.exists())
+        check("越界的路径一个都没动",
+              (data_dir / "数据.json").exists() and call(port, "/api/data")[0] == 200)
+
+        # 开发工作：bug 和项目进展各存各的格子
+        status, up2 = call(port, "/api/attachment", "POST", {
+            "module": "progress", "ext": "png",
+            "data": base64.b64encode(TINY_PNG).decode("ascii"),
+        })
+        check("图片能存到 attachments/progress/（项目进展那一格）",
+              status == 200 and str(up2.get("path", "")).startswith("attachments/progress/"),
+              str(up2.get("path")))
+        call(port, "/api/attachment-delete", "POST", {"paths": [up2.get("path")]})
+
+        # 第二批模块的格子：今日计划 / 开发待办 / 学习记录 / 学习对象 / 训练打卡 / 游戏
+        for module in ("today_plan", "dev_todo", "study_record", "study_item", "fitness", "game"):
+            status, up3 = call(port, "/api/attachment", "POST", {
+                "module": module, "ext": "png",
+                "data": base64.b64encode(TINY_PNG).decode("ascii"),
+            })
+            ok = status == 200 and str(up3.get("path", "")).startswith("attachments/%s/" % module)
+            check("图片能存到 attachments/%s/" % module, ok, str(up3.get("path")))
+            call(port, "/api/attachment-delete", "POST", {"paths": [up3.get("path")]})
+
+        # 老的任务 / 学习 / 游戏记录也要补齐新字段
+        cur = call(port, "/api/data")[1]
+        cur["tasks"] = [{"id": "t-selftest", "date": "2026-10-07", "text": "老任务",
+                         "time": "", "category": "工作", "done": False, "note": "",
+                         "belong": "plan"}]
+        cur["studies"] = [{"id": "st-selftest", "subjectId": "s", "date": "2026-10-07",
+                           "minutes": 30, "content": "老学习", "takeaway": "", "reviewed": False}]
+        cur["subjects"] = [{"id": "s", "name": "老对象", "kind": "书", "source": "", "note": ""}]
+        cur["workoutLogs"] = [{"id": "l-selftest", "date": "2026-10-07", "moves": "深蹲", "note": ""}]
+        cur["games"] = [{"id": "g-selftest", "name": "老游戏", "platform": "PC",
+                         "status": "在玩", "progress": "", "hours": 1}]
+        call(port, "/api/data", "POST", cur)
+        back2 = call(port, "/api/data")[1]
+        fresh_ok = all(
+            back2[key][0].get("imagePaths") == []
+            for key in ("tasks", "studies", "subjects", "workoutLogs", "games")
+        )
+        check("老的任务 / 学习 / 对象 / 打卡 / 游戏读出来都带上 imagePaths: []", fresh_ok)
+        check("老任务读出来带上 priority: 空（开发待办才有优先级）",
+              back2["tasks"][0].get("priority") == "")
+
+        # 老 bug 条目：字段补齐 + 状态改名（处理中 → 进行中、已解决 → 已修复）
+        cur = call(port, "/api/data")[1]
+        cur["issues"] = [
+            {"id": "bug-selftest-1", "projectId": "p1", "title": "老条目",
+             "severity": "高", "status": "处理中"},
+            {"id": "bug-selftest-2", "projectId": "p1", "title": "更老的条目",
+             "severity": "低", "status": "已解决"},
+        ]
+        cur["progress"] = [{"id": "prog-selftest", "projectId": "p1",
+                            "date": "2026-10-07", "text": "自检的进展"}]
+        call(port, "/api/data", "POST", cur)
+        back = call(port, "/api/data")[1]
+        bug1, bug2 = back["issues"][0], back["issues"][1]
+        check("老 bug 条目补齐了详细描述 / 关联模块 / 时间字段",
+              bug1.get("desc") == "" and bug1.get("module") == ""
+              and bug1.get("createdAt") == "" and bug1.get("fixedAt") == "",
+              str({k: bug1.get(k) for k in ("desc", "module", "createdAt", "fixedAt")}))
+        check("老 bug 状态「处理中」迁成「进行中」", bug1.get("status") == "进行中", str(bug1.get("status")))
+        check("老 bug 状态「已解决」迁成「已修复」", bug2.get("status") == "已修复", str(bug2.get("status")))
+        check("老 bug 条目带上 imagePaths: []", bug1.get("imagePaths") == [])
+        check("老进展条目也带上 imagePaths: []", back["progress"][0].get("imagePaths") == [])
+
+        # 图片路径只写进 JSON，不写二进制；老记录读出来自动补 imagePaths
+        cur = call(port, "/api/data")[1]
+        check("老账目读出来自动带上 imagePaths: []",
+              cur["finance"]["transactions"][0].get("imagePaths") == [])
+        check("附件设置项读出来就带着默认值",
+              cur.get("settings", {}).get("attachments") == {"pruneOnDelete": False, "maxEdge": 1920},
+              str(cur.get("settings", {}).get("attachments")))
 
         # 自媒体：账号和粉丝快照要跟着导出导入走
         cur = call(port, "/api/data")[1]

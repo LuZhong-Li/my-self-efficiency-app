@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import email.utils
 import mimetypes
@@ -24,6 +25,7 @@ import socket
 import sys
 import threading
 import time
+import uuid
 import urllib.parse
 import webbrowser
 import http.client
@@ -49,6 +51,19 @@ EXPORT_DIR = os.path.join(DATA_DIR, "导出")
 LOG_DIR = os.path.join(DATA_DIR, "日志")
 LOG_FILE = os.path.join(LOG_DIR, "运行.log")
 PREV_FILE = os.path.join(BACKUP_DIR, "_最近一次.json")
+# 图片附件：单独一个文件夹，主数据文件里只存相对路径（attachments/模块/文件名）。
+# 放在 数据 目录下面是有意的——备份、搬到别的盘（XIAOLI_DATA_DIR）都是一整份走，
+# 而且 同步到小李.cmd / .gitignore 本来就不碰 数据 目录，图片不会跟着代码跑。
+ATTACH_DIR = os.path.join(DATA_DIR, "attachments")
+# 附件按模块分格；加新模块往这里补一个名字，前端 attachment-calc.js 也要跟着加
+ATTACH_MODULES = (
+    "finance", "buglog", "progress",
+    "today_plan", "dev_todo", "study_record", "study_item", "fitness", "game",
+    "note",
+)
+ATTACH_EXTS = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
+# 服务端兜底的单张上限：前端压完一般远小于这个数，这道闸是防手写的请求
+ATTACH_MAX_BYTES = 12 * 1024 * 1024
 
 # 备份文件名以这个开头 = 标了「长期保留」，自动清理时跳过
 KEEP_PREFIX = "保留-"
@@ -160,6 +175,8 @@ def default_data() -> dict:
             # 明暗策略：light / dark / system（跟随系统）。theme 只记当前实际明暗，兼容老版本
             "themeMode": "light",
             "backupKeep": DEFAULT_BACKUP_KEEP,
+            # 图片附件：彻底删掉一条记录时，要不要连它的图片一起删（默认保留，删错了还能找回来）
+            "attachments": {"pruneOnDelete": False, "maxEdge": 1920},
             "selfTest": {"saveCount": 0, "lastSavedAt": None},
         },
     }
@@ -168,6 +185,92 @@ def default_data() -> dict:
 def ensure_dirs() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(BACKUP_DIR, exist_ok=True)
+    os.makedirs(ATTACH_DIR, exist_ok=True)
+
+
+# --------------------------------------------------------------------------
+# 图片附件（文件在 数据\attachments\，JSON 里只存相对路径）
+# --------------------------------------------------------------------------
+
+def attach_ext(value: str) -> str:
+    """把「文件名」或「mime」都归一成白名单里的扩展名；认不出给空串。
+    收得了的只有 png / jpg / webp —— 和前端 <input accept> 那一行对齐。"""
+    text = str(value or "").strip().lower()
+    if "/" in text:                    # 传进来的是 image/jpeg 这种 mime
+        text = text.rsplit("/", 1)[-1]
+    if "." in text:                    # 传进来的是 小票.PNG 这种文件名
+        text = text.rsplit(".", 1)[-1]
+    if text == "jpeg":
+        text = "jpg"
+    return text if text in ATTACH_EXTS else ""
+
+
+def attach_parse(path: str) -> tuple[str, str] | None:
+    """解析 JSON 里存的那条相对路径，顺带把「不能当文件路径用」的挡在外面。
+
+    外面递进来的字符串一律按不可信处理：目录必须是 attachments、模块必须在
+    白名单里、文件名必须长成 yyyyMMdd_随机.扩展名，所以
+    `attachments/finance/../../数据.json` 这种一定过不了这一关。
+    """
+    text = urllib.parse.unquote(str(path or "")).replace("\\", "/").strip()
+    parts = text.split("/")
+    if len(parts) != 3:
+        return None
+    root, module, name = parts
+    if root != "attachments" or module not in ATTACH_MODULES:
+        return None
+    stem, dot, ext = name.rpartition(".")
+    if not dot or ext.lower() not in ("png", "jpg", "jpeg", "webp"):
+        return None
+    head, sep, tail = stem.partition("_")
+    if not sep or len(head) != 8 or not head.isdigit():
+        return None
+    if not (4 <= len(tail) <= 32) or not tail.isalnum() or not tail.isascii():
+        return None
+    return module, name
+
+
+def unique_attach_name(module: str, ext: str) -> str:
+    """日期 + 随机串：文件夹里按天挨着排，随机串保证不会撞名。"""
+    stamp = datetime.now().strftime("%Y%m%d")
+    folder = os.path.join(ATTACH_DIR, module)
+    for _ in range(50):
+        name = "%s_%s.%s" % (stamp, uuid.uuid4().hex[:8], ext)
+        if not os.path.exists(os.path.join(folder, name)):
+            return name
+    # 理论上到不了这儿（8 位十六进制撞 50 次）；真撞上了就加长再来一次
+    return "%s_%s.%s" % (stamp, uuid.uuid4().hex[:16], ext)
+
+
+def write_attachment(module: str, ext: str, raw: bytes) -> tuple[str, str]:
+    """把一张图落盘，返回 (相对路径, 文件名)。先写 .tmp 再整体替换，和 数据.json 一个规矩。"""
+    folder = os.path.join(ATTACH_DIR, module)
+    os.makedirs(folder, exist_ok=True)
+    name = unique_attach_name(module, ext)
+    target = os.path.join(folder, name)
+    tmp = target + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(raw)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, target)
+    return "attachments/%s/%s" % (module, name), name
+
+
+def attachments_stat() -> tuple[int, int]:
+    """附件一共多少张、占多少字节（设置页显示用）。"""
+    count = 0
+    total = 0
+    for root, _dirs, files in os.walk(ATTACH_DIR):
+        for name in files:
+            if name.endswith(".tmp"):
+                continue
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+                count += 1
+            except OSError:
+                pass
+    return count, total
 
 
 def atomic_write_json(path: str, obj: object) -> None:
@@ -245,6 +348,47 @@ def migrate(data: dict) -> dict:
     for c in data.get("contents") or []:
         if isinstance(c, dict) and c.get("status") == "写作中":
             c["status"] = "撰写中"
+    # 图片附件：老记录没有 imagePaths，读出来先补一个空数组，
+    # 页面那边就不用到处判空了；也只是补，不动任何已有字段。
+    for row in (data.get("finance") or {}).get("transactions") or []:
+        if isinstance(row, dict) and not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
+    # bug 条目：图片、详细描述、关联模块、创建/修复时间都是后加的，老记录补齐；
+    # 状态 2026-10-07 改过名（处理中 → 进行中、已解决 → 已修复，中间补了「已复现」），
+    # 读出来一起搬，页面那边就只用一套口径。
+    for row in data.get("issues") or []:
+        if not isinstance(row, dict):
+            continue
+        if not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
+        for key in ("desc", "module", "createdAt", "fixedAt"):
+            row.setdefault(key, "")
+        if row.get("status") == "处理中":
+            row["status"] = "进行中"
+        elif row.get("status") == "已解决":
+            row["status"] = "已修复"
+    # 进展条目：也是后加的图片字段
+    for row in data.get("progress") or []:
+        if isinstance(row, dict) and not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
+    # 2026-10-07 第二批：今日计划、开发待办、学习记录、学习对象、训练打卡、游戏
+    # 也都能带图片备注了，老记录一律补一个空数组（补了才动，有了不动）
+    for key in ("tasks", "studies", "subjects", "workoutLogs", "games"):
+        for row in data.get(key) or []:
+            if isinstance(row, dict) and not isinstance(row.get("imagePaths"), list):
+                row["imagePaths"] = []
+    # 开发待办多了个「优先级」字段（今日计划的任务不标，留空）
+    for row in data.get("tasks") or []:
+        if isinstance(row, dict):
+            row.setdefault("priority", "")
+    # 附件相关的设置项也是后加的，老数据补齐（缺了才补，有了不动）
+    settings = data.setdefault("settings", {})
+    attach = settings.get("attachments")
+    if not isinstance(attach, dict):
+        attach = {}
+    attach.setdefault("pruneOnDelete", False)
+    attach.setdefault("maxEdge", 1920)
+    settings["attachments"] = attach
     return data
 
 
@@ -438,12 +582,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
+            attach_count, attach_bytes = attachments_stat()
             self.send_json({
                 "app": APP_NAME,
                 "version": APP_VERSION,
                 "dataFile": DATA_FILE,
                 "backupDir": BACKUP_DIR,
                 "exportDir": EXPORT_DIR,
+                "attachDir": ATTACH_DIR,
+                "attachCount": attach_count,
+                "attachBytes": attach_bytes,
                 "dataSize": os.path.getsize(DATA_FILE) if os.path.exists(DATA_FILE) else 0,
                 "serverTime": now_text(),
             })
@@ -453,6 +601,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/backups":
             self.send_json({"ok": True, "items": list_backups()})
+            return
+        if path.startswith("/attachments/"):
+            self.serve_attachment(path)
             return
         self.serve_static(path)
 
@@ -486,6 +637,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/import": self.api_import,
             "/api/clear": self.api_clear,
             "/api/open-folder": self.api_open_folder,
+            "/api/attachment": self.api_attachment,
+            "/api/attachment-delete": self.api_attachment_delete,
         }
         handler = routes.get(path)
         if handler is None:
@@ -622,7 +775,8 @@ class Handler(BaseHTTPRequestHandler):
         if body is None:
             return
         which = (body or {}).get("which", "data")
-        folders = {"data": DATA_DIR, "backup": BACKUP_DIR, "export": EXPORT_DIR}
+        folders = {"data": DATA_DIR, "backup": BACKUP_DIR, "export": EXPORT_DIR,
+                   "attach": ATTACH_DIR}
         target = folders.get(which)
         if not target:
             self.send_json({"ok": False, "error": "未知的文件夹"}, 400)
@@ -630,6 +784,107 @@ class Handler(BaseHTTPRequestHandler):
         open_folder(target)
         print("  · 已打开文件夹：%s" % target)
         self.send_json({"ok": True, "path": target})
+
+    # ---------- 图片附件 ----------
+
+    def api_attachment(self) -> None:
+        """收一张图，写进 数据\\attachments\\模块\\，返回 JSON 里该存的那条相对路径。
+
+        走的是 JSON + base64 而不是 multipart：这个服务只用标准库，
+        cgi 那套在 3.13 已经删了，自己拆 multipart 不值当。一次只收一张，
+        体积上限见 MAX_BODY，够用。
+        """
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        module = str(body.get("module") or "").strip()
+        if module not in ATTACH_MODULES:
+            self.send_json({"ok": False, "error": "未知的模块，图片没存下"}, 400)
+            return
+        ext = attach_ext(body.get("ext") or body.get("name") or body.get("mime"))
+        if not ext:
+            self.send_json({"ok": False, "error": "只收 png / jpg / webp 的图片"}, 400)
+            return
+        text = str(body.get("data") or "")
+        if text.startswith("data:"):     # 允许前端直接丢一个 dataURL 过来
+            text = text.split(",", 1)[-1]
+        try:
+            raw = base64.b64decode(text, validate=True)
+        except Exception:
+            self.send_json({"ok": False, "error": "图片数据读不出来"}, 400)
+            return
+        if not raw:
+            self.send_json({"ok": False, "error": "图片是空的"}, 400)
+            return
+        if len(raw) > ATTACH_MAX_BYTES:
+            self.send_json({
+                "ok": False,
+                "error": "这张图超过 %dMB，太大了" % (ATTACH_MAX_BYTES // 1024 // 1024),
+            }, 400)
+            return
+        rel, name = write_attachment(module, ext, raw)
+        log_line("存图片附件：%s（%d 字节）" % (rel, len(raw)))
+        print("  · 已存图片附件：%s（%d 字节）" % (rel, len(raw)))
+        self.send_json({"ok": True, "path": rel, "name": name, "bytes": len(raw)})
+
+    def api_attachment_delete(self) -> None:
+        """删掉几张不再被引用的图片。路径一律先过 attach_parse：
+        不是「attachments/白名单模块/日期_随机.扩展名」的，一个都不动。"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        paths = (body or {}).get("paths")
+        if not isinstance(paths, list):
+            paths = []
+        deleted = missing = refused = 0
+        for item in paths:
+            parsed = attach_parse(item)
+            if not parsed:
+                refused += 1
+                continue
+            target = os.path.join(ATTACH_DIR, parsed[0], parsed[1])
+            if not os.path.isfile(target):
+                missing += 1
+                continue
+            try:
+                os.remove(target)
+                deleted += 1
+            except OSError:
+                refused += 1
+        if deleted or refused:
+            log_line("删图片附件：删掉 %d 张，拒绝 %d 条（找不到 %d 张）" % (deleted, refused, missing))
+        self.send_json({"ok": True, "deleted": deleted, "missing": missing, "refused": refused})
+
+    def serve_attachment(self, path: str) -> None:
+        """把 数据\\attachments\\ 里的图片发给浏览器。路径同样先过白名单，
+        免得有人拿 ../../ 去读别处的文件。"""
+        parsed = attach_parse(path.lstrip("/"))
+        if not parsed:
+            self.send_text("路径不合法", 403)
+            return
+        target = os.path.join(ATTACH_DIR, parsed[0], parsed[1])
+        if not os.path.isfile(target):
+            self.send_text("找不到这张图片", 404)
+            return
+        ctype = ATTACH_EXTS.get(parsed[1].rsplit(".", 1)[-1].lower(), "application/octet-stream")
+        st = os.stat(target)
+        last_modified = email.utils.formatdate(st.st_mtime, usegmt=True)
+        if self.headers.get("If-Modified-Since") == last_modified:
+            self.send_response(304)
+            self.send_header("Last-Modified", last_modified)
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            return
+        with open(target, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Last-Modified", last_modified)
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---------- 静态文件 ----------
 

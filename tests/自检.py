@@ -127,7 +127,7 @@ def main() -> int:
         status, data = call(port, "/api/data")
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
-                "games", "settings", "finance", "debt"]
+                "games", "settings", "finance", "debt", "mediaAccounts", "mediaFollowers"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -218,10 +218,41 @@ def main() -> int:
         check("记账分类里有「债务还款 / 债务收款」",
               "债务还款" in cats.get("expense", []) and "债务收款" in cats.get("income", []))
 
+        # 自媒体：账号和粉丝快照要跟着导出导入走
+        cur = call(port, "/api/data")[1]
+        cur["mediaAccounts"] = [{
+            "id": "acc-selftest", "name": "自检号", "platform": "B站", "intro": "",
+            "baseFollowers": 100, "targetFollowers": 0, "note": "",
+            "createdAt": "2026-10-07 12:00",
+        }]
+        cur["mediaFollowers"] = [{
+            "id": "snap-selftest", "accountId": "acc-selftest",
+            "date": "2026-10-07", "count": 260,
+        }]
+        cur["contents"] = [{
+            "id": "c-selftest", "title": "自检作品", "accountId": "acc-selftest",
+            "platform": "B站", "status": "写作中", "planDate": "2026-10-10",
+            "publishDate": "", "link": "", "views": 0, "likes": 0, "comments": 0,
+            "collects": 0, "fansGain": 0, "note": "",
+        }]
+        call(port, "/api/data", "POST", cur)
+        status, exp4 = call(port, "/api/export", "POST", {})
+        exported4 = json.loads(Path(exp4["path"]).read_text(encoding="utf-8"))
+        call(port, "/api/clear", "POST", {})
+        call(port, "/api/import", "POST", exported4)
+        back4 = call(port, "/api/data")[1]
+        check("导出导入往返带着自媒体账号和粉丝快照",
+              back4["mediaAccounts"][0]["baseFollowers"] == 100
+              and back4["mediaFollowers"][0]["count"] == 260)
+        check("老数据里的「写作中」会迁成「撰写中」",
+              back4["contents"][0]["status"] == "撰写中", str(back4["contents"][0]["status"]))
+
         # 清空
         status, cleared = call(port, "/api/clear", "POST", {})
         now = call(port, "/api/data")[1]
-        check("清空后只剩空骨架", not now.get("tasks") and not now.get("contents"))
+        check("清空后只剩空骨架",
+              not now.get("tasks") and not now.get("contents")
+              and now.get("mediaAccounts") == [] and now.get("mediaFollowers") == [])
         check("清空后记账回到空骨架",
               now.get("finance", {}).get("transactions") == []
               and now.get("finance", {}).get("budget", {}).get("monthlyTotalCents") == 0)

@@ -140,7 +140,10 @@ export function markPendingForm(on) {
 }
 
 // 这些字段是「停笔即存」的，不用算进「没保存的改动」里
-const AUTOSAVE_FIELDS = "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, #budget-input";
+const AUTOSAVE_FIELDS =
+  "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, " +
+  "#budget-input, #media-filter, #media-cal-platform, #media-list-platform, #media-list-status, " +
+  "#media-list-sort";
 
 document.addEventListener(
   "input",
@@ -250,6 +253,8 @@ export function emptyTrash() {
 export const TRASH_TABLE_LABEL = {
   tasks: "任务",
   contents: "自媒体",
+  mediaAccounts: "自媒体账号",
+  mediaFollowers: "粉丝记录",
   projects: "项目",
   issues: "问题",
   progress: "进展",

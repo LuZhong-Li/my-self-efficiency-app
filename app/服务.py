@@ -64,6 +64,7 @@ LOCK = threading.Lock()
 COUNT_KEYS = [
     ("tasks", "任务"),
     ("contents", "自媒体内容"),
+    ("mediaAccounts", "自媒体账号"),
     ("projects", "开发项目"),
     ("issues", "问题/bug"),
     ("subjects", "学习对象"),
@@ -135,6 +136,9 @@ def default_data() -> dict:
         "tasks": [],
         "memo": "",
         "contents": [],
+        # 自媒体：账号 + 粉丝快照（作品还是上面那个 contents，不搬家）
+        "mediaAccounts": [],
+        "mediaFollowers": [],
         "projects": [],
         "issues": [],
         "progress": [],
@@ -229,6 +233,16 @@ def migrate(data: dict) -> dict:
         bucket = cats.setdefault(kind, [])
         if name not in bucket:
             bucket.append(name)
+    # 自媒体：账号表和粉丝快照表是后加的，老数据补两张空表就行
+    if not isinstance(data.get("mediaAccounts"), list):
+        data["mediaAccounts"] = []
+    if not isinstance(data.get("mediaFollowers"), list):
+        data["mediaFollowers"] = []
+    # 自媒体状态改过名：老的「写作中」并进新流水线的「撰写中」
+    # （新流水线是 想法 → 撰写中 → 剪辑中 → 待发布 → 已发布）
+    for c in data.get("contents") or []:
+        if isinstance(c, dict) and c.get("status") == "写作中":
+            c["status"] = "撰写中"
     return data
 
 

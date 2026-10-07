@@ -9,6 +9,7 @@
  */
 
 import { rowPaths } from "./attachment-calc.js";
+import { GOAL_CYCLES } from "./goal-calc.js";
 
 /* 这里自带一个转义：store.js 里那个 esc 是给浏览器用的（那个文件会碰 window），
    纯模块 import 不了它。实现故意和 store.js 里那份保持一致。 */
@@ -226,6 +227,55 @@ export const FORMS = {
       id: ctx.uid(), name: "", platform: "PC", status: "想玩", hours: 0, progress: "",
     }),
   },
+
+  /* 模块目标（健身 / 学习 / 饮食）：没有图片区，也不是「往某张表 push 一条」——
+   * 它按模块分桶存在 data.moduleGoals[moduleId] 里，所以下面自己写了
+   * persist（怎么落盘）和 trashPlan（怎么移出）。两个钩子是 item-dialog.js 认的。 */
+  moduleGoal: {
+    table: "moduleGoals",
+    titleNew: "设置模块目标",
+    titleEdit: "修改模块目标",
+    hint: "目标写在模块里，不跟待办混在一起；开着「自动生成任务」时，到点会自动往「今日计划」里放待办。",
+    fields: [
+      { name: "moduleName", label: "所属模块", kind: "static" },
+      { name: "mainTarget", label: "核心目标", kind: "textarea", rows: 3, maxlength: 400,
+        required: true, placeholder: "比如：3 个月减重 8kg，每周力量 3 次、有氧 2 次" },
+      { name: "cycle", label: "目标周期", kind: "select", list: GOAL_CYCLES, default: "每日" },
+      { name: "startDate", label: "开始日期", kind: "date", half: true },
+      { name: "endDate", label: "结束日期", kind: "date", half: true },
+      { name: "dailyRule", label: "自动任务规则", kind: "textarea", rows: 3, maxlength: 400,
+        placeholder: "比如：每周一、三、五力量训练；周二、四有氧" },
+      { name: "remark", label: "备注", kind: "textarea", rows: 2, maxlength: 400,
+        placeholder: "想提醒自己的话（可不填）" },
+      { name: "isActive", label: "启用目标", kind: "switch", half: true, default: "on" },
+      { name: "autoTask", label: "自动生成任务", kind: "switch", half: true, default: "on" },
+    ],
+    label: (row) => row.mainTarget || "（没写目标）",
+    create: (ctx) => ({
+      id: ctx.uid(),
+      moduleId: ctx.moduleId || "",
+      moduleName: ctx.moduleName || "",
+      mainTarget: "",
+      cycle: "每日",
+      startDate: ctx.date || "",
+      endDate: "",
+      dailyRule: "",
+      remark: "",
+      isActive: true,
+      autoTask: true,
+      lastRun: "",
+    }),
+    persist: (ctx, saved, created) => {
+      if (created) (ctx.goals || []).push(saved);
+    },
+    trashPlan: (row) => ({
+      label: row.mainTarget || "（没写目标）",
+      extra: 0,
+      items: [],
+      note: "只删除目标设置；已经生成的待办会留在「今日计划」里，不会跟着消失。",
+      apply: () => {},   // 真正从桶里摘掉由调用方做（见 goals.js 的 deleteGoal）
+    }),
+  },
 };
 
 export const ITEM_TYPES = Object.keys(FORMS);
@@ -258,6 +308,22 @@ export function optionsOf(field, ctx = {}) {
 function fieldHtml(field, values, ctx) {
   const id = "item-" + field.name;
   const value = values[field.name] == null ? "" : String(values[field.name]);
+  // 只读的一行（比如目标的「所属模块」）：不进表单，只看
+  if (field.kind === "static") {
+    return (
+      `<label class="dlg-label">${esc(field.label)}</label>` +
+      `<div class="dlg-static" id="${id}">${esc(value || "—")}</div>`
+    );
+  }
+  // 开关：标签跟框并排，勾上 = on
+  if (field.kind === "switch") {
+    const on = ["on", "true", "1", "yes"].includes(value.toLowerCase());
+    return (
+      `<label class="dlg-switch" for="${id}">` +
+      `<input type="checkbox" id="${id}"${on ? " checked" : ""}>` +
+      `<span>${esc(field.label)}</span></label>`
+    );
+  }
   const label = `<label class="dlg-label" for="${id}">${esc(field.label)}</label>`;
   if (field.kind === "textarea") {
     return (
@@ -318,7 +384,9 @@ export function formHtml(type, values = {}, ctx = {}) {
 /** 新增时的初始值：字段自己的 default，再被 extra 盖掉 */
 export function defaultsOf(type, extra = {}) {
   const out = {};
-  for (const field of formOf(type).fields) out[field.name] = field.default ?? "";
+  for (const field of formOf(type).fields) {
+    out[field.name] = field.kind === "static" ? "" : field.default ?? "";
+  }
   return { ...out, ...extra };
 }
 
@@ -327,6 +395,7 @@ export function valuesOf(type, row, extra = {}) {
   const out = defaultsOf(type, extra);
   const src = row && typeof row === "object" ? row : {};
   for (const field of formOf(type).fields) {
+    if (field.kind === "static") continue;   // 只看不改的字段不用回填
     const v = src[field.name];
     if (v === undefined || v === null || v === "") continue;
     // 数字字段是 0（时长、小时数没填）就当没填，框里留空让占位提示露出来
@@ -340,6 +409,7 @@ export function valuesOf(type, row, extra = {}) {
 export function readValues(type, get) {
   const out = {};
   for (const field of formOf(type).fields) {
+    if (field.kind === "static") continue;
     const v = get(field.name);
     out[field.name] = v === undefined || v === null ? "" : String(v);
   }
@@ -361,20 +431,23 @@ export function validate(type, values) {
   return { ok: true, error: "" };
 }
 
-/** 把表单值写回一条记录：数字字段转成数字，文本去掉两头空白 */
+/** 把表单值写回一条记录：数字转数字、开关转布尔、文本去掉两头空白 */
 export function applyValues(type, row, values) {
   for (const field of formOf(type).fields) {
+    if (field.kind === "static") continue;   // 只读字段不回写，免得把它冲成空
     const raw = String(values[field.name] ?? "").trim();
-    row[field.name] = field.kind === "number" ? Number(raw) || 0 : raw;
+    if (field.kind === "switch") row[field.name] = Boolean(raw) && raw !== "off";
+    else row[field.name] = field.kind === "number" ? Number(raw) || 0 : raw;
   }
   return row;
 }
 
 /** 新增：先照 create() 捏一个空壳，再把表单值写上去 */
 export function newRow(type, values, ctx = {}) {
-  const row = formOf(type).create(ctx) || {};
+  const spec = formOf(type);
+  const row = spec.create(ctx) || {};
   applyValues(type, row, values);
-  row.imagePaths = [];
+  if (spec.upload) row.imagePaths = [];   // 有图片区的类型才带 imagePaths
   return row;
 }
 
@@ -384,6 +457,8 @@ export function newRow(type, values, ctx = {}) {
  */
 export function trashPlan(type, row, rowsByTable = {}) {
   const spec = formOf(type);
+  // 有些类型不在普通表里（模块目标按模块分桶存），自己给一份删除计划
+  if (typeof spec.trashPlan === "function") return spec.trashPlan(row, rowsByTable);
   const label = spec.label(row);
   const items = [{ table: spec.table, row, label }];
   if (type === "studyItem") {

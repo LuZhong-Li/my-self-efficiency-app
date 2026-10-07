@@ -700,6 +700,36 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
         },
     ]
 
+    # 模块目标（2026-10-07 新增）：健身 / 学习 / 饮食各一条，进「今日计划」时会
+    # 按 dailyRule 自动生成当天的待办。饮食那条故意把「自动生成」关掉，
+    # 用来演示两个开关的区别。
+    module_goals = {
+        "fitness": [{
+            "id": "demo-goal-fit", "moduleId": "fitness", "moduleName": "健身计划",
+            "mainTarget": "三个月减 8kg：每周力量 3 次、有氧 2 次",
+            "cycle": "月度", "startDate": d(-30), "endDate": d(60),
+            "dailyRule": "每周一、周三、周五力量训练；周二、周四有氧",
+            "remark": "练完顺手记一下体重和感受",
+            "isActive": True, "autoTask": True, "lastRun": "",
+        }],
+        "study": [{
+            "id": "demo-goal-study", "moduleId": "study", "moduleName": "学习工作",
+            "mainTarget": "每天学习 2 小时，把高数上册过完",
+            "cycle": "每日", "startDate": d(-20), "endDate": d(90),
+            "dailyRule": "晚 7 点-9 点学习",
+            "remark": "学完在这儿标一下复习状态",
+            "isActive": True, "autoTask": True, "lastRun": "",
+        }],
+        "diet": [{
+            "id": "demo-goal-diet", "moduleId": "diet", "moduleName": "饮食计划",
+            "mainTarget": "每天喝水 8 杯，三餐按时吃",
+            "cycle": "每日", "startDate": d(-10), "endDate": "",
+            "dailyRule": "每天记三餐和喝水",
+            "remark": "少喝含糖饮料",
+            "isActive": True, "autoTask": False, "lastRun": "",
+        }],
+    }
+
     return {
         "version": 1,
         "rev": 0,                                   # 真正写的时候会重算
@@ -723,6 +753,7 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
         "meals": meals,
         "water": water,
         "games": games,
+        "moduleGoals": module_goals,
         "mediaAccounts": media_accounts,
         "mediaFollowers": media_followers,
         "finance": {

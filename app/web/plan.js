@@ -1,5 +1,7 @@
 /* 今日计划：今天的任务增删改勾，外加「昨天没做完的」一键挪到今天。
- * 2026-10-07 起录入改成弹窗（和别的模块一套），卡片上只留一个「添加任务」按钮。 */
+ * 2026-10-07 起录入改成弹窗（和别的模块一套），卡片上只留一个「添加任务」按钮。
+ * 2026-10-07 起还会在进页面时对一遍「模块目标」：健身 / 学习 / 饮食的目标到了
+ * 该做的日子，会自动在这里生成一条待办（带来源标签，正文还能改）。 */
 
 import { touch, todayStr, formatDateCN, table, esc, moveToTrash } from "./store.js";
 import { bindFresh, pageHeader, markEnter } from "./ui.js";
@@ -8,6 +10,8 @@ import { renderCalendar } from "./calendar.js";
 import { icon } from "./icons.js";
 import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
+import { syncGoalTasks, goalBriefHtml } from "./goals.js";
+import { sourceLabelOf } from "./goal-calc.js";
 
 let mode = "today";   // today = 今天的清单，month = 月历
 
@@ -44,6 +48,8 @@ export function renderPlan(root) {
 
 function renderTodayView(body) {
   const today = todayStr();
+  // 先把今天该生成的目标待办补上，再照着最新的 tasks 画
+  syncGoalTasks(today);
   const all = table("tasks");
   const todayTasks = all.filter((t) => t.date === today).sort(order);
   const overdue = all
@@ -51,6 +57,7 @@ function renderTodayView(body) {
     .sort((a, b) => (a.date === b.date ? byTime(a, b) : a.date < b.date ? -1 : 1));
 
   body.innerHTML = `
+    ${goalBriefHtml(today)}
     <section class="card">
       <div class="card-head">
         <h2>今天的任务</h2>
@@ -132,6 +139,7 @@ function row(t) {
       <span class="t-time">${t.time ? esc(t.time) : "—"}</span>
       <span class="t-text">${esc(t.text)}</span>
       ${imgBadge(t.imagePaths, "图")}
+      ${t.sourceModule ? `<span class="t-src" title="由模块目标自动生成，内容可以改，删了也不会再自动补">${esc(sourceLabelOf(t.sourceModule))}</span>` : ""}
       <span class="t-cat">${esc(t.category || "其他")}</span>
       <span class="t-note">${esc(t.note || "")}</span>
       <span class="t-actions">

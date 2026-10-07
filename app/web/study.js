@@ -12,6 +12,7 @@ import { icon } from "./icons.js";
 import { monthGridHtml, calendarAction, dayLabel, KIND_STUDY } from "./calendar.js";
 import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
+import { goalCardHtml, goalAction } from "./goals.js";
 
 let selected = null;        // 月历选中的那天（默认今天）
 
@@ -28,6 +29,8 @@ export function renderStudy(root) {
       "study",
       `<span class="date-chip">本周 ${weekMinutes} 分钟 · 待复习 ${pending} 条</span>`
     )}
+
+    ${goalCardHtml("study")}
 
     <section class="card">
       ${monthGridHtml({
@@ -152,6 +155,9 @@ function subjectChoices() {
 }
 
 async function onClick(e) {
+  // 顶部那张「模块目标」卡片上的按钮先接住
+  if (goalAction(e, "study", redraw)) return;
+
   const cal = calendarAction(e);
   if (cal.handled) {
     if (cal.selected) selected = cal.selected;

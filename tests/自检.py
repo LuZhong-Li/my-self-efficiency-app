@@ -145,7 +145,8 @@ def main() -> int:
         status, data = call(port, "/api/data")
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
-                "games", "settings", "finance", "debt", "mediaAccounts", "mediaFollowers"]
+                "games", "settings", "finance", "debt", "mediaAccounts", "mediaFollowers",
+                "moduleGoals"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -399,6 +400,44 @@ def main() -> int:
         check("老数据里的「写作中」会迁成「撰写中」",
               back4["contents"][0]["status"] == "撰写中", str(back4["contents"][0]["status"]))
 
+        # 模块目标（健身 / 学习 / 饮食）：顶层一个 moduleGoals，按模块 id 分桶
+        cur = call(port, "/api/data")[1]
+        cur.pop("moduleGoals", None)                 # 装成一份老数据：压根没有这个键
+        call(port, "/api/data", "POST", cur)
+        back5 = call(port, "/api/data")[1]
+        check("老数据没有 moduleGoals 也会自动补成空对象",
+              back5.get("moduleGoals") == {}, str(back5.get("moduleGoals")))
+
+        cur = call(port, "/api/data")[1]
+        cur["moduleGoals"] = {"fitness": [{
+            "id": "goal-selftest", "moduleName": "健身计划", "mainTarget": "三个月减 8kg",
+            "cycle": "月度", "startDate": "2026-10-01", "endDate": "2026-12-31",
+            "dailyRule": "每周一、三、五力量训练", "remark": "",
+        }]}
+        call(port, "/api/data", "POST", cur)
+        back6 = call(port, "/api/data")[1]
+        goal = back6["moduleGoals"]["fitness"][0]
+        check("模块目标能整份写回并读回来",
+              goal["mainTarget"] == "三个月减 8kg" and goal["cycle"] == "月度"
+              and goal["moduleId"] == "fitness",
+              str({k: goal.get(k) for k in ("moduleId", "cycle", "startDate")}))
+        check("目标的开关和自动生成缺省都是开",
+              goal["isActive"] is True and goal["autoTask"] is True,
+              str({k: goal.get(k) for k in ("isActive", "autoTask")}))
+
+        # 万一手写成了数组：按 moduleId 归成桶，一条都不能丢
+        cur = call(port, "/api/data")[1]
+        cur["moduleGoals"] = [
+            {"id": "goal-a", "moduleId": "fitness", "mainTarget": "减脂"},
+            {"id": "goal-b", "moduleId": "study", "mainTarget": "每天学 2 小时"},
+        ]
+        call(port, "/api/data", "POST", cur)
+        back7 = call(port, "/api/data")[1]
+        check("moduleGoals 写成数组时按模块归桶，两条都不丢",
+              [g["id"] for g in back7["moduleGoals"].get("fitness", [])] == ["goal-a"]
+              and [g["id"] for g in back7["moduleGoals"].get("study", [])] == ["goal-b"],
+              str(back7.get("moduleGoals")))
+
         # 清空
         status, cleared = call(port, "/api/clear", "POST", {})
         now = call(port, "/api/data")[1]
@@ -409,6 +448,7 @@ def main() -> int:
               now.get("finance", {}).get("transactions") == []
               and now.get("finance", {}).get("budget", {}).get("monthlyTotalCents") == 0)
         check("清空后债务回到空骨架", now.get("debt", {}).get("items") == [])
+        check("清空后模块目标也回到空对象", now.get("moduleGoals") == {}, str(now.get("moduleGoals")))
         check("清空前会自动留一份快照",
               (data_dir / "备份" / cleared["snapshot"]).exists(), cleared.get("snapshot", ""))
 

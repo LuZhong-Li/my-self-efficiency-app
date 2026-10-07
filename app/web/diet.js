@@ -4,6 +4,7 @@ import { touch, uid, table, esc, todayStr, moveToTrash } from "./store.js";
 import { sectionHead, emptyState, bindFresh, pageHeader } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { monthGridHtml, calendarAction, dayLabel, KIND_DIET } from "./calendar.js";
+import { goalCardHtml, goalAction } from "./goals.js";
 
 const SLOTS = [
   ["breakfast", "早餐"],
@@ -23,6 +24,8 @@ export function renderDiet(root) {
 
   root.innerHTML = `
     ${pageHeader("diet", `<span class="date-chip">${esc(selected === today ? "今天 " + today : selected)}</span>`)}
+
+    ${goalCardHtml("diet")}
 
     <section class="card">
       ${monthGridHtml({
@@ -128,6 +131,10 @@ function dayRow(date) {
 
 /* ---------------- 事件 ---------------- */
 
+function redraw() {
+  renderDiet(document.getElementById("view"));
+}
+
 function ensureMeal(date) {
   let m = table("meals").find((x) => x.date === date);
   if (!m) {
@@ -156,6 +163,9 @@ function onChange(e) {
 }
 
 async function onClick(e) {
+  // 顶部那张「模块目标」卡片上的按钮先接住
+  if (goalAction(e, "diet", redraw)) return;
+
   const cal = calendarAction(e);
   if (cal.handled) {
     if (cal.selected) selected = cal.selected;

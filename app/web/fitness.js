@@ -7,6 +7,7 @@ import { icon } from "./icons.js";
 import { monthGridHtml, calendarAction, dayLabel, KIND_FITNESS } from "./calendar.js";
 import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
+import { goalCardHtml, goalAction } from "./goals.js";
 
 const DAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -27,6 +28,8 @@ export function renderFitness(root) {
 
   root.innerHTML = `
     ${pageHeader("fitness", `<span class="date-chip">本周练了 ${week} 次</span>`)}
+
+    ${goalCardHtml("fitness")}
 
     <section class="card">
       ${monthGridHtml({
@@ -173,6 +176,9 @@ function onSubmit(e) {
 }
 
 async function onClick(e) {
+  // 顶部那张「模块目标」卡片上的按钮先接住（新增 / 编辑 / 查看进度 / 删除）
+  if (goalAction(e, "fitness", redraw)) return;
+
   const cal = calendarAction(e);
   if (cal.handled) {
     if (cal.selected) selected = cal.selected;

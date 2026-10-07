@@ -2752,3 +2752,114 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
   .dev-stats { display: none; }   /* 窄窗口先让位给按钮 */
   .dlg-two { grid-template-columns: 1fr; }
 }
+
+/* ---------------- 模块目标（健身 / 学习 / 饮食，2026-10-07） ----------------
+   目标卡片放在各自模块页最上面（日历之上），复用 .card / .chip / .progress-track
+   这些现成的零件；弹窗复用 item-dialog.js，字段表是 item-form.js 里的 moduleGoal。 */
+
+.goal-card .card-head { margin-bottom: 4px; }
+
+.goal-item {
+  padding: 12px 0;
+  border-bottom: var(--bw) solid var(--divider);
+}
+.goal-item:first-child { padding-top: 4px; }
+.goal-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.goal-item.off .goal-title { color: var(--muted); }
+
+.goal-title { font-size: 16px; font-weight: 600; word-break: break-word; }
+
+.goal-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.goal-num { font-variant-numeric: tabular-nums; }
+
+/* 「自动进今日计划」和「已停用 / 不自动生成」这几个小标签 */
+.chip.goal-on {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: color-mix(in srgb, var(--ok) 78%, var(--ink));
+}
+.chip.goal-off {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: color-mix(in srgb, var(--warn) 76%, var(--ink));
+}
+
+.goal-rule,
+.goal-note { margin: 6px 0 0; font-size: 13px; color: var(--ink); word-break: break-word; }
+.goal-note { color: var(--muted); }
+
+.goal-track { margin-top: 10px; }
+
+.goal-actions { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+
+.goal-progress {
+  margin-top: 12px;
+  padding: 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+}
+.goal-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.goal-stats strong { color: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+.goal-progress .item { background: transparent; }
+
+/* 今日计划顶部那条目标摘要（今天该做的目标都列一句） */
+.goal-brief {
+  margin: 0 0 16px;
+  padding: 8px 16px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* 自动生成的任务在「今日计划」里挂的来源标签：只读标记，正文照样能改 */
+.t-src {
+  flex: 0 0 auto;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+}
+
+/* 目标弹窗里的两样新控件：只读的「所属模块」、两个开关 */
+.dlg-static {
+  padding: 10px 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.dlg-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--ink);
+  font-size: 14px;
+  cursor: pointer;
+}
+.dlg-switch input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}

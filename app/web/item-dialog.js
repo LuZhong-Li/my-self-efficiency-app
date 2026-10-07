@@ -22,13 +22,13 @@ import {
 } from "./item-form.js";
 
 /** 一条记录的删除计划（把要看的几张表读出来交给纯函数算） */
-function planOf(type, row) {
+function planOf(type, row, ctx = {}) {
   return trashPlan(type, row, {
     studies: table("studies"),
     tasks: table("tasks"),
     issues: table("issues"),
     progress: table("progress"),
-  });
+  }, ctx);
 }
 
 /**
@@ -40,6 +40,12 @@ export function trashItem(type, row) {
   const plan = planOf(type, row);
   for (const item of plan.items) moveToTrash(item.table, item.row, item.label);
   return plan;
+}
+
+/** 存一条：默认往它那张表 push；类型自己写了 persist 的（比如模块目标按桶存）就交给它 */
+function persistRow(spec, ctx, saved, created) {
+  if (typeof spec.persist === "function") spec.persist(ctx, saved, created);
+  else if (created) table(spec.table).push(saved);
 }
 
 /**
@@ -72,41 +78,46 @@ export function openItemDialog(type, row, options = {}) {
     seed.date = options.date;
   }
   const values = editing ? valuesOf(type, row, seed) : defaultsOf(type, seed);
-  const attach = createAttach({ module: spec.upload, paths: editing ? rowPaths(row) : [] });
+  // 不是每种弹窗都要图片区（模块目标就没有），没有 upload 就不装配件
+  const attach = spec.upload
+    ? createAttach({ module: spec.upload, paths: editing ? rowPaths(row) : [] })
+    : null;
 
   const dlg = openDialog({
     title: editing ? spec.titleEdit : spec.titleNew,
     bodyHtml: `
       ${spec.hint ? `<p class="dlg-hint">${spec.hint}</p>` : ""}
       <div class="dlg-fields">${formHtml(type, values, ctx)}</div>
-      <div class="attach-host" id="item-attach"></div>`,
+      ${attach ? `<div class="attach-host" id="item-attach"></div>` : ""}`,
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
       { id: "cancel", label: "取消" },
       { id: "save", label: "保存", kind: "primary" },
     ],
-    onClose: () => disposeAttach(attach),
+    onClose: () => { if (attach) disposeAttach(attach); },
     onAction: (act, el) => {
       if (act === "cancel") return true;
 
       if (act === "delete") {
         // 先想清楚要动哪几张表（包括「删项目要连待办 / 问题 / 进展一起走」这种）
-        const plan = planOf(type, row);
+        const plan = planOf(type, row, ctx);
         (async () => {
           const ok = await askConfirm({
             title: `删除「${plan.label}」？`,
-            message: plan.extra
-              ? `它的 ${plan.extra} ${spec.extraNote || "条内容"}也一起进回收站，` +
-                "误删可以去「数据与设置」找回。"
-              : "会放进回收站，误删可以去「数据与设置」找回。",
+            message: plan.note ||
+              (plan.extra
+                ? `它的 ${plan.extra} ${spec.extraNote || "条内容"}也一起进回收站，` +
+                  "误删可以去「数据与设置」找回。"
+                : "会放进回收站，误删可以去「数据与设置」找回。"),
             confirmLabel: "删除",
             danger: true,
           });
           if (!ok) return;
-          for (const item of plan.items) moveToTrash(item.table, item.row, item.label);
+          if (typeof plan.apply === "function") plan.apply();
+          else for (const item of plan.items) moveToTrash(item.table, item.row, item.label);
           touch(true);
           dlg.close();
-          toast("已移入回收站");
+          toast(typeof plan.apply === "function" ? "已删除" : "已移入回收站");
           if (typeof options.onDeleted === "function") options.onDeleted(row);
         })();
         return false;   // 确认框接管了这里，别把弹窗先关了
@@ -117,7 +128,8 @@ export function openItemDialog(type, row, options = {}) {
       (async () => {
         const form = readValues(type, (name) => {
           const input = el.querySelector("#item-" + name);
-          return input ? input.value : "";
+          if (!input) return "";
+          return input.type === "checkbox" ? (input.checked ? "on" : "") : input.value;
         });
         const check = validate(type, form);
         if (!check.ok) {
@@ -125,19 +137,21 @@ export function openItemDialog(type, row, options = {}) {
           return;
         }
         let uploaded = [];
-        try {
-          uploaded = await uploadPending(attach);
-        } catch (err) {
-          toast("图片没存下：" + err.message, "err");
-          return;
+        if (attach) {
+          try {
+            uploaded = await uploadPending(attach);
+          } catch (err) {
+            toast("图片没存下：" + err.message, "err");
+            return;
+          }
+          commitUploads(attach, uploaded);
         }
-        commitUploads(attach, uploaded);
-        const imagePaths = attach.paths.slice();
+        const imagePaths = attach ? attach.paths.slice() : [];
         const saved = editing ? row : newRow(type, form, ctx);
         const before = editing ? rowPaths(row) : [];
         applyValues(type, saved, form);
-        saved.imagePaths = imagePaths;
-        if (!editing) table(spec.table).push(saved);
+        if (attach) saved.imagePaths = imagePaths;
+        persistRow(spec, ctx, saved, !editing);
         touch(true);
         dlg.close();
         toast(editing ? "已保存" : "已添加");
@@ -149,9 +163,9 @@ export function openItemDialog(type, row, options = {}) {
     },
   });
 
-  mountAttach(dlg.el.querySelector("#item-attach"), attach);
+  if (attach) mountAttach(dlg.el.querySelector("#item-attach"), attach);
   bindEnterToSave(dlg);
-  const first = spec.fields[0];
+  const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
   return dlg;
 }

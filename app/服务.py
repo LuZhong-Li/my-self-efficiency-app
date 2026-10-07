@@ -160,6 +160,8 @@ def default_data() -> dict:
         "progress": [],
         "subjects": [],   # 学习对象：书 / 课程 / 视频 / 技能
         "studies": [],    # 学习记录：哪天、学什么、多久、心得
+        # 模块目标：健身 / 学习 / 饮食三个模块的长期目标，按模块 id 分桶（见 migrate）
+        "moduleGoals": {},
         "workoutLogs": [],
         "workoutPlan": {
             "周一": "", "周二": "", "周三": "", "周四": "",
@@ -344,6 +346,34 @@ def migrate(data: dict) -> dict:
         data["mediaAccounts"] = []
     if not isinstance(data.get("mediaFollowers"), list):
         data["mediaFollowers"] = []
+    # 模块目标（2026-10-07 新增）：顶层一个 moduleGoals，按模块 id 分桶存数组。
+    # 老数据没有这个键就补一个空对象；万一手写成了数组，按 moduleId 归成桶，一条都不丢。
+    raw_goals = data.get("moduleGoals")
+    if isinstance(raw_goals, list):
+        buckets: dict = {}
+        for goal in raw_goals:
+            if isinstance(goal, dict) and goal.get("moduleId"):
+                buckets.setdefault(goal["moduleId"], []).append(goal)
+        data["moduleGoals"] = buckets
+    elif not isinstance(raw_goals, dict):
+        data["moduleGoals"] = {}
+    # 每条目标的字段补齐（缺的给默认值，已有的一个不动）
+    for module_id, bucket in data["moduleGoals"].items():
+        rows = bucket if isinstance(bucket, list) else [bucket]
+        fixed = []
+        for goal in rows:
+            if not isinstance(goal, dict):
+                continue
+            goal.setdefault("id", "goal-" + uuid.uuid4().hex[:8])
+            goal.setdefault("moduleId", module_id)
+            for key in ("moduleName", "mainTarget", "dailyRule", "remark",
+                        "startDate", "endDate", "lastRun"):
+                goal.setdefault(key, "")
+            goal.setdefault("cycle", "每日")
+            goal.setdefault("isActive", True)
+            goal.setdefault("autoTask", True)
+            fixed.append(goal)
+        data["moduleGoals"][module_id] = fixed
     # 自媒体状态改过名：老的「写作中」并进新流水线的「撰写中」
     # （新流水线是 想法 → 撰写中 → 剪辑中 → 待发布 → 已发布）
     for c in data.get("contents") or []:

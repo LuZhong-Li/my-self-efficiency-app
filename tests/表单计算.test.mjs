@@ -50,8 +50,8 @@ function ok(cond, label) {
 /* ---------------- 注册表本身 ---------------- */
 
 eqDeep(ITEM_TYPES,
-  ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game"],
-  "七个模块的弹窗类型都在，按顺序");
+  ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game", "moduleGoal"],
+  "八个弹窗类型都在，按顺序（模块目标是 2026-10-07 加的）");
 eq(formOf("devProject").table, "projects", "项目存 projects 表");
 eq(formOf("devProject").upload, "dev_project", "项目的图片单独一格");
 eq(formOf("game").table, "games", "游戏存 games 表");
@@ -63,7 +63,10 @@ eq(formOf("devTodo").table, "tasks", "开发待办也存 tasks 表（靠 belong 
 
 for (const type of ITEM_TYPES) {
   const spec = FORMS[type];
-  ok(ATTACH_MODULES.includes(spec.upload), `${type} 的图片目录 ${spec.upload} 在白名单里`);
+  // 模块目标没有图片区（upload 为空），别的类型都得有一个合法目录
+  if (spec.upload) {
+    ok(ATTACH_MODULES.includes(spec.upload), `${type} 的图片目录 ${spec.upload} 在白名单里`);
+  }
   ok(Boolean(spec.titleNew) && Boolean(spec.titleEdit), `${type} 新增/编辑两个标题都有`);
   ok(typeof spec.label === "function", `${type} 有算显示名字的函数`);
   ok(typeof spec.create === "function", `${type} 有捏空壳的函数`);
@@ -71,7 +74,7 @@ for (const type of ITEM_TYPES) {
 }
 
 // 图片目录不能撞车：每个模块各存各的
-const uploads = ITEM_TYPES.map((t) => FORMS[t].upload);
+const uploads = ITEM_TYPES.map((t) => FORMS[t].upload).filter(Boolean);
 eq(new Set(uploads).size, uploads.length, "六个模块的图片目录互不重复");
 
 const ID_REQUIRED = { devProject: "name", todayPlan: "text", devTodo: "text",
@@ -278,6 +281,67 @@ eqDeep(PRIORITIES, ["高", "中", "低"], "优先级三档");
 eqDeep(STUDY_KINDS, ["书", "课程", "视频", "技能", "其它"], "学习对象类型五个");
 eqDeep(GAME_STATUSES, ["在玩", "想玩", "已通关", "弃坑"], "游戏状态四个");
 eqDeep(GAME_PLATFORMS, ["PC", "Switch", "PS5", "手机", "其它"], "平台五个");
+
+/* ---------------- 模块目标那个弹窗 ---------------- */
+
+const goalSpec = formOf("moduleGoal");
+eq(goalSpec.table, "moduleGoals", "目标存在 moduleGoals 里（按模块分桶，不是普通表）");
+eq(goalSpec.upload, undefined, "目标弹窗没有图片区");
+eq(goalSpec.titleNew, "设置模块目标", "新增标题");
+eq(goalSpec.titleEdit, "修改模块目标", "编辑标题");
+
+const goalFields = goalSpec.fields.map((f) => f.name);
+eqDeep(goalFields, ["moduleName", "mainTarget", "cycle", "startDate", "endDate",
+  "dailyRule", "remark", "isActive", "autoTask"], "目标的九个字段，按顺序");
+eq(formOf("moduleGoal").fields.find((f) => f.name === "moduleName").kind, "static",
+  "「所属模块」是只读的一行");
+eq(formOf("moduleGoal").fields.find((f) => f.name === "isActive").kind, "switch",
+  "「启用目标」是开关");
+eq(formOf("moduleGoal").fields.find((f) => f.name === "autoTask").kind, "switch",
+  "「自动生成任务」也是开关");
+eq(formOf("moduleGoal").fields.find((f) => f.name === "mainTarget").required, true,
+  "核心目标是必填");
+
+const goalForm = formHtml("moduleGoal",
+  { moduleName: "健身计划", mainTarget: "减重 8kg", cycle: "月度",
+    startDate: "2026-10-07", endDate: "", dailyRule: "每周一、三、五力量训练",
+    remark: "", isActive: "true", autoTask: "true" },
+  {});
+ok(goalForm.includes("健身计划"), "只读那行把模块名画出来");
+ok(goalForm.includes('value="减重 8kg"') || goalForm.includes("减重 8kg"), "核心目标回填");
+ok(goalForm.includes('id="item-cycle"'), "周期是下拉");
+ok(goalForm.includes("月度"), "周期选项里有月度");
+ok(goalForm.includes("自定义起止日期"), "周期选项里有自定义起止日期");
+ok(goalForm.includes('type="checkbox"'), "两个开关画成了 checkbox");
+ok(goalForm.includes("checked"), "开着的开关是勾上的");
+ok(!goalForm.includes('id="item-moduleName" type'), "只读字段不是输入框");
+
+// 只读字段：读的时候不带、写的时候不碰
+const goalValues = readValues("moduleGoal", (name) =>
+  name === "mainTarget" ? "减重 8kg" : name === "isActive" ? "on" : "");
+eq(goalValues.moduleName, undefined, "只读字段不进表单值");
+const goalRow = { id: "g1", moduleId: "fitness", moduleName: "健身计划", mainTarget: "旧的" };
+applyValues("moduleGoal", goalRow, { ...goalValues, isActive: "on", autoTask: "" });
+eq(goalRow.moduleName, "健身计划", "只读的模块名没被冲掉");
+eq(goalRow.mainTarget, "减重 8kg", "核心目标写回去了");
+eq(goalRow.isActive, true, "开关勾着就是 true");
+eq(goalRow.autoTask, false, "开关没勾就是 false");
+
+const goalNew = newRow("moduleGoal",
+  { mainTarget: "每天学 2 小时", cycle: "每日", startDate: "2026-10-07",
+    endDate: "", dailyRule: "晚 7 点-9 点学习", remark: "", isActive: "on", autoTask: "on" },
+  { uid: () => "goal-1", moduleId: "study", moduleName: "学习工作", date: "2026-10-07" });
+eq(goalNew.moduleId, "study", "新目标带上模块 id");
+eq(goalNew.id, "goal-1", "新目标走 uid");
+eq(goalNew.isActive, true, "默认启用");
+eq(goalNew.imagePaths, undefined, "目标不带图片数组（没有图片区）");
+
+// 目标不进回收站：它自己给一份「只删配置」的计划
+const goalTrash = trashPlan("moduleGoal", { id: "g1", mainTarget: "减重 8kg" });
+eq(goalTrash.label, "减重 8kg", "删除确认里显示目标");
+eq(goalTrash.items.length, 0, "不往回收站里放任何东西");
+ok(typeof goalTrash.apply === "function", "删除动作自己做（从桶里摘掉）");
+ok(goalTrash.note.includes("待办会留"), "提示里说清「已生成的待办会留着」");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

@@ -471,6 +471,9 @@ code {
   padding: 10px 12px;
   border-radius: var(--r-md);
   border-bottom: var(--bw) solid var(--line);
+  /* 一行里控件多、窗口再一窄，中间的正文和备注会被压成一字一行（竖排）。
+     允许折行 + 正文留个宽度下限，挤不下时是「另起一行」，不是「把字压扁」。 */
+  flex-wrap: wrap;
 }
 
 .task:last-child { border-bottom: 0; }
@@ -487,7 +490,7 @@ code {
 }
 
 .t-date { flex: 0 0 48px; color: var(--muted); font-size: 13px; }
-.t-text { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+.t-text { flex: 1 1 auto; min-width: 8em; word-break: break-word; }
 
 .t-cat {
   flex: 0 0 auto;
@@ -499,7 +502,7 @@ code {
   white-space: nowrap;
 }
 
-.t-note { flex: 0 1 200px; color: var(--muted); font-size: 13px; word-break: break-word; }
+.t-note { flex: 0 1 200px; min-width: 6em; color: var(--muted); font-size: 13px; word-break: break-word; }
 .t-actions { flex: 0 0 auto; display: flex; gap: 12px; }
 
 .task.done .t-text { color: var(--muted); text-decoration: line-through; }
@@ -545,16 +548,29 @@ code {
   padding: 10px 12px;
   border-radius: var(--r-md);
   border-bottom: var(--bw) solid var(--line);
+  /* 同上：列表行也允许折行，别让标题 / 备注被挤成一列单字 */
+  flex-wrap: wrap;
 }
 
 .item:last-child { border-bottom: 0; }
 .item:hover { background: var(--hover); }
 .item.done .i-title { color: var(--muted); text-decoration: line-through; }
 
-.i-title { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+.i-title { flex: 1 1 auto; min-width: 8em; word-break: break-word; }
 .i-meta { flex: 0 0 auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.i-note { flex: 0 1 200px; color: var(--muted); font-size: 13px; word-break: break-word; }
+.i-note { flex: 0 1 200px; min-width: 6em; color: var(--muted); font-size: 13px; word-break: break-word; }
 .i-actions { flex: 0 0 auto; display: flex; gap: 12px; }
+
+/* 备注 / 心得 / 进展这类「用户自己在多行框里敲的」文字：回车要照原样显示。
+   记录里存的是 \n，HTML 默认把它当普通空格折掉，所以这里用 pre-line：
+   认换行、但不像 pre 那样保留一长串空格；纯 CSS 解决，不必把 \n 换成 <br>，
+   也就不会走到 innerHTML 那条路上去。 */
+.t-note,
+.i-note,
+.tl-text,
+.fin-row .i-title {
+  white-space: pre-line;
+}
 
 .item.editing { flex-wrap: wrap; background: var(--hover); border-bottom: 0; padding: 12px; }
 .item.editing .grow { flex: 1 1 240px; }
@@ -675,6 +691,7 @@ code {
   padding: 8px 12px;
   border-radius: var(--r-md);
   border-bottom: var(--bw) dashed var(--line);
+  flex-wrap: wrap;
 }
 .timeline li:last-child { border-bottom: 0; }
 .tl-date {
@@ -683,7 +700,7 @@ code {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.tl-text { flex: 1 1 auto; word-break: break-word; }
+.tl-text { flex: 1 1 auto; min-width: 8em; word-break: break-word; }
 
 /* ---------------- 每周安排 / 饮食 ---------------- */
 

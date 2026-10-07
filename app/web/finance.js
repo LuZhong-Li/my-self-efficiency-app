@@ -500,7 +500,11 @@ function txFormHtml(v, type, f) {
         .join("")}
     </div>
     <label class="fin-label" for="tx-note">备注</label>
-    <input id="tx-note" type="text" maxlength="60" placeholder="比如：午饭 黄焖鸡" value="${esc(v.note)}">
+    <!-- 备注用多行文本框：几笔开销可以一行一条。回车在 textarea 里就是换行，
+         不会触发「回车保存」（下面那段 keydown 只认 INPUT）；列表那边靠
+         CSS 的 white-space: pre-line 把 \n 照原样铺出来。 -->
+    <textarea id="tx-note" rows="3" maxlength="200"
+      placeholder="比如：午饭 黄焖鸡（可以换行写）">${esc(v.note)}</textarea>
     <div class="attach-host" id="tx-attach"></div>`;
 }
 

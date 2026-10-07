@@ -188,11 +188,15 @@ export function viewsSeries(account, contents, today, days, accounts = null) {
 /** 涨粉文案 + 环比提示。上周没有记录时不编一个百分比出来。 */
 export function growthText(weekGain, lastWeekGain) {
   const now = Number(weekGain) || 0;
-  const last = lastWeekGain === null || lastWeekGain === undefined ? null : Number(lastWeekGain);
   const text = (now > 0 ? "+" : "") + fmtCount(now);
-  if (!last) return { text, tip: "上周没有记录" };
+  // 只有「真的没有上周」才是 null；上周算出来是 0 是另一回事，不能当成没数据
+  if (lastWeekGain === null || lastWeekGain === undefined) {
+    return { text, tip: "上周没有记录" };
+  }
+  const last = Number(lastWeekGain) || 0;
   const diff = now - last;
   if (!diff) return { text, tip: "与上周持平" };
+  if (!last) return { text, tip: "上周没有涨粉" }; // 0 不能当分母
   const percent = Math.round((diff / Math.abs(last)) * 100);
   return { text, tip: percent > 0 ? `比上周多 ${percent}%` : `比上周少 ${Math.abs(percent)}%` };
 }

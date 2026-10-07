@@ -146,7 +146,12 @@ export function monthGridHtml({ selected: sel, marksOf: marks, kinds = ALL_KINDS
             ${
               lines.length
                 ? `<span class="cal-extra">${lines
-                    .map((l) => `<i class="cx cx-${esc(l.tone)}">${esc(l.text)}</i>`)
+                    .map(
+                      (l) =>
+                        `<i class="cx cx-${esc(l.tone)}${l.strike ? " strike" : ""}">${esc(
+                          l.text
+                        )}</i>`
+                    )
                     .join("")}</span>`
                 : ""
             }

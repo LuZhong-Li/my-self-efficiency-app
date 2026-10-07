@@ -2241,3 +2241,199 @@ html[data-theme="dark"] .fin-row.is-income { background: rgba(52, 211, 153, 0.08
 
 /* 全局搜索里把命中的字标出来 */
 .sr-text mark { padding: 0 2px; border-radius: 3px; background: var(--chip); color: var(--chip-ink); }
+
+/* ---------------- 自媒体（账号 / 数据概览 / 排期） ----------------
+   平台色是「内容色」（和月历圆点 mk-* 一个性质），允许写死低饱和 hex；
+   深浅两色都靠 color-mix 往 --ink 上靠一点，免得暗色下黑点看不见。 */
+
+.acc-strip { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 6px; }
+
+.acc-card {
+  position: relative;
+  flex: 0 0 196px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--soft);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.acc-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.acc-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus); }
+
+.acc-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 14px 8px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acc-main:hover { background: var(--hover); }
+.acc-top { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.acc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-sub { color: var(--muted); font-size: 12px; }
+.acc-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.acc-num small { margin-left: 4px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.acc-week { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.acc-week.up { color: var(--ok); font-weight: 600; }
+.acc-week.down { color: var(--err); font-weight: 600; }
+.acc-extra { color: var(--muted); font-size: 12px; }
+.acc-tools { display: flex; gap: 12px; padding: 0 14px 12px; font-size: 12px; }
+
+/* 平台首字色块（当「平台图标」用） */
+.acc-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--muted);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.acc-badge.plat-bili { background: #4a90c4; }
+.acc-badge.plat-xhs { background: #d9705a; }
+.acc-badge.plat-douyin { background: #3c3c46; }
+.acc-badge.plat-wechat { background: #4a9d7f; }
+.acc-badge.plat-zhihu { background: #5b6bd6; }
+.acc-badge.plat-shipin { background: #c98a3c; }
+.acc-badge.plat-other { background: #94a3b8; }
+
+/* 平台小标签：低饱和底 + 同色字 */
+.chip.plat-tag-bili {
+  background: color-mix(in srgb, #4a90c4 16%, transparent);
+  color: color-mix(in srgb, #4a90c4 78%, var(--ink));
+}
+.chip.plat-tag-xhs {
+  background: color-mix(in srgb, #d9705a 16%, transparent);
+  color: color-mix(in srgb, #d9705a 78%, var(--ink));
+}
+.chip.plat-tag-douyin {
+  background: color-mix(in srgb, #7b8494 18%, transparent);
+  color: color-mix(in srgb, #5c6575 80%, var(--ink));
+}
+.chip.plat-tag-wechat {
+  background: color-mix(in srgb, #4a9d7f 16%, transparent);
+  color: color-mix(in srgb, #3f8a6e 80%, var(--ink));
+}
+.chip.plat-tag-zhihu {
+  background: color-mix(in srgb, #5b6bd6 16%, transparent);
+  color: color-mix(in srgb, #5b6bd6 78%, var(--ink));
+}
+.chip.plat-tag-shipin {
+  background: color-mix(in srgb, #c98a3c 18%, transparent);
+  color: color-mix(in srgb, #b87a2e 80%, var(--ink));
+}
+.chip.plat-tag-other {
+  background: color-mix(in srgb, #94a3b8 18%, transparent);
+  color: color-mix(in srgb, #6b7686 80%, var(--ink));
+}
+
+/* 月历格子里的平台圆点与预览文字 */
+.mk-plat-bili { background: #4a90c4; }
+.mk-plat-xhs { background: #d9705a; }
+.mk-plat-douyin { background: color-mix(in srgb, #3c3c46 55%, var(--ink)); }
+.mk-plat-wechat { background: #4a9d7f; }
+.mk-plat-zhihu { background: #5b6bd6; }
+.mk-plat-shipin { background: #c98a3c; }
+.mk-plat-other { background: #94a3b8; }
+
+.cx-plat-bili { color: color-mix(in srgb, #4a90c4 80%, var(--ink)); }
+.cx-plat-xhs { color: color-mix(in srgb, #d9705a 80%, var(--ink)); }
+.cx-plat-douyin { color: color-mix(in srgb, #46505f 80%, var(--ink)); }
+.cx-plat-wechat { color: color-mix(in srgb, #3f8a6e 80%, var(--ink)); }
+.cx-plat-zhihu { color: color-mix(in srgb, #5b6bd6 80%, var(--ink)); }
+.cx-plat-shipin { color: color-mix(in srgb, #b87a2e 80%, var(--ink)); }
+.cx-plat-other { color: var(--muted); }
+
+/* 已发布的内容在格子里划掉，一眼分得清「排好的」和「发过的」 */
+.cx.strike { text-decoration: line-through; opacity: 0.6; }
+
+.cal-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cal-filter .hint { margin: 0; }
+
+/* 数据概览 */
+.ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 12px; }
+.ov-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+}
+.ov-cell > span { color: var(--muted); font-size: 12px; }
+.ov-cell > strong { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ov-cell > small { color: var(--muted); font-size: 11px; }
+.ov-cell > strong.up, .ov-cell > small.up { color: var(--ok); }
+.ov-cell > strong.down, .ov-cell > small.down { color: var(--err); }
+
+.ov-chart { margin-top: 16px; }
+.ov-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.ov-line { display: block; width: 100%; height: 140px; }
+.ov-line-foot {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ov-line-foot strong { margin-left: 6px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ov-tip { margin: 8px 0 0; }
+
+/* 爆款标记：暖色光晕 + 金色小标签 */
+.hit-tag {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 24%, transparent);
+  color: color-mix(in srgb, var(--warn) 72%, var(--ink));
+  font-size: 11px;
+  font-weight: 600;
+}
+.hit-tag.big { box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 55%, transparent); }
+.item.hit { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.i-nums { flex: 0 0 auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* 作品卡的拖拽（和项目卡片一个观感） */
+.item.card-ghost { opacity: 0.35; }
+.item.card-chosen { box-shadow: var(--shadow-lift); }
+.item.card-follow {
+  background: var(--card);
+  border: var(--bw) solid var(--accent);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lift);
+}
+#media-list-host li.item[draggable="true"] { cursor: grab; }
+#media-list-host li.item[draggable="true"]:active { cursor: grabbing; }
+
+/* 拖拽时的落点提示：日历格子、当天卡那一块 */
+body.media-dragging .cal-cell { border-color: var(--accent); }
+.cal-cell.drop-target,
+.drop-zone.drop-target {
+  background: var(--chip);
+  box-shadow: 0 0 0 2px var(--focus);
+  border-radius: var(--r-md);
+}
+
+/* 作品弹窗里的五个数据格 */
+.fin-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.fin-nums > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fin-nums input { width: 100%; }
+.fin-nums input:disabled { opacity: 0.5; }
+
+@media (max-width: 620px) {
+  .fin-nums { grid-template-columns: repeat(2, 1fr); }
+  .acc-card { flex: 0 0 168px; }
+}

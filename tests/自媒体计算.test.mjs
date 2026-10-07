@@ -169,8 +169,9 @@ eqDeep(growthText(326, 300), { text: "+326", tip: "比上周多 9%" }, "比上�
 eqDeep(growthText(100, 300), { text: "+100", tip: "比上周少 67%" }, "比上周少");
 eqDeep(growthText(300, 300), { text: "+300", tip: "与上周持平" }, "持平");
 eqDeep(growthText(-12, 300), { text: "-12", tip: "比上周少 104%" }, "掉粉也照实说");
-eqDeep(growthText(0, 0), { text: "0", tip: "上周没有记录" }, "上周压根没记录时不编百分比");
-eqDeep(growthText(50, null), { text: "+50", tip: "上周没有记录" }, "null 也算没有记录");
+eqDeep(growthText(0, 0), { text: "0", tip: "与上周持平" }, "两周都没涨粉 → 持平");
+eqDeep(growthText(326, 0), { text: "+326", tip: "上周没有涨粉" }, "上周是 0 时不给百分比（0 不能当分母）");
+eqDeep(growthText(50, null), { text: "+50", tip: "上周没有记录" }, "null 才是「上周没有记录」");
 
 console.log("\nmedia-calc.js：爆款");
 eq(isHit(190, 100), null, "1.9 倍还不算爆款");

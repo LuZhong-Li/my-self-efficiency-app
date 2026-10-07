@@ -63,7 +63,7 @@ function render() {
   const { id, sub } = route();
   if (id === "home") renderHome(view);
   else if (id === "plan") renderPlan(view);
-  else if (id === "media") renderMedia(view);
+  else if (id === "media") renderMedia(view, sub);
   else if (id === "dev") renderDev(view, sub);
   else if (id === "study") renderStudy(view);
   else if (id === "finance") renderFinance(view, sub);

@@ -5,7 +5,7 @@
 import {
   FORMS, ITEM_TYPES, formOf, optionsOf, formHtml,
   defaultsOf, valuesOf, readValues, validate, applyValues, newRow, trashPlan, imagesOf,
-  TASK_CATEGORIES, PRIORITIES, STUDY_KINDS, GAME_STATUSES, GAME_PLATFORMS,
+  TASK_CATEGORIES, PRIORITIES, PROJECT_STATUSES, STUDY_KINDS, GAME_STATUSES, GAME_PLATFORMS,
 } from "../app/web/item-form.js";
 import { ATTACH_MODULES } from "../app/web/attachment-calc.js";
 
@@ -49,8 +49,11 @@ function ok(cond, label) {
 
 /* ---------------- 注册表本身 ---------------- */
 
-eqDeep(ITEM_TYPES, ["todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game"],
-  "六个模块的弹窗类型都在，按顺序");
+eqDeep(ITEM_TYPES,
+  ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game"],
+  "七个模块的弹窗类型都在，按顺序");
+eq(formOf("devProject").table, "projects", "项目存 projects 表");
+eq(formOf("devProject").upload, "dev_project", "项目的图片单独一格");
 eq(formOf("game").table, "games", "游戏存 games 表");
 eq(formOf("studyRecord").table, "studies", "学习记录存 studies 表");
 eq(formOf("studyItem").table, "subjects", "学习对象存 subjects 表");
@@ -71,8 +74,8 @@ for (const type of ITEM_TYPES) {
 const uploads = ITEM_TYPES.map((t) => FORMS[t].upload);
 eq(new Set(uploads).size, uploads.length, "六个模块的图片目录互不重复");
 
-const ID_REQUIRED = { todayPlan: "text", devTodo: "text", studyRecord: "date",
-  studyItem: "name", fitness: "date", game: "name" };
+const ID_REQUIRED = { devProject: "name", todayPlan: "text", devTodo: "text",
+  studyRecord: "date", studyItem: "name", fitness: "date", game: "name" };
 for (const [type, name] of Object.entries(ID_REQUIRED)) {
   const f = FORMS[type].fields.find((x) => x.name === name);
   ok(f && f.required, `${type} 的「${name}」是必填`);
@@ -109,6 +112,23 @@ ok(subjHtml.includes('<option value="s2" selected>英语</option>'), "学习对�
 
 const emptyHtml = formHtml("fitness", {});
 ok(emptyHtml.includes('id="item-moves"') && emptyHtml.includes('id="item-date"'), "空值也画得出来");
+
+const projHtml = formHtml("devProject", { name: "小李", status: "已暂停", startDate: "2026-10-03" });
+ok(projHtml.includes('id="item-description"'), "项目有详细描述那一栏");
+ok(projHtml.includes('id="item-expectEndDate"'), "项目有预计结束日期");
+ok(projHtml.includes('<option value="已暂停" selected>已暂停</option>'), "项目状态选到「已暂停」");
+ok(projHtml.includes("<textarea"), "详细描述是多行");
+
+/* ---------------- 项目的初始值 / 校验 / 新增 ---------------- */
+
+eqDeep(defaultsOf("devProject"),
+  { name: "", status: "进行中", startDate: "", intro: "", description: "", expectEndDate: "" },
+  "新增项目的默认值（状态默认进行中，其它空着）");
+eq(valuesOf("devProject", { name: "木头", status: "废弃", description: "先放着" }).status, "废弃",
+  "编辑时状态回填");
+eq(valuesOf("devProject", { name: "木头" }).description, "", "老项目没有详细描述就是空串");
+eq(validate("devProject", { name: "  " }).error, "「项目名称」不能是空的", "项目名必填");
+eq(validate("devProject", { name: "小李" }).ok, true, "只填名字也能存（其它都可选）");
 
 /* ---------------- 初始值 ---------------- */
 
@@ -190,6 +210,15 @@ eq(subj.kind, "书", "类型写进去了");
 const fit = newRow("fitness", { date: "", moves: "跑步 5 km", note: "" }, { ...ctx, date: "" });
 eq(fit.date, "", "日期留空就是空字符串（表单那边会拦必填）");
 
+const proj = newRow("devProject",
+  { name: "小李", status: "进行中", startDate: "2026-10-03", intro: "本机小工具",
+    description: "把十个模块串起来", expectEndDate: "2026-12-31" }, ctx);
+eqDeep(proj, {
+  id: "id-1", name: "小李", status: "进行中", intro: "本机小工具",
+  description: "把十个模块串起来", startDate: "2026-10-03", expectEndDate: "2026-12-31",
+  imagePaths: [],
+}, "新增项目：空壳 + 七个字段 + 空图片数组");
+
 /* ---------------- 删除计划 ---------------- */
 
 const one = trashPlan("game", { id: "g1", name: "只狼" });
@@ -207,6 +236,31 @@ eq(two.items.length, 2, "删学习对象会连它的学习记录一起进回收�
 eq(two.items[1].table, "studies", "第二条动的是 studies 表");
 eq(two.items[1].row.id, "st1", "只带走属于它的那条");
 eq(two.extra, 1, "额外带走的条数是 1（给提示文案用）");
+
+const projTrash = trashPlan("devProject", { id: "p1", name: "小李" }, {
+  tasks: [
+    { id: "t1", belong: "dev:p1", text: "待办一" },
+    { id: "t2", belong: "dev:p2", text: "别人的待办" },
+    { id: "t3", belong: "plan", text: "今日计划里的" },
+  ],
+  issues: [
+    { id: "i1", projectId: "p1", title: "问题一" },
+    { id: "i2", projectId: "p2", title: "别人的问题" },
+  ],
+  progress: [
+    { id: "g1", projectId: "p1", text: "进展一" },
+  ],
+});
+eq(projTrash.label, "小李", "删项目用项目名当提示");
+eq(projTrash.items.length, 4, "删项目要带走它的 1 条待办 + 1 个问题 + 1 条进展");
+eqDeep(projTrash.items.map((i) => i.table), ["projects", "tasks", "issues", "progress"],
+  "动的是这四张表");
+eqDeep(projTrash.items.map((i) => i.row.id), ["p1", "t1", "i1", "g1"], "只带走属于它的那些");
+eq(projTrash.extra, 3, "额外带走 3 条（给提示文案用）");
+eq(trashPlan("devProject", { id: "p9", name: "空项目" }).items.length, 1, "没有附属内容时只动 projects");
+eq(formOf("devProject").extraNote, "条待办 / 问题 / 进展", "删项目的提示语说清带走的是什么");
+eq(formOf("studyItem").extraNote, "条学习记录", "删学习对象的提示语也是它自己那句");
+eq(formOf("game").extraNote, undefined, "没有连带内容的类型不用写提示语");
 eq(trashPlan("fitness", { id: "l1", moves: "深蹲 3×12" }).label, "深蹲 3×12", "训练打卡用练了什么当提示");
 eq(trashPlan("studyRecord", { id: "st9", content: "", takeaway: "没懂" }).label, "没懂",
   "学习记录没写内容时用心得当提示");

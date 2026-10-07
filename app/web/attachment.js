@@ -286,11 +286,17 @@ export function thumbsHtml(paths) {
 /**
  * 列表行上的「有图片」小标记：有图才显示，没有就返回空串（一点空白都不占）。
  * 各个模块的列表都用这一个，样子和提示语才会一致。
+ *
+ * 传了 options.act 就变成能点的（比如项目卡片上那个：点它看大图，
+ * 点卡片别处还是进项目详情）。
  */
-export function imgBadge(paths, what = "图") {
+export function imgBadge(paths, what = "图", options = {}) {
   const n = rowPaths({ imagePaths: paths }).length;
   if (!n) return "";
-  return `<span class="img-flag" title="带 ${n} 张${what}">${icon("image", 14)}</span>`;
+  const attrs = [`title="${esc(options.title || `带 ${n} 张${what}`)}"`];
+  if (options.act) attrs.push(`data-act="${esc(options.act)}"`);
+  if (options.act && options.id) attrs.push(`data-id="${esc(options.id)}"`);
+  return `<span class="img-flag${options.act ? " img-flag-act" : ""}" ${attrs.join(" ")}>${icon("image", 14)}</span>`;
 }
 
 /* ---------------- 附件区（弹窗 / 表单里那块） ---------------- */
@@ -489,6 +495,14 @@ export function openViewer(items, index = 0) {
   });
   document.addEventListener("keydown", onKey, true);
   return { el, close };
+}
+
+/** 只有一堆路径、没有额外信息时用这个（项目卡片上的图片标记点开就是它） */
+export function openPathViewer(paths, index = 0) {
+  const list = rowPaths({ imagePaths: paths }).map((p) => ({
+    src: attachUrl(p), label: fileNameOf(p),
+  }));
+  return openViewer(list, index);
 }
 
 /* ---------------- 全局代理（缩略图点击 / 图片读不出来） ----------------

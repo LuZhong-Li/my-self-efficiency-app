@@ -296,6 +296,7 @@ DEMO_IMAGES = [
     ("study_item", "demo0001", (176, 124, 196), 300, 420),   # 挂一本「书」
     ("fitness", "demo0001", (198, 116, 116), 480, 420),      # 挂一次训练
     ("game", "demo0001", (110, 150, 178), 640, 360),         # 挂一款游戏
+    ("dev_project", "demo0001", (98, 140, 190), 620, 380),   # 挂一个项目
 ]
 
 
@@ -338,11 +339,20 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
 
     projects = [
         {"id": "demo-p1", "name": "小李（个人工作台）", "status": "进行中",
-         "intro": "本机运行的个人效率面板：九个模块，一份 JSON。", "startDate": d(-38)},
+         "intro": "本机运行的个人效率面板：十个模块，一份 JSON。", "startDate": d(-38),
+         "expectEndDate": d(45),
+         "description": "目标：能长期替掉日历、备忘录和几个记账 App。\n"
+                        "规划：先把每个模块做到「真的能用」，再补统计和导出；\n"
+                        "算做完：连续用满一个月没想起要打开别的工具。",
+         "imagePaths": shot("dev_project")},
         {"id": "demo-p2", "name": "英语精读计划", "status": "进行中",
-         "intro": "每周三篇精读，把生词和句型记下来。", "startDate": d(-21)},
+         "intro": "每周三篇精读，把生词和句型记下来。", "startDate": d(-21),
+         "expectEndDate": d(60), "description": "目标：年底能裸读一篇外刊。",
+         "imagePaths": []},
         {"id": "demo-p3", "name": "房间收纳改造", "status": "已完成",
-         "intro": "换掉书桌、加了两个收纳箱。", "startDate": d(-60)},
+         "intro": "换掉书桌、加了两个收纳箱。", "startDate": d(-60),
+         "expectEndDate": d(-45), "description": "已经收尾了，桌子比原来宽 20 公分。",
+         "imagePaths": []},
     ]
 
     subjects = [
@@ -653,7 +663,7 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
 
     # 新字段：这几张表 2026-10-07 起都能带图片备注了，先给每条铺一个空数组，
     # 再从里面挑几条挂上演示图 —— 这样列表上的小图片标记在演示里看得见
-    for rows in (subjects, studies, tasks, workout_logs, games):
+    for rows in (projects, subjects, studies, tasks, workout_logs, games):
         for row in rows:
             row.setdefault("imagePaths", [])
     for task in tasks:

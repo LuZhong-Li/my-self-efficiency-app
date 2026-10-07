@@ -21,6 +21,27 @@ import {
   newRow, trashPlan,
 } from "./item-form.js";
 
+/** 一条记录的删除计划（把要看的几张表读出来交给纯函数算） */
+function planOf(type, row) {
+  return trashPlan(type, row, {
+    studies: table("studies"),
+    tasks: table("tasks"),
+    issues: table("issues"),
+    progress: table("progress"),
+  });
+}
+
+/**
+ * 把一条记录按它自己的「连带规则」挪进回收站：
+ * 删学习对象带走它的学习记录，删项目带走它的待办、问题、进展。
+ * 弹窗里的「删除」和页面上那个删除按钮都走这里，免得两处各写一遍。
+ */
+export function trashItem(type, row) {
+  const plan = planOf(type, row);
+  for (const item of plan.items) moveToTrash(item.table, item.row, item.label);
+  return plan;
+}
+
 /**
  * 打开一个新增 / 编辑弹窗。
  *
@@ -69,13 +90,14 @@ export function openItemDialog(type, row, options = {}) {
       if (act === "cancel") return true;
 
       if (act === "delete") {
-        // 先想清楚要动哪几张表（包括「删学习对象要连记录一起进回收站」这种）
-        const plan = trashPlan(type, row, { studies: table("studies") });
+        // 先想清楚要动哪几张表（包括「删项目要连待办 / 问题 / 进展一起走」这种）
+        const plan = planOf(type, row);
         (async () => {
           const ok = await askConfirm({
             title: `删除「${plan.label}」？`,
             message: plan.extra
-              ? `它的 ${plan.extra} 条学习记录也一起进回收站，误删可以去「数据与设置」找回。`
+              ? `它的 ${plan.extra} ${spec.extraNote || "条内容"}也一起进回收站，` +
+                "误删可以去「数据与设置」找回。"
               : "会放进回收站，误删可以去「数据与设置」找回。",
             confirmLabel: "删除",
             danger: true,
@@ -85,6 +107,7 @@ export function openItemDialog(type, row, options = {}) {
           touch(true);
           dlg.close();
           toast("已移入回收站");
+          if (typeof options.onDeleted === "function") options.onDeleted(row);
         })();
         return false;   // 确认框接管了这里，别把弹窗先关了
       }

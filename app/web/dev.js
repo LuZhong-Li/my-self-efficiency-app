@@ -6,21 +6,18 @@ import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
 import {
   createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
-  purgeRowAttachments, thumbsHtml, rowPaths, imgBadge,
+  purgeRowAttachments, thumbsHtml, rowPaths, imgBadge, openPathViewer,
 } from "./attachment.js";
-import { openItemDialog } from "./item-dialog.js";
+import { openItemDialog, trashItem } from "./item-dialog.js";
+import { PROJECT_STATUSES } from "./item-form.js";
 import {
   SEVERITY, ISSUE_STATUS, ISSUE_MODULES, DEFAULT_ISSUE_MODULE,
   normalizeIssue, normalizeProgress, isIssueClosed, issueStats, matchIssue,
   cycleDays, progressSorted,
 } from "./dev-calc.js";
 
-const PROJECT_STATUS = ["进行中", "已完成"];
-
-let editProject = false;
 let sorter = null;  // 项目卡片的拖拽实例（每次重画都要重建）
 let hostRoot = null;
-let editSnapshot = null; // 进编辑时拍的快照，点「取消」用它真正回滚
 
 // 筛选状态：只影响显示，不动数据
 let filterText = "";
@@ -36,7 +33,7 @@ export function renderDev(root, sub) {
   if (sub && project) renderDetail(root, project);
   else renderList(root);
 
-  bindFresh(root, { submit: onSubmit, click: onClick, change: onChange, input: onInput });
+  bindFresh(root, { click: onClick, change: onChange, input: onInput });
   setupDragSort(root);
 }
 
@@ -121,13 +118,12 @@ function renderList(root) {
   root.innerHTML = `
     ${pageHeader("dev", `<span class="date-chip">${all.length} 个项目</span>`)}
     <section class="card">
-      <form class="add-form" id="add-project" autocomplete="off">
-        <input name="name" class="grow" maxlength="80" required placeholder="项目名…">
-        <select name="status" title="状态">${options(PROJECT_STATUS)}</select>
-        <input name="intro" class="grow-note" maxlength="120" placeholder="一句话简介">
-        <input name="startDate" type="date" title="开始日期">
-        <button class="btn primary" type="submit">添加项目</button>
-      </form>
+      <div class="card-head">
+        <h2>项目</h2>
+        <div class="card-tools">
+          <button class="btn primary small" data-act="p-add">${icon("plus", 14)}添加项目</button>
+        </div>
+      </div>
 
       ${
         all.length
@@ -136,7 +132,7 @@ function renderList(root) {
                       placeholder="筛选项目名 / 简介…" value="${esc(filterText)}">
                <select id="project-status-filter" title="按状态筛选">
                  <option value="all"${filterStatus === "all" ? " selected" : ""}>全部状态</option>
-                 ${PROJECT_STATUS.map(
+                 ${PROJECT_STATUSES.map(
                    (s) => `<option value="${esc(s)}"${filterStatus === s ? " selected" : ""}>${esc(s)}</option>`
                  ).join("")}
                </select>
@@ -186,17 +182,27 @@ function applyFilter() {
 function projCard(p) {
   const openTodos = todoList(p.id).filter((t) => !t.done).length;
   const bugs = issueList(p.id).filter((i) => !isIssueClosed(i.status)).length;
+  const paths = rowPaths(p);
   return `
     <!-- draggable="false" 很关键：这是个链接，浏览器默认允许原生拖拽，
          一旦原生拖拽被触发，页面就收不到 mousemove，Sortable 的 forceFallback 会卡住不跟手。 -->
     <a class="proj-card" data-id="${esc(p.id)}" draggable="false" href="#dev/${esc(p.id)}">
       <div class="proj-top">
         <span class="proj-name">${esc(p.name)}</span>
-        ${chip(p.status)}
+        <span class="proj-top-right">
+          ${paths.length ? imgBadge(paths, "图", { act: "p-img", id: p.id, title: "点这里看项目截图" }) : ""}
+          ${chip(p.status)}
+        </span>
       </div>
       <div class="proj-intro">${esc(p.intro || "（还没有简介）")}</div>
       <div class="proj-counts">待办 ${openTodos} 条 · 未解决 bug ${bugs} 条</div>
-      ${p.startDate ? `<div class="proj-meta">开始于 ${esc(p.startDate)}</div>` : ""}
+      ${
+        p.startDate || p.expectEndDate
+          ? `<div class="proj-meta">${p.startDate ? `开始于 ${esc(p.startDate)}` : ""}${
+              p.startDate && p.expectEndDate ? " · " : ""
+            }${p.expectEndDate ? `预计 ${esc(p.expectEndDate)} 收尾` : ""}</div>`
+          : ""
+      }
     </a>`;
 }
 
@@ -216,26 +222,22 @@ function renderDetail(root, p) {
         <span class="date-chip">${esc(p.status || "进行中")}</span>
       </div>
 
+      <dl class="facts">
+        <dt>状态</dt><dd>${esc(p.status || "—")}</dd>
+        <dt>简介</dt><dd>${esc(p.intro || "—")}</dd>
+        <dt>开始日期</dt><dd>${esc(p.startDate || "—")}</dd>
+        <dt>预计结束</dt><dd>${esc(p.expectEndDate || "—")}</dd>
+      </dl>
       ${
-        editProject
-          ? `<form class="add-form" id="edit-project" autocomplete="off">
-               <input name="name" class="grow" maxlength="80" required value="${esc(p.name)}">
-               <select name="status">${options(PROJECT_STATUS, p.status)}</select>
-               <input name="intro" class="grow-note" maxlength="120" placeholder="一句话简介" value="${esc(p.intro || "")}">
-               <input name="startDate" type="date" value="${esc(p.startDate || "")}">
-               <button class="btn primary" type="submit">保存</button>
-               <button class="btn" type="button" data-act="p-cancel">取消</button>
-             </form>`
-          : `<dl class="facts">
-               <dt>状态</dt><dd>${esc(p.status || "—")}</dd>
-               <dt>简介</dt><dd>${esc(p.intro || "—")}</dd>
-               <dt>开始日期</dt><dd>${esc(p.startDate || "—")}</dd>
-             </dl>
-             <div class="row">
-               <button class="btn small" data-act="p-edit">编辑项目</button>
-               <button class="btn small danger" data-act="p-delete">删除项目</button>
-             </div>`
+        p.description
+          ? `<p class="issue-desc">${esc(p.description)}</p>`
+          : `<p class="issue-desc empty">（还没写详细描述，点「编辑项目」补上目标或规划）</p>`
       }
+      ${thumbsHtml(rowPaths(p))}
+      <div class="row">
+        <button class="btn small" data-act="p-edit">编辑项目</button>
+        <button class="btn small danger" data-act="p-delete">删除项目</button>
+      </div>
     </section>
 
     <section class="card">
@@ -284,11 +286,7 @@ function renderDetail(root, p) {
       }
     </section>
 
-    ${
-      editProject
-        ? ""
-        : `<p class="hint">项目待办不会出现在「今日计划」里，它们只属于这个项目。</p>`
-    }
+    <p class="hint">项目待办不会出现在「今日计划」里，它们只属于这个项目。</p>
   `;
 }
 
@@ -404,20 +402,10 @@ function currentProjectId() {
   return location.hash.split("/")[1] || "";
 }
 
-/** 点「取消」时把记录退回进编辑前的样子（因为编辑期间是自动保存的） */
-function restoreSnapshot() {
-  if (!editSnapshot || !editSnapshot.id) return;
-  const row = table("projects").find((x) => x.id === editSnapshot.id);
-  if (row) {
-    Object.assign(row, editSnapshot);
-  }
-}
-
 /**
  * 输入框边打边存。
- * - 筛选框：只重画卡片区，不动输入框（否则光标会跳）
- * - 行内编辑：静默保存（touch(false, true) 只写数据不重画），
- *   所以关窗口、断电都不会丢；想反悔就点「取消」，那里有快照可以退回。
+ * 现在只剩项目筛选框一处：只重画卡片区，不动输入框（否则光标会跳）。
+ * 项目 / 待办 / 问题 / 进展的录入都走弹窗了，弹窗里是「点保存才写」。
  */
 function onInput(e) {
   const el = e.target;
@@ -425,25 +413,7 @@ function onInput(e) {
   if (el.id === "project-filter") {
     filterText = el.value;
     applyFilter();
-    return;
   }
-
-  const form = el.closest("#edit-project");
-  if (form) {
-    const p = table("projects").find((x) => x.id === currentProjectId());
-    if (!p) return;
-    const name = form.querySelector('[name="name"]').value.trim();
-    if (!name) return; // 名字不能是空的，这一次先不存
-    p.name = name;
-    p.status = form.querySelector('[name="status"]').value;
-    p.intro = form.querySelector('[name="intro"]').value.trim();
-    p.startDate = form.querySelector('[name="startDate"]').value || "";
-    touch(false, true);
-    return;
-  }
-
-  // 现在只剩「编辑项目」还是边打字边静默保存（待办、问题、进展都走弹窗了，
-  // 弹窗里是「点保存才写」，不会边打字边落盘）
 }
 
 function findTodo(id) {
@@ -680,52 +650,6 @@ function bindDialogEnter(dlg, focusSel) {
   }
 }
 
-function onSubmit(e) {
-  const form = e.target;
-  const pid = currentProjectId();
-  if (form.id === "add-project") {
-    e.preventDefault();
-    const name = form.name.value.trim();
-    if (!name) return;
-    table("projects").push({
-      id: uid(),
-      name,
-      status: form.status.value,
-      intro: form.intro.value.trim(),
-      startDate: form.startDate.value || "",
-    });
-    touch(true);
-  } else if (form.id === "edit-project") {
-    e.preventDefault();
-    const p = table("projects").find((x) => x.id === pid);
-    if (!p) return;
-    const name = form.name.value.trim();
-    if (!name) return;
-    p.name = name;
-    p.status = form.status.value;
-    p.intro = form.intro.value.trim();
-    p.startDate = form.startDate.value || "";
-    editProject = false;
-    touch(true);
-  } else if (form.id === "add-todo") {
-    e.preventDefault();
-    const text = form.text.value.trim();
-    if (!text) return;
-    table("tasks").push({
-      id: uid(),
-      date: "",
-      text,
-      time: "",
-      category: "工作",
-      done: false,
-      note: form.note.value.trim(),
-      belong: "dev:" + pid,
-      createdAt: new Date().toISOString(),
-    });
-    touch(true);
-  }
-}
-
 async function onClick(e) {
   const btn = e.target.closest("[data-act]");
   if (!btn) {
@@ -744,14 +668,23 @@ async function onClick(e) {
   const id = li ? li.dataset.id : "";
   const pid = currentProjectId();
 
-  if (act === "p-edit") {
-    editSnapshot = JSON.parse(JSON.stringify(table("projects").find((x) => x.id === pid) || {}));
-    editProject = true;
-    redraw();
-  } else if (act === "p-cancel") {
-    restoreSnapshot();
-    editProject = false;
-    touch(true); // 退回也要落盘，否则界面回去了、磁盘还留着改后的值
+  if (act === "p-img") {
+    // 卡片右上角那个图片标记：点它看截图，别跟着卡片跳进项目详情
+    e.preventDefault();
+    const p = table("projects").find((x) => x.id === btn.dataset.id);
+    if (p) openPathViewer(rowPaths(p));
+  } else if (act === "p-add") {
+    openItemDialog("devProject", null, { defaults: { startDate: todayStr() } });
+  } else if (act === "p-edit") {
+    const p = table("projects").find((x) => x.id === pid);
+    if (p) {
+      openItemDialog("devProject", p, {
+        // 正在看的这个项目被删掉之后，地址还指着它就不好看了，拉回项目列表
+        onDeleted: () => {
+          if (currentProjectId() === p.id) location.hash = "#dev";
+        },
+      });
+    }
   } else if (act === "filter-clear") {
     filterText = "";
     filterStatus = "all";
@@ -766,12 +699,7 @@ async function onClick(e) {
       danger: true,
     });
     if (!ok) return;
-    moveToTrash("projects", p, p.name);
-    for (const t of table("tasks").filter((x) => x.belong === "dev:" + pid)) {
-      moveToTrash("tasks", t, t.text);
-    }
-    for (const i of issueList(pid)) moveToTrash("issues", i, i.title);
-    for (const g of progressList(pid)) moveToTrash("progress", g, g.text);
+    trashItem("devProject", p);   // 连带规则和弹窗里的「删除」共用一个实现
     location.hash = "#dev";
     touch(true);
     toast("项目已移入回收站");

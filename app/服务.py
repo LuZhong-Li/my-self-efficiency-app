@@ -58,7 +58,8 @@ ATTACH_DIR = os.path.join(DATA_DIR, "attachments")
 # 附件按模块分格；加新模块往这里补一个名字，前端 attachment-calc.js 也要跟着加
 ATTACH_MODULES = (
     "finance", "buglog", "progress",
-    "today_plan", "dev_todo", "study_record", "study_item", "fitness", "game",
+    "today_plan", "dev_project", "dev_todo", "study_record", "study_item",
+    "fitness", "game",
     "note",
 )
 ATTACH_EXTS = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
@@ -381,6 +382,15 @@ def migrate(data: dict) -> dict:
     for row in data.get("tasks") or []:
         if isinstance(row, dict):
             row.setdefault("priority", "")
+    # 项目也扩了字段：详细描述、预计结束日期、图片
+    # （「一句话简介」是老字段 intro，名字不动，老数据零成本）
+    for row in data.get("projects") or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("description", "expectEndDate"):
+            row.setdefault(key, "")
+        if not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
     # 附件相关的设置项也是后加的，老数据补齐（缺了才补，有了不动）
     settings = data.setdefault("settings", {})
     attach = settings.get("attachments")

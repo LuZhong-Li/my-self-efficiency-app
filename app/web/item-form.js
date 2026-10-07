@@ -24,6 +24,7 @@ function esc(text) {
 
 export const TASK_CATEGORIES = ["工作", "生活", "运动", "其他"];
 export const PRIORITIES = ["高", "中", "低"];
+export const PROJECT_STATUSES = ["进行中", "已暂停", "已完成", "废弃"];
 export const STUDY_KINDS = ["书", "课程", "视频", "技能", "其它"];
 export const GAME_STATUSES = ["在玩", "想玩", "已通关", "弃坑"];
 export const GAME_PLATFORMS = ["PC", "Switch", "PS5", "手机", "其它"];
@@ -42,6 +43,38 @@ export const GAME_PLATFORMS = ["PC", "Switch", "PS5", "手机", "其它"];
  */
 
 export const FORMS = {
+  devProject: {
+    table: "projects",
+    upload: "dev_project",
+    titleNew: "新增项目",
+    titleEdit: "编辑项目",
+    hint: "一个项目一条线：待办、问题、进展都挂在它下面。",
+    fields: [
+      { name: "name", label: "项目名称", kind: "text", required: true, maxlength: 80,
+        placeholder: "比如：小李（个人工作台）" },
+      { name: "status", label: "状态", kind: "select", list: PROJECT_STATUSES,
+        half: true, default: "进行中" },
+      { name: "startDate", label: "开始日期", kind: "date", half: true },
+      { name: "intro", label: "一句话简介", kind: "text", maxlength: 120,
+        placeholder: "这个项目是干什么的（可不填）" },
+      { name: "description", label: "详细描述", kind: "textarea", rows: 5,
+        maxlength: 2000, placeholder: "目标、规划、怎么算做完（可不填）" },
+      { name: "expectEndDate", label: "预计结束日期", kind: "date",
+        placeholder: "打算什么时候收尾（可不填）" },
+    ],
+    label: (row) => row.name || "（没写名字）",
+    extraNote: "条待办 / 问题 / 进展",   // 删除确认里那句「它的 N … 也一起进回收站」
+    create: (ctx) => ({
+      id: ctx.uid(),
+      name: "",
+      status: "进行中",
+      intro: "",
+      description: "",
+      startDate: "",
+      expectEndDate: "",
+    }),
+  },
+
   todayPlan: {
     table: "tasks",
     upload: "today_plan",
@@ -147,6 +180,7 @@ export const FORMS = {
         placeholder: "为什么想学、打算怎么学（可不填）" },
     ],
     label: (row) => row.name || "（没写名字）",
+    extraNote: "条学习记录",
     create: (ctx) => ({
       id: ctx.uid(), name: "", kind: "书", source: "", note: "",
     }),
@@ -346,7 +380,7 @@ export function newRow(type, values, ctx = {}) {
 
 /**
  * 删一条要动哪些表：先写清楚，交给调用方去执行（这里保持纯函数）。
- * 现在只有「删学习对象」会连它的学习记录一起进回收站。
+ * 两处会「连带」：删学习对象带走它的学习记录；删项目带走它的待办、问题和进展。
  */
 export function trashPlan(type, row, rowsByTable = {}) {
   const spec = formOf(type);
@@ -356,6 +390,24 @@ export function trashPlan(type, row, rowsByTable = {}) {
     for (const child of rowsByTable.studies || []) {
       if (child && child.subjectId === row.id) {
         items.push({ table: "studies", row: child, label: child.content || child.takeaway || "" });
+      }
+    }
+  }
+  if (type === "devProject") {
+    // 待办是靠 belong 指过来的（"dev:<项目 id>"），问题和进展是靠 projectId
+    for (const child of rowsByTable.tasks || []) {
+      if (child && child.belong === "dev:" + row.id) {
+        items.push({ table: "tasks", row: child, label: child.text || "" });
+      }
+    }
+    for (const child of rowsByTable.issues || []) {
+      if (child && child.projectId === row.id) {
+        items.push({ table: "issues", row: child, label: child.title || "" });
+      }
+    }
+    for (const child of rowsByTable.progress || []) {
+      if (child && child.projectId === row.id) {
+        items.push({ table: "progress", row: child, label: child.text || "" });
       }
     }
   }

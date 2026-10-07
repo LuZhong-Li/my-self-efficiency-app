@@ -295,7 +295,8 @@ def main() -> int:
         call(port, "/api/attachment-delete", "POST", {"paths": [up2.get("path")]})
 
         # 第二批模块的格子：今日计划 / 开发待办 / 学习记录 / 学习对象 / 训练打卡 / 游戏
-        for module in ("today_plan", "dev_todo", "study_record", "study_item", "fitness", "game"):
+        for module in ("today_plan", "dev_project", "dev_todo", "study_record",
+                       "study_item", "fitness", "game"):
             status, up3 = call(port, "/api/attachment", "POST", {
                 "module": module, "ext": "png",
                 "data": base64.b64encode(TINY_PNG).decode("ascii"),
@@ -324,6 +325,20 @@ def main() -> int:
         check("老的任务 / 学习 / 对象 / 打卡 / 游戏读出来都带上 imagePaths: []", fresh_ok)
         check("老任务读出来带上 priority: 空（开发待办才有优先级）",
               back2["tasks"][0].get("priority") == "")
+
+        # 项目也扩了字段（详细描述 / 预计结束 / 图片）
+        cur = call(port, "/api/data")[1]
+        cur["projects"] = [{"id": "p-selftest", "name": "老项目", "status": "进行中",
+                            "intro": "一句话", "startDate": "2026-10-01"}]
+        call(port, "/api/data", "POST", cur)
+        back3 = call(port, "/api/data")[1]
+        proj = back3["projects"][0]
+        check("老项目补齐了详细描述 / 预计结束日期 / imagePaths",
+              proj.get("description") == "" and proj.get("expectEndDate") == ""
+              and proj.get("imagePaths") == [],
+              str({k: proj.get(k) for k in ("description", "expectEndDate", "imagePaths")}))
+        check("老项目的「一句话简介」还是 intro，没被改名",
+              proj.get("intro") == "一句话")
 
         # 老 bug 条目：字段补齐 + 状态改名（处理中 → 进行中、已解决 → 已修复）
         cur = call(port, "/api/data")[1]

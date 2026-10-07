@@ -10,6 +10,7 @@ import { SUMMARY_MODULES, HOME_HIGHLIGHT_MODULES, HOME_OTHER_MODULES, moduleOf }
 import { dayTotals, monthTotals } from "./finance-calc.js";
 import { fmtMoney } from "./money.js";
 import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
+import { fmtCount, growthText, overviewOf, isArchived, isPublished, weekRangeOf } from "./media-calc.js";
 
 /** 简洁模式最多直接列几条待办，多的收进「查看更多待办」 */
 export const HOME_TASK_LIMIT = 4;
@@ -139,12 +140,18 @@ export function summaryOf(id, data, today) {
   if (!hasData(id, data)) return { main: "暂无数据", sub: "" };
   if (id === "media") {
     const items = rows(data, "contents");
-    const n = (s) => items.filter((x) => x.status === s).length;
+    const ov = overviewOf(data, today);
+    const growth = growthText(ov.weekGain, ov.lastWeekGain);
+    const pending = items.filter((c) => !isArchived(c) && c.status === "待发布").length;
+    const week = weekRangeOf(today);
+    const weekPublished = items.filter(
+      (c) => isPublished(c) && c.publishDate >= week.start && c.publishDate <= week.end
+    ).length;
     return {
-      main: `${n("待发布")} 条待发布`,
-      sub: items.length
-        ? `想法 ${n("想法")} · 写作中 ${n("写作中")} · 已发布 ${n("已发布")}`
-        : "还没有内容",
+      main: `总粉 ${fmtCount(ov.totalFollowers)} ｜ 本周 ${growth.text}`,
+      sub: `总播放 ${fmtCount(ov.totalViews)} ｜ 待发布 ${pending} 条`,
+      extra:
+        `本周已发 ${weekPublished} 条` + (ov.hitCount ? ` · 爆款 ${ov.hitCount} 条` : ""),
     };
   }
   if (id === "dev") {
@@ -239,7 +246,9 @@ export function cardsFor(view, data, today) {
 
 /** 这个模块到底有没有内容（「其他模块」面板要不要露脸就看它） */
 export function hasData(id, data) {
-  if (id === "media") return rows(data, "contents").length > 0;
+  if (id === "media") {
+    return rows(data, "contents").length > 0 || rows(data, "mediaAccounts").length > 0;
+  }
   if (id === "dev") return rows(data, "projects").length > 0 || rows(data, "issues").length > 0;
   if (id === "study") return rows(data, "subjects").length > 0 || rows(data, "studies").length > 0;
   if (id === "fitness") return rows(data, "workoutLogs").length > 0 || rows(data, "weights").length > 0;

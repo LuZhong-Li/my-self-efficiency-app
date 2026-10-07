@@ -54,12 +54,21 @@ const DATA = {
     { id: "t7", text: "昨天没做完的事", date: "2026-10-06", time: "", category: "工作", done: false, createdAt: "2026-10-05 09:00" },
   ],
   contents: [
-    { id: "c1", topic: "选题 A", status: "待发布", platform: "小红书" },
-    { id: "c2", topic: "选题 B", status: "待发布", platform: "公众号" },
-    { id: "c3", topic: "选题 C", status: "想法", platform: "小红书" },
-    { id: "c4", topic: "选题 D", status: "写作中", platform: "小红书" },
-    { id: "c5", topic: "选题 E", status: "已发布", platform: "小红书", publishDate: "2026-10-02" },
-    { id: "c6", topic: "选题 F", status: "已发布", platform: "小红书", publishDate: "2026-10-04" },
+    { id: "c1", title: "选题 A", accountId: "ma1", status: "待发布", platform: "小红书", planDate: "2026-10-10" },
+    { id: "c2", title: "选题 B", accountId: "ma2", status: "待发布", platform: "公众号", planDate: "2026-10-16" },
+    { id: "c3", title: "选题 C", accountId: "ma1", status: "想法", platform: "小红书" },
+    { id: "c4", title: "选题 D", accountId: "ma1", status: "撰写中", platform: "小红书" },
+    { id: "c5", title: "选题 E", accountId: "ma1", status: "已发布", platform: "小红书",
+      publishDate: "2026-10-02", views: 3000, likes: 100, fansGain: 60 },
+    { id: "c6", title: "选题 F", accountId: "ma1", status: "已发布", platform: "小红书",
+      publishDate: "2026-10-06", views: 9000, likes: 400, fansGain: 140 },
+  ],
+  mediaAccounts: [
+    { id: "ma1", name: "小红书小李", platform: "小红书", baseFollowers: 500, targetFollowers: 2000 },
+    { id: "ma2", name: "公众号小李", platform: "公众号", baseFollowers: 800, targetFollowers: 3000 },
+  ],
+  mediaFollowers: [
+    { id: "mf1", accountId: "ma1", date: "2026-10-01", count: 520 },
   ],
   projects: [
     { id: "p1", name: "小李", status: "进行中" },
@@ -142,8 +151,12 @@ eqDeep(overdueTasks({ tasks: [{ id: "a", date: TODAY, done: false }] }, TODAY), 
   "今天的不算遗留");
 
 console.log("home-view.js：卡片正面与提示");
-eq(cardOf("media", DATA, TODAY).main, "2 条待发布", "自媒体只留核心数字");
-eq(cardOf("media", DATA, TODAY).tip, "想法 1 · 写作中 1 · 已发布 2", "自媒体的次要信息进提示");
+eq(cardOf("media", DATA, TODAY).main, "总粉 1.5k ｜ 本周 +140",
+  "自媒体卡片正面：总粉丝 + 本周涨粉（520 快照 + 60 + 140）");
+eq(cardOf("media", DATA, TODAY).sub, "总播放 1.2w ｜ 待发布 2 条", "第二行：总播放与待发布");
+eq(cardOf("media", DATA, TODAY).extra, "本周已发 1 条", "没爆款就不写「爆款 0 条」");
+eq(cardOf("media", DATA, TODAY).tip, "总播放 1.2w ｜ 待发布 2 条 · 本周已发 1 条",
+  "hover 提示 = 第二行 + 第三行");
 eq(cardOf("dev", DATA, TODAY).main, "2 个项目进行中", "开发工作");
 eq(cardOf("dev", DATA, TODAY).tip, "未解决 bug 2 条", "开发工作的提示");
 eq(cardOf("study", DATA, TODAY).main, "本周学了 340 分钟", "学习工作按本周合计");
@@ -164,6 +177,11 @@ eq(cardOf("fitness", { ...DATA, workoutLogs: [], weights: [] }, TODAY).empty, tr
   "空模块带 empty 标记（卡片画成浅灰）");
 eq(cardOf("media", { contents: [] }, TODAY).main, "暂无数据", "自媒体一条都没有");
 eq(cardOf("media", { contents: [] }, TODAY).tip, "", "空模块不编 hover 提示");
+eq(hasData("media", { mediaAccounts: [{ id: "m" }] }, TODAY), true,
+  "只有账号、还没作品也算有数据");
+eq(hasData("media", { contents: [] }, TODAY), false, "账号和作品都没有 → 空模块");
+eq(cardOf("media", { mediaAccounts: [{ id: "m", platform: "B站", baseFollowers: 1000 }] }, TODAY).main,
+  "总粉 1k ｜ 本周 0", "只有账号时总粉丝照算，本周是 0");
 eq(cardOf("game", { games: [{ id: "g", status: "已通关" }] }, TODAY).main, "没有在玩的游戏",
   "有游戏记录但都不在玩 → 照实说，不是「暂无数据」");
 eq(cardOf("dev", DATA, TODAY).extra, "", "没有额外信息时 extra 是空串，不是 undefined");

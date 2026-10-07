@@ -5,7 +5,9 @@ import { store, esc, table } from "./store.js";
 
 const SOURCES = [
   { table: "tasks", module: "plan", label: "任务", fields: ["text", "note"] },
-  { table: "contents", module: "media", label: "自媒体", fields: ["title", "platform"] },
+  { table: "contents", module: "media", label: "自媒体", fields: ["title", "platform", "note"] },
+  { table: "mediaAccounts", module: "media", label: "自媒体账号",
+    fields: ["name", "platform", "intro", "note"] },
   { table: "projects", module: "dev", label: "项目", fields: ["name", "intro"] },
   { table: "issues", module: "dev", label: "问题", fields: ["title"] },
   { table: "progress", module: "dev", label: "进展", fields: ["text"] },

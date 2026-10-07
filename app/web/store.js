@@ -6,6 +6,7 @@
  */
 
 import { normalizeHomeView, normalizeMemoCollapsed } from "./home-view.js";
+import { normalizeThemeMode, resolveTheme, nextThemeMode } from "./theme.js";
 
 const changeHandlers = [];
 const statusHandlers = [];
@@ -41,6 +42,7 @@ export function setStatus(text, kind) {
 
 export async function initStore() {
   setupChannel();
+  bindSystemTheme();
   return readFromDisk();
 }
 
@@ -51,7 +53,7 @@ export async function readFromDisk() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     store.data = await res.json();
     store.loaded = true;
-    applyTheme(themeOf());
+    applyTheme();
     applySkin(skinOf());
     emitChange();
     setStatus("已连接 · 数据读取正常", "ok");
@@ -285,23 +287,84 @@ export function nowText() {
     `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/* ---------------- 主题 ---------------- */
+/* ---------------- 主题 ----------------
+ * themeMode 是策略（light / dark / system），theme 是当前实际用的明暗。
+ * 跟随系统时用 window.matchMedia('(prefers-color-scheme: dark)') 读系统偏好，
+ * 系统换主题不用刷新页面——监听开着，自动跟着变。 */
 
+const THEME_MQ = "(prefers-color-scheme: dark)";
+let themeQuery = null;      // matchMedia 拿到的媒体查询；老浏览器读不到就是 null
+let themeBound = false;     // 监听只挂一次，重复 initStore 不会叠
+const themeHandlers = [];
+
+/** 系统主题变了、或模式换了，想跟着更新一下界面就来订阅（顶部那颗按钮用） */
+export function onTheme(fn) {
+  themeHandlers.push(fn);
+}
+
+function emitTheme() {
+  for (const fn of themeHandlers) fn();
+}
+
+/** 系统现在是不是暗色。读不到这个特性（极老浏览器）时算浅色兜底。 */
+export function systemDark() {
+  return Boolean(themeQuery && themeQuery.matches);
+}
+
+export function systemThemeSupported() {
+  return Boolean(themeQuery);
+}
+
+/** 用户选的模式：light / dark / system（老数据从 settings.theme 迁一次） */
+export function themeModeOf() {
+  const s = (store.data && store.data.settings) || {};
+  return normalizeThemeMode(s.themeMode, s.theme);
+}
+
+/** 当前真正在用的明暗：light / dark */
 export function themeOf() {
-  const t = store.data && store.data.settings && store.data.settings.theme;
-  return t === "dark" ? "dark" : "light";
+  return resolveTheme(themeModeOf(), systemDark());
 }
 
-export function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+export function applyTheme() {
+  const theme = themeOf();
+  document.documentElement.dataset.theme = theme;
+  // theme 这个老字段跟着写一份「当前实际明暗」，老版本的数据文件也读得懂
+  if (store.data && store.data.settings) store.data.settings.theme = theme;
+  emitTheme();
 }
 
-export function setTheme(theme) {
+export function setThemeMode(mode) {
   if (!store.data) return;
   if (!store.data.settings) store.data.settings = {};
-  store.data.settings.theme = theme === "dark" ? "dark" : "light";
-  applyTheme(store.data.settings.theme);
+  store.data.settings.themeMode = normalizeThemeMode(mode);
+  applyTheme();
   touch(true);
+}
+
+/** 顶部快捷按钮：浅色 → 深色 → 跟随系统 → 浅色 */
+export function cycleTheme() {
+  if (!store.data) return themeModeOf();
+  setThemeMode(nextThemeMode(themeModeOf()));
+  return themeModeOf();
+}
+
+/** 挂上系统主题监听：切到「跟随系统」时才真的跟着变，
+ *  手动选了浅色 / 深色就固定住（回调里判一下模式，等于停止跟随）。 */
+function bindSystemTheme() {
+  if (themeBound) return;
+  themeBound = true;
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+  themeQuery = window.matchMedia(THEME_MQ);
+  const follow = () => {
+    if (themeModeOf() === "system") applyTheme();
+  };
+  if (themeQuery.addEventListener) themeQuery.addEventListener("change", follow);
+  else if (themeQuery.addListener) themeQuery.addListener(follow); // 老 Safari 只有这个
+  // 窗口从后台回来 / 睡眠唤醒后系统主题可能已经变了，补读一次免得状态错位
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) follow();
+  });
 }
 
 /* ---------------- 皮肤（外观）----------------

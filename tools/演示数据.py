@@ -243,6 +243,7 @@ def demo_data(existing: dict | None) -> dict:
     old = existing or {}
     settings = dict(old.get("settings") or {})
     settings.setdefault("theme", "light")
+    settings.setdefault("themeMode", "light")
     settings.setdefault("backupKeep", 14)
     settings.setdefault("slogan", "把时间花在看得见的地方")
 

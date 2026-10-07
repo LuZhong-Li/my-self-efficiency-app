@@ -1470,6 +1470,9 @@ html[data-skin="neo"] .item { border-bottom-width: 1px; border-bottom-style: sol
 .pref-label strong { font-size: 14px; }
 .pref-label small { color: var(--muted); font-size: 12px; }
 
+/* 「跟随系统」下面那句小字：单独占满一行，别挤在按钮旁边 */
+.theme-note { flex: 1 1 100%; margin: 8px 0 0; }
+
 .skin-picker { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .skin-opt {

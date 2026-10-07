@@ -1,6 +1,10 @@
 /* 外壳：顶部信息栏 + 左侧固定导航 + 当前模块视图 + 底部状态栏 */
 
-import { store, initStore, onChange, onStatus, setTheme, themeOf } from "./store.js";
+import {
+  store, initStore, onChange, onStatus, onTheme,
+  cycleTheme, themeModeOf, themeOf, systemThemeSupported,
+} from "./store.js";
+import { THEME_MODE_LABEL, nextThemeMode } from "./theme.js";
 import { MODULES } from "./modules.js";
 import { renderHome } from "./home.js";
 import { renderPlan } from "./plan.js";
@@ -15,6 +19,7 @@ import { renderSettings } from "./settings.js";
 import { initSearch } from "./search.js";
 import { icon } from "./icons.js";
 import { markEnter } from "./ui.js";
+import { toast } from "./dialog.js";
 
 const view = document.getElementById("view");
 const sideNav = document.getElementById("side-nav");
@@ -50,10 +55,22 @@ function renderTopGreet() {
     `星期${"日一二三四五六"[d.getDay()]}`;
 }
 
+/** 按钮上的图标表示「点一下会变成什么」：浅→深、深→跟随系统、系统→浅色。
+ *  这样三种状态一路循环，图标和提示永远对得上。 */
+const NEXT_ICON = { light: "moon", dark: "system", system: "sun" };
+
 function renderThemeButton() {
+  const mode = themeModeOf();
   const dark = themeOf() === "dark";
-  themeBtn.innerHTML = icon(dark ? "sun" : "moon", 18);
-  themeBtn.title = dark ? "切到浅色" : "切到深色";
+  themeBtn.innerHTML = icon(NEXT_ICON[nextThemeMode(mode)], 18);
+  if (mode === "system") {
+    const now = systemThemeSupported()
+      ? `系统现在是${dark ? "深色" : "浅色"}`
+      : "读不到系统明暗，先按浅色显示";
+    themeBtn.title = `当前为跟随系统模式（${now}）· 点击切到浅色`;
+  } else {
+    themeBtn.title = `点击切到${THEME_MODE_LABEL[nextThemeMode(mode)]}`;
+  }
 }
 
 function render() {
@@ -89,9 +106,11 @@ async function boot() {
   renderTopGreet();
   onStatus(setStatus);
   onChange(render);
+  onTheme(renderThemeButton);
   initSearch();
   themeBtn.addEventListener("click", () => {
-    setTheme(themeOf() === "dark" ? "light" : "dark");
+    const mode = cycleTheme();
+    if (store.loaded) toast(`明暗已切到「${THEME_MODE_LABEL[mode]}」`);
   });
 
   try {

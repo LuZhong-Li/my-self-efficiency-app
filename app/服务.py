@@ -157,6 +157,8 @@ def default_data() -> dict:
         "debt": default_debt(),
         "settings": {
             "theme": "light",
+            # 明暗策略：light / dark / system（跟随系统）。theme 只记当前实际明暗，兼容老版本
+            "themeMode": "light",
             "backupKeep": DEFAULT_BACKUP_KEEP,
             "selfTest": {"saveCount": 0, "lastSavedAt": None},
         },

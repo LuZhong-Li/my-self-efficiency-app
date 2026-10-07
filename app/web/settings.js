@@ -4,8 +4,9 @@ import {
   store,
   touch,
   readFromDisk,
-  setTheme,
-  themeOf,
+  setThemeMode,
+  themeModeOf,
+  systemThemeSupported,
   setSkin,
   skinOf,
   esc,
@@ -15,6 +16,7 @@ import {
   emptyTrash,
   TRASH_TABLE_LABEL,
 } from "./store.js";
+import { THEME_MODE_LABEL } from "./theme.js";
 import { bindFresh, pageHeader } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 
@@ -85,7 +87,9 @@ export async function renderSettings(el) {
 
     <section class="card">
       <h2>外观与标语</h2>
-      <p class="hint">风格决定长相，明暗决定亮还是暗；两样互不影响，功能和数据都不变。</p>
+      <p class="hint">
+        风格决定长相，明暗决定亮还是暗，也可以交给系统跟着电脑走；互不影响，功能和数据都不变。
+      </p>
 
       <div class="pref-row">
         <div class="pref-label"><strong>界面风格</strong><small>换一套视觉系统</small></div>
@@ -103,9 +107,12 @@ export async function renderSettings(el) {
       <div class="pref-row">
         <div class="pref-label"><strong>明暗</strong><small>长时间看着舒服就行</small></div>
         <div class="row">
-          <button class="btn" data-act="theme" data-theme="light">浅色</button>
-          <button class="btn" data-act="theme" data-theme="dark">深色</button>
+          <button class="btn" data-act="theme" data-theme="light" title="一直用浅色，不跟系统走">浅色</button>
+          <button class="btn" data-act="theme" data-theme="dark" title="一直用深色，不跟系统走">深色</button>
+          <button class="btn" data-act="theme" data-theme="system"
+            title="自动跟随电脑 Windows/macOS 系统明暗主题，切换系统主题时 App 同步更新">跟随系统</button>
         </div>
+        <p class="hint theme-note" id="theme-note" hidden></p>
       </div>
 
       <div class="row slogan-row">
@@ -187,10 +194,11 @@ function renderFacts() {
 }
 
 function renderThemeButtons() {
-  const cur = themeOf();
+  const cur = themeModeOf();
   for (const btn of document.querySelectorAll('[data-act="theme"]')) {
     btn.classList.toggle("active", btn.dataset.theme === cur);
   }
+  renderThemeNote(cur);
   const curSkin = skinOf();
   for (const btn of document.querySelectorAll('[data-act="skin"]')) {
     btn.classList.toggle("active", btn.dataset.skin === curSkin);
@@ -200,6 +208,21 @@ function renderThemeButtons() {
   if (keep) keep.value = s.backupKeep || 14;
   const slogan = document.getElementById("slogan");
   if (slogan) slogan.value = s.slogan || "";
+}
+
+/** 「跟随系统」模式下才露一句小字：说清会实时跟着电脑变（读不到系统就说明兜底） */
+function renderThemeNote(mode = themeModeOf()) {
+  const el = document.getElementById("theme-note");
+  if (!el) return;
+  if (mode !== "system") {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = systemThemeSupported()
+    ? "跟随系统：改电脑（Windows / macOS）的明暗，App 会立即跟着变，不用刷新页面。"
+    : "跟随系统：这个浏览器读不到系统明暗主题，先按浅色显示。";
 }
 
 async function refreshBackups() {
@@ -355,8 +378,9 @@ async function onClick(e) {
     } else if (act === "import") {
       await doImport();
     } else if (act === "theme") {
-      setTheme(btn.dataset.theme);
+      setThemeMode(btn.dataset.theme);
       renderThemeButtons();
+      toast(`明暗已设为「${THEME_MODE_LABEL[btn.dataset.theme]}」`);
     } else if (act === "skin") {
       setSkin(btn.dataset.skin);
       const found = SKINS.find(([id]) => id === btn.dataset.skin);

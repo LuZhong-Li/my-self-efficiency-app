@@ -19,6 +19,14 @@ rem =====================================================================
 
 set "TARGET=D:\小李"
 
+rem  %~dp0 结尾带一个反斜杠，直接 "%~dp0" 拿去当 robocopy 的源目录会踩坑：
+rem  robocopy 用的是 C 运行时的参数解析，字符串里 \" 算「转义的双引号」，
+rem  于是那个引号没闭合、后面的参数全被吞成一个。给源目录末尾补一个点
+rem  （"D:\小李。." 这种写法）就没有结尾反斜杠了，参数才分得清。
+rem  下面 /XD 那几处是「拼路径」，反过来要用带反斜杠的原值。
+set "SRC=%~dp0"
+set "SRCQ=%~dp0."
+
 if not exist "%TARGET%" (
   echo.
   echo   [ERROR] 找不到 %TARGET%
@@ -32,8 +40,8 @@ echo   从  %~dp0
 echo   到  %TARGET%
 echo.
 
-robocopy "%~dp0" "%TARGET%" /E ^
-  /XD "%~dp0数据" "%~dp0.git" "%~dp0__pycache__" "%~dp0tools" ^
+robocopy "%SRCQ%" "%TARGET%" /E ^
+  /XD "%SRC%数据" "%SRC%.git" "%SRC%__pycache__" "%SRC%tools" ^
   /XF *.pyc *.log *.tmp .gitignore .gitattributes 同步到小李.cmd 演示数据.cmd ^
   /NFL /NDL /NJH /NJS /NP
 

@@ -10,6 +10,7 @@
 
 import { rowPaths } from "./attachment-calc.js";
 import { GOAL_CYCLES } from "./goal-calc.js";
+import { DURATION_UNITS, toMinutes, shownDuration, linkGameId } from "./game-calc.js";
 
 /* 这里自带一个转义：store.js 里那个 esc 是给浏览器用的（那个文件会碰 window），
    纯模块 import 不了它。实现故意和 store.js 里那份保持一致。 */
@@ -33,14 +34,20 @@ export const GAME_PLATFORMS = ["PC", "Switch", "PS5", "手机", "其它"];
 /* ---------------- 字段表 ----------------
  *
  * 一个字段长这样：
- *   { name, label, kind: "text"|"number"|"date"|"time"|"select"|"textarea",
- *     required, placeholder, maxlength, min, step, list, source, half, default }
+ *   { name, label, kind: "text"|"number"|"date"|"time"|"select"|"combo"|"textarea",
+ *     required, placeholder, maxlength, min, step, list, source, half, default, fromRow }
  *
  *   list   —— 下拉的固定选项（字符串数组）
  *   source —— 下拉的选项来自运行时给的数据（见 formHtml 的 ctx）
+ *   combo  —— 下拉 + 手打两用（datalist）：清单里有就选，没有就自己打
  *   half   —— 连续两个 half 字段并排一行
+ *   showWhen —— 跟着另一个下拉显隐（比如「通关日期」只在状态 = 已通关时露出来）
+ *   fromRow—— 编辑时这个框里填什么（默认直接取记录里的同名字段；
+ *             像「游玩时长」这种存的是分钟、框里要按小时填的，就用它换算）
+ *   dateField —— 从「某一天」点「添加」时预填哪个日期字段（默认字段名叫 date）
  *   upload —— 图片存到 数据\attachments\<这个目录>\
  *   create —— 新增时先捏一个空壳（id、归属、创建时间这些不在表单里的字段）
+ *   mapValues —— 写回之后再做一次整理（游玩记录把「数字 + 单位」拧成分钟，就用它）
  */
 
 export const FORMS = {
@@ -209,7 +216,7 @@ export const FORMS = {
     upload: "game",
     titleNew: "新增游戏",
     titleEdit: "改这条游戏",
-    hint: "想玩的、在玩的、通关的都记一下。",
+    hint: "想玩的、在玩的、通关的都记一下。累计时长由「游玩记录」自动加出来，下面那一格是老数据兼容，可以清 0。",
     fields: [
       { name: "name", label: "游戏名称", kind: "text", required: true, maxlength: 80,
         placeholder: "游戏名…" },
@@ -217,15 +224,66 @@ export const FORMS = {
         half: true, blank: "不填", default: "PC" },
       { name: "status", label: "状态", kind: "select", list: GAME_STATUSES,
         half: true, default: "想玩" },
-      { name: "hours", label: "游玩时长（小时）", kind: "number", min: 0, step: 1,
-        placeholder: "比如 42" },
+      { name: "targetHours", label: "每月目标（小时）", kind: "number", min: 0, step: 1,
+        half: true, placeholder: "比如 10（可不填）" },
+      { name: "finishDate", label: "通关日期", kind: "date", half: true,
+        showWhen: { field: "status", equals: "已通关" } },
+      // 2026-10-07 起累计时长改成从「游玩记录」自动算，这一格只留给老数据；
+      // 不用再手填，填 0 就等于把以前手记的那笔清掉。
+      { name: "hours", label: "原有手填时长（小时）", kind: "number", min: 0, step: 1,
+        placeholder: "老数据兼容，不用填" },
       { name: "progress", label: "进度备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "打到哪儿了、卡在哪儿（可不填）" },
     ],
     label: (row) => row.name || "（没写名字）",
     create: (ctx) => ({
-      id: ctx.uid(), name: "", platform: "PC", status: "想玩", hours: 0, progress: "",
+      id: ctx.uid(), name: "", platform: "PC", status: "想玩", hours: 0,
+      targetHours: 0, finishDate: "", progress: "",
     }),
+  },
+
+  /* 游玩记录（2026-10-07 新增）：玩一次记一条，时长统一按分钟存。
+   * 游戏名做成「下拉 + 手打」两用：清单里有就选一个（自动绑上 gameId，
+   * 累计时长算得到这款游戏头上）；玩的是清单里没有的，直接打名字也行。 */
+  gamePlayRecord: {
+    table: "gameRecords",
+    upload: "game_record",
+    dateField: "playDate",   // 从某一天点「添加」时，预填的是这个字段（默认字段名叫 date）
+    titleNew: "新增游玩记录",
+    titleEdit: "修改游玩记录",
+    hint: "记一下哪天玩了多久、玩得怎么样。时长按分钟存，页面上的累计时长就是这些记录加出来的。",
+    fields: [
+      { name: "gameName", label: "游戏名称", kind: "combo", source: "gameOptions",
+        required: true, maxlength: 80, placeholder: "选一款在玩的，或者直接打名字" },
+      { name: "playDate", label: "游玩日期", kind: "date", required: true, half: true },
+      { name: "duration", label: "游玩时长", kind: "number", min: 0, step: 1, required: true,
+        half: true, placeholder: "比如 2",
+        fromRow: (row) => shownDuration(row && row.durationMin).amount || "" },
+      { name: "durationUnit", label: "时长单位", kind: "select", list: DURATION_UNITS,
+        half: true, default: "分钟",
+        fromRow: (row) => shownDuration(row && row.durationMin).unit },
+      { name: "remark", label: "备注", kind: "textarea", rows: 4, maxlength: 600,
+        placeholder: "对局感受、打到哪一关、和谁一起玩（可不填）" },
+    ],
+    label: (row) => (row.gameName ? `${row.gameName}${row.playDate ? " · " + row.playDate : ""}`
+      : "（没写游戏名）"),
+    create: (ctx) => ({
+      id: ctx.uid(),
+      gameId: "",
+      gameName: "",
+      playDate: ctx.date || "",
+      durationMin: 0,
+      remark: "",
+      createAt: typeof ctx.nowIso === "function" ? String(ctx.nowIso()) : "",
+    }),
+    mapValues: (row, values, ctx) => {
+      row.gameName = String(values.gameName || "").trim();
+      row.durationMin = toMinutes(values.duration, values.durationUnit);
+      row.gameId = linkGameId(row.gameName, ctx && ctx.gameIdByName);
+      // 表单里那两格是「数字 + 单位」，落盘的只有分钟，别在数据里留两个影子字段
+      delete row.duration;
+      delete row.durationUnit;
+    },
   },
 
   /* 模块目标（健身 / 学习 / 饮食）：没有图片区，也不是「往某张表 push 一条」——
@@ -308,9 +366,13 @@ export function optionsOf(field, ctx = {}) {
 function fieldHtml(field, values, ctx) {
   const id = "item-" + field.name;
   const value = values[field.name] == null ? "" : String(values[field.name]);
+  // 跟着别的下拉显隐的字段（通关日期只在状态选到「已通关」时露出来）：
+  // 外面套一层，弹窗那边按 data-field 找它，切下拉的时候把这一层藏起来。
+  const wrap = (html) =>
+    field.showWhen ? `<div class="dlg-field" data-field="${esc(field.name)}">${html}</div>` : html;
   // 只读的一行（比如目标的「所属模块」）：不进表单，只看
   if (field.kind === "static") {
-    return (
+    return wrap(
       `<label class="dlg-label">${esc(field.label)}</label>` +
       `<div class="dlg-static" id="${id}">${esc(value || "—")}</div>`
     );
@@ -318,7 +380,7 @@ function fieldHtml(field, values, ctx) {
   // 开关：标签跟框并排，勾上 = on
   if (field.kind === "switch") {
     const on = ["on", "true", "1", "yes"].includes(value.toLowerCase());
-    return (
+    return wrap(
       `<label class="dlg-switch" for="${id}">` +
       `<input type="checkbox" id="${id}"${on ? " checked" : ""}>` +
       `<span>${esc(field.label)}</span></label>`
@@ -326,7 +388,7 @@ function fieldHtml(field, values, ctx) {
   }
   const label = `<label class="dlg-label" for="${id}">${esc(field.label)}</label>`;
   if (field.kind === "textarea") {
-    return (
+    return wrap(
       label +
       `<textarea id="${id}" rows="${field.rows || 4}" maxlength="${field.maxlength || 1200}"` +
       ` placeholder="${esc(field.placeholder || "")}">${esc(value)}</textarea>`
@@ -339,7 +401,25 @@ function fieldHtml(field, values, ctx) {
           `<option value="${esc(o.value)}"${o.value === value ? " selected" : ""}>${esc(o.label)}</option>`
       )
       .join("");
-    return `${label}<select id="${id}">${opts}</select>`;
+    return wrap(`${label}<select id="${id}">${opts}</select>`);
+  }
+  // 下拉 + 手打两用：<input list="…"> 配一条 <datalist>，选项是现成的，
+  // 也可以自己打清单里没有的名字（浏览器自带的原生控件，不用额外写 JS）。
+  if (field.kind === "combo") {
+    const listId = `${id}-list`;
+    const opts = optionsOf(field, ctx)
+      .map(
+        (o) =>
+          `<option value="${esc(o.value)}"${o.label && o.label !== o.value ? ` label="${esc(o.label)}"` : ""}></option>`
+      )
+      .join("");
+    return wrap(
+      label +
+      `<input id="${id}" type="text" list="${listId}" maxlength="${field.maxlength || 80}"` +
+      ` value="${esc(value)}"` +
+      (field.placeholder ? ` placeholder="${esc(field.placeholder)}"` : "") +
+      `><datalist id="${listId}">${opts}</datalist>`
+    );
   }
   const attrs = [];
   if (field.kind === "number") {
@@ -353,7 +433,7 @@ function fieldHtml(field, values, ctx) {
     attrs.push('type="text"', `maxlength="${field.maxlength || 200}"`);
   }
   if (field.placeholder) attrs.push(`placeholder="${esc(field.placeholder)}"`);
-  return `${label}<input id="${id}" ${attrs.join(" ")} value="${esc(value)}">`;
+  return wrap(`${label}<input id="${id}" ${attrs.join(" ")} value="${esc(value)}">`);
 }
 
 /** 把一张字段表画成弹窗里的那段 HTML；连续两个 half 字段并排一行 */
@@ -396,6 +476,12 @@ export function valuesOf(type, row, extra = {}) {
   const src = row && typeof row === "object" ? row : {};
   for (const field of formOf(type).fields) {
     if (field.kind === "static") continue;   // 只看不改的字段不用回填
+    // 自己知道怎么回填的字段（比如分钟 ↔ 小时的换算）交给它自己
+    if (typeof field.fromRow === "function") {
+      const shown = field.fromRow(src, out);
+      out[field.name] = shown === undefined || shown === null ? "" : String(shown);
+      continue;
+    }
     const v = src[field.name];
     if (v === undefined || v === null || v === "") continue;
     // 数字字段是 0（时长、小时数没填）就当没填，框里留空让占位提示露出来
@@ -432,13 +518,16 @@ export function validate(type, values) {
 }
 
 /** 把表单值写回一条记录：数字转数字、开关转布尔、文本去掉两头空白 */
-export function applyValues(type, row, values) {
-  for (const field of formOf(type).fields) {
+export function applyValues(type, row, values, ctx = {}) {
+  const spec = formOf(type);
+  for (const field of spec.fields) {
     if (field.kind === "static") continue;   // 只读字段不回写，免得把它冲成空
     const raw = String(values[field.name] ?? "").trim();
     if (field.kind === "switch") row[field.name] = Boolean(raw) && raw !== "off";
     else row[field.name] = field.kind === "number" ? Number(raw) || 0 : raw;
   }
+  // 写回之后再整理一次（游玩记录把「数字 + 单位」拧成分钟，就是这一步干的）
+  if (typeof spec.mapValues === "function") spec.mapValues(row, values, ctx);
   return row;
 }
 
@@ -446,7 +535,7 @@ export function applyValues(type, row, values) {
 export function newRow(type, values, ctx = {}) {
   const spec = formOf(type);
   const row = spec.create(ctx) || {};
-  applyValues(type, row, values);
+  applyValues(type, row, values, ctx);
   if (spec.upload) row.imagePaths = [];   // 有图片区的类型才带 imagePaths
   return row;
 }

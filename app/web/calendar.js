@@ -16,6 +16,7 @@ import { touch, uid, table, esc, todayStr, dateStr, moveToTrash } from "./store.
 import { bindFresh, emptyState, options } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
+import { durationText } from "./game-calc.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const CATEGORIES = ["工作", "生活", "运动", "其他"];
@@ -244,6 +245,7 @@ function dayCountText(date) {
     table("studies").filter((s) => s.date === date).length +
     table("progress").filter((p) => p.date === date).length +
     table("weights").filter((w) => w.date === date).length +
+    table("gameRecords").filter((r) => r.playDate === date).length +
     table("contents").filter((c) => c.publishDate === date || c.planDate === date).length;
   const diet = table("meals").some((m) => m.date === date) ? 1 : 0;
   const total = n + diet;
@@ -370,6 +372,23 @@ function dayDetail(date) {
           .map(
             (w) => `<li class="item"><span class="i-title">${esc(w.kg)} kg</span>
               ${w.bodyFat ? `<span class="chip">体脂 ${esc(w.bodyFat)}%</span>` : ""}</li>`
+          )
+          .join("")
+      )
+    );
+  }
+
+  const plays = table("gameRecords").filter((r) => r.playDate === date);
+  if (plays.length) {
+    parts.push(
+      section(
+        `游玩（${plays.length}）`,
+        plays
+          .map(
+            (r) => `<li class="item">
+              <span class="i-title">${esc(r.gameName || "（没写游戏名）")}</span>
+              ${Number(r.durationMin) ? `<span class="i-meta">${esc(durationText(r.durationMin))}</span>` : ""}
+              <span class="i-note">${esc(r.remark || "")}</span></li>`
           )
           .join("")
       )

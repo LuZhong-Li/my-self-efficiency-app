@@ -41,7 +41,7 @@ export const DEFAULT_ATTACH_SETTINGS = { pruneOnDelete: false, maxEdge: 1920 };
 export const ATTACH_MODULES = [
   "finance", "buglog", "progress",
   "today_plan", "dev_project", "dev_todo", "study_record", "study_item",
-  "fitness", "game",
+  "fitness", "game", "game_record",
   "note",
 ];
 
@@ -49,6 +49,7 @@ export const MODULE_LABEL = {
   finance: "记账", buglog: "bug 登记", progress: "项目进展",
   today_plan: "今日计划", dev_project: "开发项目", dev_todo: "开发待办",
   study_record: "学习记录", study_item: "学习对象", fitness: "训练打卡", game: "游戏",
+  game_record: "游玩记录",
   note: "笔记",
 };
 

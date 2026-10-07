@@ -2863,3 +2863,125 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
   margin: 0;
   accent-color: var(--accent);
 }
+
+/* 跟着别的下拉显隐的字段（比如「通关日期」只在状态 = 已通关时露出来） */
+.dlg-field[hidden] { display: none; }
+
+/* ---------------- 游戏娱乐：游玩记录 + 游玩统计（2026-10-07） ----------------
+   页面上两张新卡片都复用 .card / .items / .item / .chip 这些现成零件，
+   这里只补日期条、计时器、统计格子、排行和拖拽落点这几处。 */
+
+.gm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+.gm-bar .icon-btn { width: 32px; height: 32px; font-size: 16px; line-height: 1; }
+.gm-bar input[type="date"] { width: auto; }
+.gm-bar-gap { flex: 1 1 auto; }
+
+/* 计时器：数字用等宽字，跳秒的时候不抖 */
+.gm-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+  font-size: 13px;
+}
+.gm-timer b { font-variant-numeric: tabular-nums; }
+
+.gm-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+}
+.gm-filter input[type="date"] { width: auto; }
+.gm-filter input[type="text"] { flex: 1 1 160px; min-width: 120px; }
+.gm-filter-label,
+.gm-filter-sep { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+/* 统计那五格：窗口窄了自己折行 */
+.gm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.gm-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--field);
+}
+.gm-stat > span { color: var(--muted); font-size: 12px; }
+.gm-stat > strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.gm-stat > small { color: var(--muted); font-size: 12px; }
+
+/* TOP3 那个名次小圆片 */
+.gm-rank {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--chip);
+  color: var(--chip-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 22px;
+}
+.gm-top .i-title { flex: 0 1 auto; }
+
+/* 本月超过目标的提醒（给单款游戏设过「每月目标」才有这行） */
+.gm-warn {
+  margin: 16px 0 0;
+  padding: 8px 16px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-bg);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* 空分组也要能接住拖过来的那一条：留一块虚线落点 */
+.gm-list { min-height: 48px; }
+.gm-drop-hint {
+  margin: 4px 0;
+  padding: 12px;
+  border: var(--bw) dashed var(--line);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.gm-list li.item { cursor: grab; }
+.gm-list li.item:active { cursor: grabbing; }
+
+/* 今日计划顶上那条「今天玩了什么」（游戏娱乐 → 今日计划的联动） */
+.gm-plan-brief {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gm-plan-brief > span { flex: 1 1 auto; }
+
+@media (max-width: 700px) {
+  .gm-bar-gap { display: none; }
+  .gm-stat > strong { font-size: 17px; }
+}

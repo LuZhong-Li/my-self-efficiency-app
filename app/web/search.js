@@ -17,6 +17,8 @@ const SOURCES = [
   { table: "weights", module: "fitness", label: "体重", fields: ["date"] },
   { table: "meals", module: "diet", label: "饮食", fields: ["breakfast", "lunch", "dinner", "snack"] },
   { table: "games", module: "game", label: "游戏", fields: ["name", "platform", "progress"] },
+  { table: "gameRecords", module: "game", label: "游玩记录",
+    fields: ["gameName", "remark", "playDate"] },
   { table: "finance.transactions", module: "finance", label: "账目", fields: ["note", "category"] },
   { table: "debt.items", module: "finance", hash: "finance/debt", label: "债务",
     fields: ["name", "creditor", "note"] },

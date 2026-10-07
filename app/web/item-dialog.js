@@ -72,10 +72,12 @@ export function openItemDialog(type, row, options = {}) {
     pid: options.pid || "",
     ...(options.ctx || {}),
   };
-  // 从「某一天」点进来的（今日计划、学习记录、训练打卡），那一天的日期要预填上
+  // 从「某一天」点进来的（今日计划、学习记录、训练打卡、游玩记录），那一天的日期要预填上。
+  // 字段名默认叫 date，游玩记录那边叫 playDate，所以让字段表自己声明（spec.dateField）。
   const seed = { ...options.defaults };
-  if (options.date && spec.fields.some((f) => f.name === "date") && !seed.date) {
-    seed.date = options.date;
+  const dateField = spec.dateField || "date";
+  if (options.date && spec.fields.some((f) => f.name === dateField) && !seed[dateField]) {
+    seed[dateField] = options.date;
   }
   const values = editing ? valuesOf(type, row, seed) : defaultsOf(type, seed);
   // 不是每种弹窗都要图片区（模块目标就没有），没有 upload 就不装配件
@@ -149,7 +151,7 @@ export function openItemDialog(type, row, options = {}) {
         const imagePaths = attach ? attach.paths.slice() : [];
         const saved = editing ? row : newRow(type, form, ctx);
         const before = editing ? rowPaths(row) : [];
-        applyValues(type, saved, form);
+        applyValues(type, saved, form, ctx);
         if (attach) saved.imagePaths = imagePaths;
         persistRow(spec, ctx, saved, !editing);
         touch(true);
@@ -164,10 +166,31 @@ export function openItemDialog(type, row, options = {}) {
   });
 
   if (attach) mountAttach(dlg.el.querySelector("#item-attach"), attach);
+  bindConditionalFields(dlg.el, spec);
   bindEnterToSave(dlg);
   const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
   return dlg;
+}
+
+/**
+ * 字段表里声明了 showWhen 的字段，跟着另一个下拉的当前值显隐。
+ * 比如游戏清单里「通关日期」只在状态 = 已通关时才露出来：切下拉立刻显 / 隐，
+ * 不用重画弹窗（重画会把已经填了一半的内容弄丢）。
+ */
+function bindConditionalFields(el, spec) {
+  for (const field of spec.fields) {
+    const rule = field.showWhen;
+    if (!rule) continue;
+    const box = el.querySelector(`[data-field="${field.name}"]`);
+    const src = el.querySelector("#item-" + rule.field);
+    if (!box || !src) continue;
+    const sync = () => {
+      box.hidden = src.value !== rule.equals;
+    };
+    src.addEventListener("change", sync);
+    sync();
+  }
 }
 
 /** 回车 = 保存。只在输入框 / 下拉里按回车才算（多行描述里回车要能换行）。 */

@@ -33,8 +33,10 @@ export function goalModuleOf(id) {
   return GOAL_MODULES.find((m) => m.id === id) || null;
 }
 
-/** 自动生成的任务在「今日计划」上挂的来源标签，比如「健身目标任务」 */
+/** 自动生成的任务在「今日计划」上挂的来源标签，比如「健身目标任务」。
+ *  游戏娱乐没有模块目标，但手动加进去的那条「玩游戏放松」也挂这个标签。 */
 export function sourceLabelOf(moduleId) {
+  if (moduleId === "game") return "游戏娱乐";
   const mod = goalModuleOf(moduleId);
   return (mod ? mod.short : "模块") + "目标任务";
 }

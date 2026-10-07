@@ -192,7 +192,8 @@ COUNT_KEYS = [
     ("projects", "项目"), ("issues", "问题"),
     ("progress", "进展"), ("subjects", "学习对象"), ("studies", "学习记录"),
     ("workoutLogs", "训练打卡"), ("weights", "体重"), ("meals", "饮食"),
-    ("water", "饮水"), ("games", "游戏"), ("finance.transactions", "账目"),
+    ("water", "饮水"), ("games", "游戏"), ("gameRecords", "游玩记录"),
+    ("finance.transactions", "账目"),
     ("debt.items", "债务"),
 ]
 
@@ -296,6 +297,7 @@ DEMO_IMAGES = [
     ("study_item", "demo0001", (176, 124, 196), 300, 420),   # 挂一本「书」
     ("fitness", "demo0001", (198, 116, 116), 480, 420),      # 挂一次训练
     ("game", "demo0001", (110, 150, 178), 640, 360),         # 挂一款游戏
+    ("game_record", "demo0001", (86, 158, 172), 560, 380),   # 挂一条游玩记录
     ("dev_project", "demo0001", (98, 140, 190), 620, 380),   # 挂一个项目
 ]
 
@@ -592,14 +594,45 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
 
     games = [
         {"id": "demo-j1", "name": "塞尔达传说：王国之泪", "platform": "Switch",
-         "status": "在玩", "progress": "主线第三章", "hours": 42},
+         "status": "在玩", "progress": "主线第三章", "hours": 42,
+         # 每月目标 5 小时：这个月记录已经 6 小时了，游玩统计那边会提醒一句「超了」
+         "targetHours": 5, "finishDate": ""},
         {"id": "demo-j2", "name": "空洞骑士：丝之歌", "platform": "PC",
-         "status": "想玩", "progress": "", "hours": 0},
+         "status": "想玩", "progress": "", "hours": 0, "targetHours": 0, "finishDate": ""},
         {"id": "demo-j3", "name": "传送门 2", "platform": "PC",
-         "status": "已通关", "progress": "单人剧情通关", "hours": 18},
+         "status": "已通关", "progress": "单人剧情通关", "hours": 18,
+         "targetHours": 0, "finishDate": d(-30)},
         {"id": "demo-j4", "name": "某款肉鸽", "platform": "Switch",
-         "status": "弃坑", "progress": "打到第二层就懒得练了", "hours": 6},
+         "status": "弃坑", "progress": "打到第二层就懒得练了", "hours": 6,
+         "targetHours": 0, "finishDate": ""},
     ]
+
+    # 游玩记录（2026-10-07 新增）：玩一次记一条，游戏清单上那个「累计时长」
+    # 就是这些记录加出来的（老数据里手填的 hours 也会一起算）。最后一条故意
+    # 不绑清单里的游戏（gameId 留空），用来演示「临时玩的也能记」。
+    game_records = [
+        {"id": "demo-p1", "gameId": "demo-j1", "gameName": "塞尔达传说：王国之泪",
+         "playDate": d(0), "durationMin": 120, "remark": "主线第三章，打完一个神庙",
+         "createAt": "%sT20:10:00" % d(0)},
+        {"id": "demo-p2", "gameId": "demo-j1", "gameName": "塞尔达传说：王国之泪",
+         "playDate": d(-1), "durationMin": 90, "remark": "刷了会儿材料",
+         "createAt": "%sT21:40:00" % d(-1)},
+        {"id": "demo-p3", "gameId": "demo-j1", "gameName": "塞尔达传说：王国之泪",
+         "playDate": d(-3), "durationMin": 150, "remark": "打雷之神庙，卡了半天",
+         "createAt": "%sT22:00:00" % d(-3)},
+        {"id": "demo-p4", "gameId": "demo-j3", "gameName": "传送门 2",
+         "playDate": d(-2), "durationMin": 75, "remark": "重玩合作关卡",
+         "createAt": "%sT19:30:00" % d(-2)},
+        {"id": "demo-p5", "gameId": "demo-j4", "gameName": "某款肉鸽",
+         "playDate": d(-6), "durationMin": 40, "remark": "又死在同一关",
+         "createAt": "%sT23:10:00" % d(-6)},
+        {"id": "demo-p6", "gameId": "", "gameName": "手机上的消消乐",
+         "playDate": d(-1), "durationMin": 25, "remark": "没进清单的临时记录",
+         "createAt": "%sT12:30:00" % d(-1)},
+    ]
+    for row in game_records:
+        row["imagePaths"] = []
+    game_records[0]["imagePaths"] = shot("game_record")
 
     accounts = [
         {"id": "demo-a1", "name": "微信", "initialBalanceCents": 0},
@@ -753,6 +786,7 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
         "meals": meals,
         "water": water,
         "games": games,
+        "gameRecords": game_records,
         "moduleGoals": module_goals,
         "mediaAccounts": media_accounts,
         "mediaFollowers": media_followers,

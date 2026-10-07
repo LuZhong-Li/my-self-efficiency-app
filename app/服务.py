@@ -59,7 +59,7 @@ ATTACH_DIR = os.path.join(DATA_DIR, "attachments")
 ATTACH_MODULES = (
     "finance", "buglog", "progress",
     "today_plan", "dev_project", "dev_todo", "study_record", "study_item",
-    "fitness", "game",
+    "fitness", "game", "game_record",
     "note",
 )
 ATTACH_EXTS = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
@@ -90,6 +90,7 @@ COUNT_KEYS = [
     ("meals", "饮食记录"),
     ("water", "饮水记录"),
     ("games", "游戏"),
+    ("gameRecords", "游玩记录"),
     ("finance.transactions", "账目"),
     ("debt.items", "债务"),
 ]
@@ -171,12 +172,17 @@ def default_data() -> dict:
         "meals": [],
         "water": [],
         "games": [],
+        # 游玩记录：玩一次记一条（哪天、哪款游戏、多久、什么感受），
+        # 游戏清单上那个「累计 X 小时」就是这张表加出来的
+        "gameRecords": [],
         "finance": default_finance(),
         "debt": default_debt(),
         "settings": {
             "theme": "light",
             # 明暗策略：light / dark / system（跟随系统）。theme 只记当前实际明暗，兼容老版本
             "themeMode": "light",
+            # 今日计划里要不要露一条「今天的游玩记录」（游戏娱乐 → 今日计划，可关）
+            "planShowGame": False,
             "backupKeep": DEFAULT_BACKUP_KEEP,
             # 图片附件：彻底删掉一条记录时，要不要连它的图片一起删（默认保留，删错了还能找回来）
             "attachments": {"pruneOnDelete": False, "maxEdge": 1920},
@@ -408,6 +414,30 @@ def migrate(data: dict) -> dict:
         for row in data.get(key) or []:
             if isinstance(row, dict) and not isinstance(row.get("imagePaths"), list):
                 row["imagePaths"] = []
+    # 游玩记录（2026-10-07 新增）：游戏娱乐从「手填累计时长」改成「玩一次记一条」，
+    # 单独一张 gameRecords 表。老数据没有这个键就补一张空表；有的逐条补齐字段，
+    # 一条都不丢（游戏清单 games 那边一个字都不动，老的手填 hours 照旧留着）。
+    if not isinstance(data.get("gameRecords"), list):
+        data["gameRecords"] = []
+    plays = []
+    for row in data["gameRecords"]:
+        if not isinstance(row, dict):
+            continue
+        row.setdefault("id", "play-" + uuid.uuid4().hex[:8])
+        for key in ("gameId", "gameName", "playDate", "remark", "createAt"):
+            row.setdefault(key, "")
+        row.setdefault("durationMin", 0)
+        if not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
+        plays.append(row)
+    data["gameRecords"] = plays
+    # 游戏清单同时扩了两格：每月目标（小时）和通关日期。老数据补空值就行，
+    # 原来的 name / platform / status / hours / progress 一个都不动。
+    for row in data.get("games") or []:
+        if not isinstance(row, dict):
+            continue
+        row.setdefault("targetHours", 0)
+        row.setdefault("finishDate", "")
     # 开发待办多了个「优先级」字段（今日计划的任务不标，留空）
     for row in data.get("tasks") or []:
         if isinstance(row, dict):

@@ -50,8 +50,9 @@ function ok(cond, label) {
 /* ---------------- 注册表本身 ---------------- */
 
 eqDeep(ITEM_TYPES,
-  ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game", "moduleGoal"],
-  "八个弹窗类型都在，按顺序（模块目标是 2026-10-07 加的）");
+  ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game",
+    "gamePlayRecord", "moduleGoal"],
+  "九个弹窗类型都在，按顺序（游玩记录与模块目标都是 2026-10-07 加的）");
 eq(formOf("devProject").table, "projects", "项目存 projects 表");
 eq(formOf("devProject").upload, "dev_project", "项目的图片单独一格");
 eq(formOf("game").table, "games", "游戏存 games 表");
@@ -110,6 +111,17 @@ const escaped = formHtml("game", { name: '<script>alert("x")</script>' });
 ok(!escaped.includes("<script>"), "游戏名里的尖括号被转义，不会当标签渲染");
 ok(escaped.includes("&lt;script&gt;"), "转义成实体");
 
+// 游戏清单扩的两格：每月目标、通关日期（后者只在状态 = 已通关时露出来）
+const gameExtra = formHtml("game", { name: "只狼", status: "已通关", targetHours: 10,
+  finishDate: "2026-09-20" });
+ok(gameExtra.includes('id="item-targetHours"'), "游戏有「每月目标」那一格");
+ok(gameExtra.includes('value="2026-09-20"'), "通关日期回填");
+ok(gameExtra.includes('data-field="finishDate"'), "通关日期那格挂着「跟着状态显隐」的钩子");
+eq(formOf("game").fields.find((f) => f.name === "finishDate").showWhen.equals, "已通关",
+  "通关日期只在状态 = 已通关时露出来");
+eq(valuesOf("game", { name: "只狼", targetHours: 12, finishDate: "2026-09-20" }).targetHours, "12",
+  "每月目标回填成字符串（表单里一律是字符串）");
+
 const subjHtml = formHtml("studyRecord", { subjectId: "s2" }, { subjects: [["s1", "数学"], ["s2", "英语"]] });
 ok(subjHtml.includes('<option value="s2" selected>英语</option>'), "学习对象下拉接到运行时给的数据");
 
@@ -135,13 +147,15 @@ eq(validate("devProject", { name: "小李" }).ok, true, "只填名字也能存�
 
 /* ---------------- 初始值 ---------------- */
 
-eqDeep(defaultsOf("game"), { name: "", platform: "PC", status: "想玩", hours: "", progress: "" },
+eqDeep(defaultsOf("game"),
+  { name: "", platform: "PC", status: "想玩", targetHours: "", finishDate: "", hours: "", progress: "" },
   "新增游戏时的默认值");
 eq(defaultsOf("studyItem").kind, "书", "新增学习对象默认类型是书");
 eq(defaultsOf("devTodo").priority, "", "新增待办默认不标优先级");
 
 eqDeep(valuesOf("game", { name: "只狼", status: "已通关" }),
-  { name: "只狼", platform: "PC", status: "已通关", hours: "", progress: "" },
+  { name: "只狼", platform: "PC", status: "已通关", targetHours: "", finishDate: "",
+    hours: "", progress: "" },
   "编辑时：记录里有的用记录的，没有的用默认值");
 eq(valuesOf("game", { hours: 0 }).hours, "", "时长 0 当成没填，框里留空");
 eq(valuesOf("game", { hours: 42 }).hours, "42", "时长有值就带出来");
@@ -342,6 +356,76 @@ eq(goalTrash.label, "减重 8kg", "删除确认里显示目标");
 eq(goalTrash.items.length, 0, "不往回收站里放任何东西");
 ok(typeof goalTrash.apply === "function", "删除动作自己做（从桶里摘掉）");
 ok(goalTrash.note.includes("待办会留"), "提示里说清「已生成的待办会留着」");
+
+/* ---------------- 游玩记录那个弹窗（2026-10-07 加的） ---------------- */
+
+eq(formOf("gamePlayRecord").table, "gameRecords", "游玩记录存 gameRecords 表");
+eq(formOf("gamePlayRecord").upload, "game_record", "游玩记录的图片单独一格");
+eqDeep(formOf("gamePlayRecord").fields.map((f) => f.name),
+  ["gameName", "playDate", "duration", "durationUnit", "remark"],
+  "游玩记录五个字段：游戏名 / 日期 / 时长 / 单位 / 备注");
+eq(formOf("gamePlayRecord").fields[0].kind, "combo",
+  "游戏名是「下拉 + 手打」两用（清单里有就选，没有就自己打）");
+eq(formOf("gamePlayRecord").fields[0].required, true, "游戏名必填");
+eq(formOf("gamePlayRecord").fields[2].required, true, "时长必填（不然记了等于没记）");
+
+eq(validate("gamePlayRecord", { gameName: "  " }).ok, false, "游戏名只填空格不算填");
+eq(validate("gamePlayRecord", { gameName: "只狼", playDate: "2026-10-07" }).error,
+  "「游玩时长」不能是空的", "时长没填要拦下来");
+eq(validate("gamePlayRecord", { gameName: "只狼", playDate: "2026-10-07", duration: "2" }).ok,
+  true, "名字 + 日期 + 时长填了就能存");
+
+const playHtml = formHtml("gamePlayRecord",
+  { gameName: "王者", playDate: "2026-10-07", duration: 2, durationUnit: "小时", remark: "" },
+  { gameOptions: [{ value: "王者荣耀", label: "王者荣耀 · 在玩" }] });
+ok(playHtml.includes('list="item-gameName-list"'), "游戏名画成带候选框的输入框");
+ok(playHtml.includes('<option value="王者荣耀" label="王者荣耀 · 在玩">'), "候选项来自清单里的游戏");
+ok(playHtml.includes('<option value="小时" selected>小时</option>'), "时长单位选到小时");
+ok(playHtml.includes('id="item-duration"') && playHtml.includes('type="number"'), "时长是数字框");
+
+// 编辑时：存的是分钟，框里按「数字 + 单位」回填
+eq(valuesOf("gamePlayRecord", { durationMin: 120 }).duration, "2", "120 分钟回填成 2");
+eq(valuesOf("gamePlayRecord", { durationMin: 120 }).durationUnit, "小时", "整小时就按小时回填");
+eq(valuesOf("gamePlayRecord", { durationMin: 90 }).duration, "90", "90 分钟按分钟回填");
+eq(valuesOf("gamePlayRecord", { durationMin: 90 }).durationUnit, "分钟", "不是整小时就按分钟");
+eq(valuesOf("gamePlayRecord", {}).duration, "", "没有时长就留空，让占位提示露出来");
+
+// 写回：把「数字 + 单位」拧成分钟，游戏名顺手绑上清单里的 id
+const play = { id: "r1", gameId: "", gameName: "", playDate: "", durationMin: 0, remark: "" };
+applyValues("gamePlayRecord", play,
+  { gameName: "王者荣耀", playDate: "2026-10-07", duration: "2", durationUnit: "小时", remark: "排位" },
+  { gameIdByName: { 王者荣耀: "g1" } });
+eq(play.durationMin, 120, "2 小时落盘成 120 分钟");
+eq(play.gameId, "g1", "选到清单里的游戏就自动绑上 id");
+eq(play.gameName, "王者荣耀", "游戏名照旧存一份（清单里删了这款，记录还看得出玩的什么）");
+eq(play.remark, "排位", "备注原样写回");
+eq(play.duration, undefined, "表单里那个「数字」不落盘，数据里只有分钟");
+eq(play.durationUnit, undefined, "单位也不落盘");
+
+const loose = {};
+applyValues("gamePlayRecord", loose, { gameName: "路边小游戏", duration: "45", durationUnit: "分钟" });
+eq(loose.durationMin, 45, "临时玩的按分钟记");
+eq(loose.gameId, "", "清单里没有的就留空，不瞎绑");
+
+const playNew = newRow("gamePlayRecord",
+  { gameName: "只狼", playDate: "2026-10-06", duration: "90", durationUnit: "分钟", remark: "" },
+  { uid: () => "id-9", nowIso: () => "2026-10-06T20:00:00.000Z", date: "2026-10-07" });
+eqDeep(playNew, {
+  id: "id-9", gameId: "", gameName: "只狼", playDate: "2026-10-06", durationMin: 90,
+  remark: "", createAt: "2026-10-06T20:00:00.000Z", imagePaths: [],
+}, "新增游玩记录：空壳 + 表单值（时长拧成分钟）+ 空图片数组");
+
+const playTrash = trashPlan("gamePlayRecord", { id: "r1", gameName: "只狼", playDate: "2026-10-07" });
+eq(playTrash.items.length, 1, "删游玩记录只动 gameRecords 一张表");
+eq(playTrash.items[0].table, "gameRecords", "进回收站也进对表");
+ok(playTrash.label.includes("只狼"), "删除确认里带上游戏名");
+
+// 游戏清单的两格新字段：写回时数字照旧转成数字，没填就是 0 / 空串
+const gRow = { id: "g1", name: "只狼" };
+applyValues("game", gRow, { name: "只狼", platform: "PC", status: "已通关",
+  targetHours: "10", finishDate: "2026-09-20", hours: "", progress: "" });
+eq(gRow.targetHours, 10, "每月目标写成数字");
+eq(gRow.finishDate, "2026-09-20", "通关日期原样写回");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

@@ -145,8 +145,8 @@ def main() -> int:
         status, data = call(port, "/api/data")
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
-                "games", "settings", "finance", "debt", "mediaAccounts", "mediaFollowers",
-                "moduleGoals"]
+                "games", "gameRecords", "settings", "finance", "debt", "mediaAccounts",
+                "mediaFollowers", "moduleGoals"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -297,7 +297,7 @@ def main() -> int:
 
         # 第二批模块的格子：今日计划 / 开发待办 / 学习记录 / 学习对象 / 训练打卡 / 游戏
         for module in ("today_plan", "dev_project", "dev_todo", "study_record",
-                       "study_item", "fitness", "game"):
+                       "study_item", "fitness", "game", "game_record"):
             status, up3 = call(port, "/api/attachment", "POST", {
                 "module": module, "ext": "png",
                 "data": base64.b64encode(TINY_PNG).decode("ascii"),
@@ -326,6 +326,38 @@ def main() -> int:
         check("老的任务 / 学习 / 对象 / 打卡 / 游戏读出来都带上 imagePaths: []", fresh_ok)
         check("老任务读出来带上 priority: 空（开发待办才有优先级）",
               back2["tasks"][0].get("priority") == "")
+        check("老游戏手填的 hours 一个字节都没动", back2["games"][0].get("hours") == 1,
+              str(back2["games"][0].get("hours")))
+        check("老游戏补齐「每月目标 / 通关日期」两格",
+              back2["games"][0].get("targetHours") == 0
+              and back2["games"][0].get("finishDate") == "",
+              str({k: back2["games"][0].get(k) for k in ("targetHours", "finishDate")}))
+        check("没有 gameRecords 的老数据读出来补成空表",
+              back2.get("gameRecords") == [], str(back2.get("gameRecords")))
+
+        # 游玩记录（2026-10-07 新增）：单独一张 gameRecords 表，字段补齐，导出导入带着走
+        cur = call(port, "/api/data")[1]
+        cur["gameRecords"] = [{
+            "id": "play-selftest", "gameId": "g-selftest", "gameName": "老游戏",
+            "playDate": "2026-10-07", "durationMin": 120, "remark": "自检",
+        }]
+        call(port, "/api/data", "POST", cur)
+        plays = call(port, "/api/data")[1]["gameRecords"]
+        check("游玩记录能整份写回并读回来",
+              plays[0]["durationMin"] == 120 and plays[0]["gameName"] == "老游戏",
+              str(plays[0]))
+        check("游玩记录的缺省字段读出来补齐（createAt / imagePaths）",
+              plays[0].get("createAt") == "" and plays[0].get("imagePaths") == [],
+              str({k: plays[0].get(k) for k in ("createAt", "imagePaths")}))
+
+        status, exp5 = call(port, "/api/export", "POST", {})
+        exported5 = json.loads(Path(exp5["path"]).read_text(encoding="utf-8"))
+        call(port, "/api/clear", "POST", {})
+        call(port, "/api/import", "POST", exported5)
+        back_play = call(port, "/api/data")[1]
+        check("导出导入往返带着游玩记录",
+              back_play["gameRecords"][0]["durationMin"] == 120
+              and back_play["gameRecords"][0]["gameId"] == "g-selftest")
 
         # 项目也扩了字段（详细描述 / 预计结束 / 图片）
         cur = call(port, "/api/data")[1]
@@ -443,7 +475,8 @@ def main() -> int:
         now = call(port, "/api/data")[1]
         check("清空后只剩空骨架",
               not now.get("tasks") and not now.get("contents")
-              and now.get("mediaAccounts") == [] and now.get("mediaFollowers") == [])
+              and now.get("mediaAccounts") == [] and now.get("mediaFollowers") == []
+              and now.get("gameRecords") == [], str(now.get("gameRecords")))
         check("清空后记账回到空骨架",
               now.get("finance", {}).get("transactions") == []
               and now.get("finance", {}).get("budget", {}).get("monthlyTotalCents") == 0)

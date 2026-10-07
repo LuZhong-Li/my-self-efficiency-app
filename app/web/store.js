@@ -58,7 +58,9 @@ export async function readFromDisk() {
     emitChange();
     setStatus("已连接 · 数据读取正常", "ok");
   } catch (err) {
-    setStatus("连不上服务：" + err.message, "err");
+    // 兼容性小事：非 Error 的抛出（有些浏览器封装过的异常）没有 message，
+    // 直接拼会显示成「连不上服务：undefined」，这里兜一句。
+    setStatus("连不上服务：" + (err && err.message ? err.message : String(err)), "err");
     throw err;
   }
   return store.data;
@@ -146,7 +148,8 @@ const AUTOSAVE_FIELDS =
   "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, " +
   "#budget-input, #media-filter, #media-cal-platform, #media-list-platform, #media-list-status, " +
   "#media-list-sort, #attach-max-edge, .attach-input, " +
-  "#issue-filter-status, #issue-filter-severity, #issue-filter-module";
+  "#issue-filter-status, #issue-filter-severity, #issue-filter-module, " +
+  "#game-date, #game-filter-name, #game-filter-from, #game-filter-to";
 
 document.addEventListener(
   "input",
@@ -271,6 +274,7 @@ export const TRASH_TABLE_LABEL = {
   "finance.transactions": "账目",
   "finance.accounts": "账户",
   "debt.items": "债务",
+  gameRecords: "游玩记录",
 };
 
 /* ---------------- 小工具 ---------------- */
@@ -412,6 +416,22 @@ export function setHomeView(view) {
   if (!store.data) return;
   if (!store.data.settings) store.data.settings = {};
   store.data.settings.homeView = normalizeHomeView(view);
+  touch(true);
+}
+
+/* ---------------- 今日计划里显不显示今天的游玩记录 ----------------
+ * 跨模块的一个小开关（游戏娱乐 → 今日计划）：存进 settings，
+ * 和首页视图、明暗一样，换数据文件跟着走，两个窗口也同步。 */
+
+export function planShowGameOf() {
+  const settings = (store.data && store.data.settings) || {};
+  return settings.planShowGame === true;
+}
+
+export function setPlanShowGame(on) {
+  if (!store.data) return;
+  if (!store.data.settings) store.data.settings = {};
+  store.data.settings.planShowGame = Boolean(on);
   touch(true);
 }
 

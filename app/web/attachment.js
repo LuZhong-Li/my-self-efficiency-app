@@ -218,7 +218,7 @@ function referencedElsewhere(path) {
   const data = store.data || {};
   const rows = [];
   for (const key of ["tasks", "contents", "projects", "issues", "progress", "studies",
-                     "workoutLogs", "weights", "games", "subjects"]) {
+                     "workoutLogs", "weights", "games", "gameRecords", "subjects"]) {
     if (Array.isArray(data[key])) rows.push(...data[key]);
   }
   if (data.finance && Array.isArray(data.finance.transactions)) rows.push(...data.finance.transactions);

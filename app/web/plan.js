@@ -1,9 +1,14 @@
 /* 今日计划：今天的任务增删改勾，外加「昨天没做完的」一键挪到今天。
  * 2026-10-07 起录入改成弹窗（和别的模块一套），卡片上只留一个「添加任务」按钮。
  * 2026-10-07 起还会在进页面时对一遍「模块目标」：健身 / 学习 / 饮食的目标到了
- * 该做的日子，会自动在这里生成一条待办（带来源标签，正文还能改）。 */
+ * 该做的日子，会自动在这里生成一条待办（带来源标签，正文还能改）。
+ * 同日又加了和「游戏娱乐」的联动：右上角一个可关的开关，开着就把今天的游玩记录
+ * 摘要露在这页顶上，还能顺手把「玩游戏放松」加成一条带来源标签的待办。 */
 
-import { touch, todayStr, formatDateCN, table, esc, moveToTrash } from "./store.js";
+import {
+  touch, todayStr, formatDateCN, table, esc, moveToTrash,
+  planShowGameOf, setPlanShowGame,
+} from "./store.js";
 import { bindFresh, pageHeader, markEnter } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { renderCalendar } from "./calendar.js";
@@ -12,6 +17,7 @@ import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
 import { syncGoalTasks, goalBriefHtml } from "./goals.js";
 import { sourceLabelOf } from "./goal-calc.js";
+import { recordsOn, durationText } from "./game-calc.js";
 
 let mode = "today";   // today = 今天的清单，month = 月历
 
@@ -58,11 +64,15 @@ function renderTodayView(body) {
 
   body.innerHTML = `
     ${goalBriefHtml(today)}
+    ${gameBriefHtml(today)}
     <section class="card">
       <div class="card-head">
         <h2>今天的任务</h2>
         <div class="card-tools">
           <span class="hint">${esc(summary(todayTasks))}</span>
+          <button class="link" data-act="game-toggle" title="游戏娱乐里的游玩记录，要不要在今日计划露一面">${
+            planShowGameOf() ? "不显示今日游玩" : "显示今日游玩"
+          }</button>
           <button class="btn primary small" data-act="add">${icon("plus", 14)}添加任务</button>
         </div>
       </div>
@@ -78,6 +88,25 @@ function renderTodayView(body) {
   `;
 
   bindFresh(body, { click: onClick, change: onChange });
+}
+
+/**
+ * 游戏娱乐 → 今日计划 的联动（可关）：开关开着、今天又真有游玩记录时，
+ * 在今日计划顶上露一条「今天玩了什么」；顺手也能把「玩游戏放松」加成一条待办，
+ * 那条待办会挂上「游戏娱乐」的来源标签，和模块目标生成的待办一个待遇。
+ */
+function gameBriefHtml(today) {
+  if (!planShowGameOf()) return "";
+  const records = recordsOn(table("gameRecords"), today);
+  if (!records.length) return "";
+  const minutes = records.reduce((sum, r) => sum + (Number(r.durationMin) || 0), 0);
+  const names = [...new Set(records.map((r) => r.gameName || "（没写游戏名）"))];
+  return `
+    <div class="goal-brief gm-plan-brief">
+      <span>🎮 今日游玩：${esc(names.join("、"))} · 共 ${esc(durationText(minutes))}</span>
+      <button class="link" data-act="game-add-task">加一条「玩游戏放松」</button>
+      <a class="link" href="#game">去游戏娱乐 →</a>
+    </div>`;
 }
 
 /* ---------------- 排序与统计 ---------------- */
@@ -163,6 +192,26 @@ async function onClick(e) {
 
   if (act === "add") {
     openItemDialog("todayPlan", null, { date: todayStr() });
+    return;
+  }
+
+  if (act === "game-toggle") {
+    setPlanShowGame(!planShowGameOf());   // touch(true) 会带着整页重画一次
+    toast(planShowGameOf() ? "今日计划会显示今天的游玩记录" : "今日计划不再显示游玩记录");
+    return;
+  }
+
+  if (act === "game-add-task") {
+    openItemDialog("todayPlan", null, {
+      date: todayStr(),
+      defaults: { text: "玩游戏放松", category: "生活" },
+      onSaved: (saved) => {
+        // 来源标签「游戏娱乐」是这一条独有的，不往 todayPlan 那张公共字段表里塞，
+        // 存完补一个字段再落一次盘就行（saved 就是 tasks 里那条，改的是同一个对象）。
+        saved.sourceModule = "game";
+        touch(true);
+      },
+    });
     return;
   }
 

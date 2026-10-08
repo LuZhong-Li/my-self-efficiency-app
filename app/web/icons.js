@@ -44,6 +44,8 @@ const PATHS = {
   bulb: '<path d="M9 17h6M10 20h4"/><path d="M12 3.5a5.5 5.5 0 0 1 3.2 9.9c-.5.4-.7.8-.7 1.4v.7h-5v-.7c0-.6-.2-1-.7-1.4A5.5 5.5 0 0 1 12 3.5Z"/>',
   list: '<path d="M8 6.5h12M8 12h12M8 17.5h12M4 6.5h.01M4 12h.01M4 17.5h.01"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>',
+  // 归档：档案盒（盒盖 + 盒身 + 抽手那条缝），和回收站的垃圾桶区分得开
+  archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2"/><path d="M5.5 9v9.5h13V9M9.5 12.5h5"/>',
   // 图片附件：相框 + 一座小山 + 一轮小太阳（页面里到处都能认出来是「图片」）
   image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4.5 17.5 4.6-4.4 3.1 2.9 2.7-2.5 4.2 4"/>',
 };

@@ -277,8 +277,11 @@ function renderDetail(root, p) {
     <section class="card">
       <div class="card-head">
         <h2>待办</h2>
-        <div class="card-tools">
-          <span class="hint">未完成 ${activeTodos.length - todoDone} ｜ 已完成 ${todoDone}</span>
+        <span class="dev-stats">
+          <i>未完成 ${activeTodos.length - todoDone}</i>
+          <i>已完成 ${todoDone}</i>
+        </span>
+        <div class="card-tools dev-toolbar">
           <select id="todo-state-filter" title="主列表只看哪一档（归档的去「查看归档」）">${todoStateOptions(todoState)}</select>
           ${archiveBtn("todo", archivedTodos)}
           <button class="btn primary small" data-act="todo-add">${icon("plus", 14)}添加待办</button>
@@ -290,17 +293,17 @@ function renderDetail(root, p) {
     <section class="card">
       <div class="card-head">
         <h2>问题 / bug</h2>
-        <div class="card-tools">
-          <span class="dev-stats" title="未解决 = 待处理 + 进行中 + 已复现；归档的不算在内">
-            <i>未解决 ${st.open}</i>
-            <i>进行中 ${st.doing}</i>
-            <i>已修复 ${st.fixed}</i>
-          </span>
+        <span class="dev-stats" title="未解决 = 待处理 + 进行中 + 已复现；归档的不算在内">
+          <i>未解决 ${st.open}</i>
+          <i>进行中 ${st.doing}</i>
+          <i>已修复 ${st.fixed}</i>
+        </span>
+        <div class="card-tools dev-toolbar">
+          ${issues.length ? issueFilterToolbar() : ""}
           ${archiveBtn("issue", archivedIssues)}
           <button class="btn primary small" data-act="issue-add">${icon("plus", 14)}记一个问题</button>
         </div>
       </div>
-      ${issues.length ? issueFilterBar() : ""}
       <div id="issue-list-host">${issueListHtml(issues)}</div>
     </section>
 
@@ -326,9 +329,20 @@ function renderDetail(root, p) {
 
 /** 卡片右上角那个入口：两个卡片长得一模一样，点开的是同一个侧边抽屉 */
 function archiveBtn(tab, count) {
-  return `<button class="btn small" data-act="arch-open" data-tab="${tab}"
+  return `<button class="view-archive-btn" data-act="arch-open" data-tab="${tab}"
     title="归档的记录不占主列表，收在侧边抽屉里，随时能恢复"
     >查看归档${count ? ` <span class="arch-count">${count}</span>` : ""}</button>`;
+}
+
+/**
+ * 条目行尾那几个小图标按钮（编辑 / 归档 / 删除…）。
+ * 主列表平时把整块操作区藏着，鼠标移上去（或键盘 Tab 到这一行）才露出来 ——
+ * 一行就只有「勾选 + 标题 + 标签」，清清爽爽。用的是页面上那套内联图标，
+ * 不引 emoji：换皮肤、换明暗都跟着文字色走。
+ */
+function iconAct(act, name, title, danger = false) {
+  return `<button class="icon-act${danger ? " danger" : ""}" data-act="${act}"
+    title="${esc(title)}" aria-label="${esc(title)}">${icon(name, 14)}</button>`;
 }
 
 /** 待办卡片的内容：只画没归档的（归档的统一进侧边抽屉），再按活跃档位过一遍 */
@@ -345,7 +359,7 @@ function todoSectionHtml(todos) {
   if (!shown.length) {
     return emptyLine(todoState === "done" ? "还没有已完成的待办。" : "活跃待办都做完了，不错。");
   }
-  return `<ul class="tasks">${shown.map(todoRow).join("")}</ul>`;
+  return `<ul class="tasks dev-list">${shown.map(todoRow).join("")}</ul>`;
 }
 
 /** 主列表里的一条待办。归档了的不走这里（它在侧边抽屉里，见 archiveRowHtml）。 */
@@ -360,9 +374,9 @@ function todoRow(t) {
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>
       <span class="t-actions">
-        ${t.done ? `<button class="link" data-act="todo-archive">归档</button>` : ""}
-        <button class="link" data-act="todo-edit">编辑</button>
-        <button class="link danger" data-act="todo-del">删除</button>
+        ${iconAct("todo-edit", "pencil", "编辑")}
+        ${t.done ? iconAct("todo-archive", "archive", "归档（归档后收进侧边抽屉）") : ""}
+        ${iconAct("todo-del", "trash", "删除", true)}
       </span>
     </li>`;
 }
@@ -528,10 +542,9 @@ function archiveRowHtml(row, tab) {
     </li>`;
 }
 
-/** 问题 / bug 的筛选条：状态 / 优先级 / 关联模块。只影响显示，不动数据。
- *  （2026-10-08 改版：原来这里还有个「归档」下拉，现在归档统一进侧边抽屉，
- *   筛选条只管没归档的那些。） */
-function issueFilterBar() {
+/** 问题 / bug 的三个筛选（状态 / 优先级 / 关联模块）+ 清空。
+ *  和待办卡片的工具条一样，直接摆在卡片头部那一行里；只管没归档的那些。 */
+function issueFilterToolbar() {
   const sel = (id, list, current, allLabel) => `
     <select id="${id}" title="${esc(allLabel)}">
       <option value="all"${current === "all" ? " selected" : ""}>${esc(allLabel)}</option>
@@ -540,12 +553,10 @@ function issueFilterBar() {
         .join("")}
     </select>`;
   return `
-    <div class="filter-bar">
-      ${sel("issue-filter-status", ISSUE_STATUS, issueFilter.status, "全部状态")}
-      ${sel("issue-filter-severity", SEVERITY, issueFilter.severity, "全部优先级")}
-      ${sel("issue-filter-module", ISSUE_MODULES, issueFilter.module, "全部模块")}
-      <button class="btn small" data-act="issue-filter-clear">清空筛选</button>
-    </div>`;
+    ${sel("issue-filter-status", ISSUE_STATUS, issueFilter.status, "全部状态")}
+    ${sel("issue-filter-severity", SEVERITY, issueFilter.severity, "全部优先级")}
+    ${sel("issue-filter-module", ISSUE_MODULES, issueFilter.module, "全部模块")}
+    ${iconAct("issue-filter-clear", "x", "清空筛选")}`;
 }
 
 function issueListHtml(issues) {
@@ -565,7 +576,7 @@ function issueListHtml(issues) {
       "bug"
     );
   }
-  return `<ul class="items">${shown.map(issueRow).join("")}</ul>`;
+  return `<ul class="items dev-list">${shown.map(issueRow).join("")}</ul>`;
 }
 
 /** 主列表里的一条 bug。归档了的不走这里（它在侧边抽屉里，见 archiveRowHtml）。 */
@@ -584,10 +595,10 @@ function issueRow(i) {
       ${chip(it.status)}
       <span class="i-actions">
         ${closed
-          ? `<button class="link" data-act="issue-archive">归档</button>`
-          : `<button class="link" data-act="issue-done">标记已修复</button>`}
-        <button class="link" data-act="issue-edit">编辑</button>
-        <button class="link danger" data-act="issue-del">删除</button>
+          ? iconAct("issue-archive", "archive", "归档（归档后收进侧边抽屉）")
+          : iconAct("issue-done", "check", "标记已修复")}
+        ${iconAct("issue-edit", "pencil", "编辑")}
+        ${iconAct("issue-del", "trash", "删除", true)}
       </span>
     </li>
     ${open ? issueDetail(i) : ""}`;

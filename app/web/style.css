@@ -2841,6 +2841,87 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
   white-space: nowrap;
 }
 
+/* 卡片头统一成一行：标题 → 统计 → 工具条（筛选 + 查看归档 + 添加）。
+   待办卡片和问题卡片结构完全一样，工具条里所有控件一样高，看着才齐。 */
+.dev-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.dev-toolbar select,
+.dev-toolbar .btn,
+.dev-toolbar .view-archive-btn,
+.dev-toolbar .icon-act {
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12px;
+}
+.dev-toolbar .icon-act { width: 32px; }
+.dev-toolbar select { padding-left: 10px; padding-right: 10px; }
+
+/* 「查看归档」：两张卡片共用的淡色次级按钮（不是文字链接，一眼看得出能点）。
+   颜色全走变量，四套皮肤 × 明暗三态都跟着变。 */
+.view-archive-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.view-archive-btn:hover {
+  border-color: var(--accent);
+  background: var(--field);
+  color: var(--accent);
+}
+
+/* 条目行尾的小图标按钮（编辑 / 归档 / 删除 / 标记已修复…）。
+   用的是页面上那套内联 SVG 图标，不引 emoji：跟着文字色走，换皮肤换明暗都不打架。 */
+.icon-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: var(--bw) solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-act:hover { border-color: var(--accent); background: var(--hover); color: var(--accent); }
+.icon-act.danger:hover { border-color: var(--err); color: var(--err); }
+
+/* 开发工作的条目：操作图标平时藏着，鼠标移到这一行（或键盘 Tab 进来）才露出来，
+   一行里就剩「勾选 + 标题 + 标签」。用 opacity 不用 display，行高不会跳；
+   触摸屏没有 hover，那种情况下一直显示，免得点不到。 */
+.dev-list .t-actions,
+.dev-list .i-actions {
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.dev-list li:hover > .t-actions,
+.dev-list li:hover > .i-actions,
+.dev-list li:focus-within > .t-actions,
+.dev-list li:focus-within > .i-actions { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .dev-list .t-actions,
+  .dev-list .i-actions { opacity: 1; pointer-events: auto; }
+}
+
 /* 条目上的图片标记：有截图才显示 */
 .img-flag {
   flex: 0 0 auto;

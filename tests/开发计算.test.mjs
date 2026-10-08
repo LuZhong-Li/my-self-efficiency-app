@@ -6,7 +6,7 @@ import {
   SEVERITY, ISSUE_STATUS, ISSUE_MODULES, DEFAULT_ISSUE_MODULE,
   normalizeStatus, isIssueClosed, normalizeSeverity, normalizeModule,
   normalizeIssue, normalizeProgress, normalizeTodo, issueStats, matchIssue, cycleDays, progressSorted,
-  ARCHIVE_FILTER, ARCHIVE_FILTER_LABEL, normalizeArchiveFilter, archivedOf, matchArchive,
+  archivedOf, splitByArchive,
 } from "../app/web/dev-calc.js";
 
 let pass = 0;
@@ -167,10 +167,9 @@ eq(progressSorted(null).length, 0, "null 不炸");
 eq(progressSorted([{ date: "2026-10-07", text: "带图的", imagePaths: ["x"] }])[0].imagePaths[0], "x",
   "排序之后图片路径还在");
 
-/* ---------------- 归档：标记 / 档位 / 统计 / 筛选 ---------------- */
-
-eqDeep(ARCHIVE_FILTER, ["no", "only", "all"], "归档三个档位：未归档 / 仅归档 / 全部");
-eq(ARCHIVE_FILTER_LABEL.only, "仅归档", "档位有中文名");
+/* ---------------- 归档：标记 / 分流 / 统计 / 筛选 ----------------
+ * 2026-10-08 改版：卡片内的归档折叠区改成右侧抽屉，主列表和抽屉都是
+ * 拿 splitByArchive() 分成两拨，所以这里重点测「分得干不干净」。 */
 
 eq(archivedOf({ isArchived: true }), true, "标了 isArchived: true 就是归档了");
 eq(archivedOf({ isArchived: false }), false, "isArchived: false 是没归档");
@@ -178,16 +177,14 @@ eq(archivedOf({}), false, "老数据没这个字段 → 当没归档（不用搬
 eq(archivedOf(null), false, "null 不炸");
 eq(archivedOf({ isArchived: "true" }), false, "只认真正的布尔 true，字符串不算");
 
-eq(normalizeArchiveFilter("only"), "only", "认得出的档位原样");
-eq(normalizeArchiveFilter("随便写的"), "no", "认不出退回「未归档」");
-eq(normalizeArchiveFilter(undefined), "no", "不给就默认未归档");
-
 const rows = [{ id: "a", isArchived: true }, { id: "b" }, { id: "c", isArchived: false }];
-eqDeep(rows.filter((r) => matchArchive(r, "no")).map((r) => r.id), ["b", "c"],
-  "「未归档」只留没归档的");
-eqDeep(rows.filter((r) => matchArchive(r, "only")).map((r) => r.id), ["a"], "「仅归档」只留归档的");
-eqDeep(rows.filter((r) => matchArchive(r, "all")).map((r) => r.id), ["a", "b", "c"], "「全部」都留");
-eqDeep(rows.filter((r) => matchArchive(r)).map((r) => r.id), ["b", "c"], "不传档位默认按未归档");
+const split = splitByArchive(rows);
+eqDeep(split.active.map((r) => r.id), ["b", "c"], "主列表那一拨：只剩没归档的");
+eqDeep(split.archived.map((r) => r.id), ["a"], "抽屉那一拨：只剩归档的");
+eq(split.active.length + split.archived.length, rows.length, "两拨加起来一条都不少（归档不是删除）");
+eqDeep(splitByArchive([]).active, [], "空列表不炸");
+eqDeep(splitByArchive(null).archived, [], "连数组都没有也不炸");
+eq(splitByArchive(rows).active[0] === rows[1], true, "分出来的是原对象（抽屉要拿它改数据）");
 
 const oldIssue = normalizeIssue({ id: "i-old", title: "老条目" });
 eq(oldIssue.isArchived, false, "老 bug 读出来默认没归档");

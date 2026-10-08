@@ -15,8 +15,8 @@ import { openItemDialog, trashItem } from "./item-dialog.js";
 import { PROJECT_STATUSES } from "./item-form.js";
 import {
   SEVERITY, ISSUE_STATUS, ISSUE_MODULES, DEFAULT_ISSUE_MODULE,
-  normalizeIssue, normalizeProgress, normalizeTodo, normalizeArchiveFilter,
-  isIssueClosed, issueStats, matchIssue, archivedOf, matchArchive,
+  normalizeIssue, normalizeProgress, normalizeTodo,
+  isIssueClosed, issueStats, matchIssue, archivedOf, splitByArchive,
   cycleDays, progressSorted,
 } from "./dev-calc.js";
 
@@ -26,19 +26,28 @@ let hostRoot = null;
 // 筛选状态：只影响显示，不动数据
 let filterText = "";
 let filterStatus = "all";
-let issueFilter = { status: "all", severity: "all", module: "all", archived: "no" };
-// 待办的归档档位（排除归档 / 仅归档 / 全部）与「归档区展开没展开」。
-// 只活在这一次会话里：刷新页面回到默认（归档默认收起，才不占地方）。
-let todoArchive = "no";
-let todoArchiveOpen = false;
-let issueArchiveOpen = false;
+let issueFilter = { status: "all", severity: "all", module: "all" };
+// 待办主列表的活跃档位（全部 / 未完成 / 已完成）—— 只管没归档的那些
+let todoState = "all";
 // 展开了哪一条（点条目本身展开详情，图片在详情里看）
 let openIssueId = "";
 let openProgressId = "";
 
-/** 归档档位的下拉选项：value → 界面上的字（待办那份第一项叫「排除归档」） */
-function archiveOptions(current, noLabel = "排除归档") {
-  return [["no", noLabel], ["only", "仅归档"], ["all", "全部"]]
+/* 归档侧边抽屉：待办归档 / Bug 归档两类共用一个抽屉。
+ * 只活在这一次会话里（刷新页面回到关闭状态）；picked 是勾选待批量的那些 id。 */
+const archive = {
+  open: false,
+  tab: "todo",       // "todo" | "issue"
+  kw: "",
+  severity: "all",
+  from: "",
+  to: "",
+  picked: new Set(),
+};
+
+/** 待办主列表的活跃档位下拉 */
+function todoStateOptions(current) {
+  return [["all", "全部"], ["open", "未完成"], ["done", "已完成"]]
     .map(([v, text]) => `<option value="${v}"${v === current ? " selected" : ""}>${text}</option>`)
     .join("");
 }
@@ -47,10 +56,14 @@ export function renderDev(root, sub) {
   hostRoot = root;
   const project = table("projects").find((p) => p.id === sub);
   if (sub && project) renderDetail(root, project);
-  else renderList(root);
+  else {
+    archive.open = false;   // 抽屉只属于项目详情页，回列表就收起来
+    renderList(root);
+  }
 
   bindFresh(root, { click: onClick, change: onChange, input: onInput });
   setupDragSort(root);
+  bindArchiveEsc();
 }
 
 /**
@@ -226,12 +239,14 @@ function projCard(p) {
 /* ---------------- 项目详情 ---------------- */
 
 function renderDetail(root, p) {
-  const todos = todoList(p.id).map(normalizeTodo);
+  const todos = todoList(p.id).map(normalizeTodo);   // 画列表用的展示副本
   const issues = issueList(p.id);
   const progress = progressList(p.id);
   const st = issueStats(issues);                       // 默认不数归档的
-  const activeTodos = todos.filter((t) => !t.isArchived);
+  const activeTodos = splitByArchive(todos).active;
   const todoDone = activeTodos.filter((t) => t.done).length;
+  const archivedTodos = todos.length - activeTodos.length;
+  const archivedIssues = splitByArchive(issues).archived.length;
 
   root.innerHTML = `
     ${pageHeader("dev", `<a class="link" href="#dev">← 返回项目列表</a>`)}
@@ -264,7 +279,8 @@ function renderDetail(root, p) {
         <h2>待办</h2>
         <div class="card-tools">
           <span class="hint">未完成 ${activeTodos.length - todoDone} ｜ 已完成 ${todoDone}</span>
-          ${todos.length > 1 ? `<select id="todo-archive-filter" title="归档待办怎么显示">${archiveOptions(todoArchive)}</select>` : ""}
+          <select id="todo-state-filter" title="主列表只看哪一档（归档的去「查看归档」）">${todoStateOptions(todoState)}</select>
+          ${archiveBtn("todo", archivedTodos)}
           <button class="btn primary small" data-act="todo-add">${icon("plus", 14)}添加待办</button>
         </div>
       </div>
@@ -280,12 +296,12 @@ function renderDetail(root, p) {
             <i>进行中 ${st.doing}</i>
             <i>已修复 ${st.fixed}</i>
           </span>
+          ${archiveBtn("issue", archivedIssues)}
           <button class="btn primary small" data-act="issue-add">${icon("plus", 14)}记一个问题</button>
         </div>
       </div>
       ${issues.length ? issueFilterBar() : ""}
       <div id="issue-list-host">${issueListHtml(issues)}</div>
-      ${issueArchiveHtml(issues)}
     </section>
 
     <section class="card">
@@ -304,71 +320,217 @@ function renderDetail(root, p) {
     </section>
 
     <p class="hint">项目待办不会出现在「今日计划」里，它们只属于这个项目。</p>
+    ${archiveDrawerHtml(p)}
   `;
 }
 
-/** 待办卡片的内容：主列表（按归档档位筛）+ 归档折叠区 */
+/** 卡片右上角那个入口：两个卡片长得一模一样，点开的是同一个侧边抽屉 */
+function archiveBtn(tab, count) {
+  return `<button class="btn small" data-act="arch-open" data-tab="${tab}"
+    title="归档的记录不占主列表，收在侧边抽屉里，随时能恢复"
+    >查看归档${count ? ` <span class="arch-count">${count}</span>` : ""}</button>`;
+}
+
+/** 待办卡片的内容：只画没归档的（归档的统一进侧边抽屉），再按活跃档位过一遍 */
 function todoSectionHtml(todos) {
-  if (!todos.length) return emptyLine("还没有待办，点右上角「添加待办」加一条。");
-  const archived = todos.filter((t) => t.isArchived);
-  const shown = todos.filter((t) => matchArchive(t, todoArchive));
-  const emptyText = todoArchive === "only"
-    ? "还没有归档的待办。"
-    : archived.length ? "主列表里没有待办，归档的在下面。" : "还没有待办。";
-  const main = shown.length
-    ? `<ul class="tasks">${shown.map(todoRow).join("")}</ul>`
-    : emptyLine(emptyText);
-  // 归档档位选「仅归档 / 全部」时，主列表里已经能看到归档条目了，就别再叠一个折叠区
-  return main + archiveSection("todo", archived, todoArchive === "no", todoArchiveOpen);
+  const base = splitByArchive(todos).active;
+  if (!base.length) {
+    return emptyLine(
+      todos.length ? "活跃待办都清空了，归档的在右上角「归档」里。" : "还没有待办，点右上角「添加待办」加一条。"
+    );
+  }
+  const shown = base.filter((t) =>
+    todoState === "open" ? !t.done : todoState === "done" ? t.done : true
+  );
+  if (!shown.length) {
+    return emptyLine(todoState === "done" ? "还没有已完成的待办。" : "活跃待办都做完了，不错。");
+  }
+  return `<ul class="tasks">${shown.map(todoRow).join("")}</ul>`;
 }
 
-/**
- * 归档折叠区：默认收起，点标题展开；一条都没有就整个不画。
- * 只有「主列表没在显示归档」的时候才出现（选了仅归档 / 全部时归档就在主列表里）。
- */
-function archiveSection(kind, rows, visible, open) {
-  if (!visible || !rows.length) return "";
-  const isTodo = kind === "todo";
-  const title = isTodo ? "归档待办" : "归档问题";
-  const html = isTodo ? rows.map(todoRow).join("") : rows.map(issueRow).join("");
-  return `
-    <div class="archive-block">
-      <button class="archive-toggle" data-act="${kind}-archive-toggle" aria-expanded="${open}">
-        <span class="archive-caret">${open ? "▾" : "▸"}</span>
-        <span>${title}</span>
-        <span class="archive-count">${rows.length} 条</span>
-      </button>
-      ${open ? `<div class="archive-body">${isTodo ? `<ul class="tasks">${html}</ul>` : `<ul class="items">${html}</ul>`}</div>` : ""}
-    </div>`;
-}
-
+/** 主列表里的一条待办。归档了的不走这里（它在侧边抽屉里，见 archiveRowHtml）。 */
 function todoRow(t) {
-  const archived = archivedOf(t);
   return `
-    <li class="task${t.done ? " done" : ""}${archived ? " archived" : ""}" data-id="${esc(t.id)}">
-      <label class="check" title="${archived ? "归档条目：先恢复再修改" : t.done ? "取消完成" : "标记完成"}">
-        <input type="checkbox" data-act="todo-toggle" ${t.done ? "checked" : ""}${archived ? " disabled" : ""}>
+    <li class="task${t.done ? " done" : ""}" data-id="${esc(t.id)}">
+      <label class="check" title="${t.done ? "取消完成" : "标记完成"}">
+        <input type="checkbox" data-act="todo-toggle" ${t.done ? "checked" : ""}>
       </label>
       <span class="t-text">${esc(t.text)}</span>
       ${t.priority ? `<span class="chip">${esc(t.priority)}</span>` : ""}
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>
-      ${archived ? `<span class="t-note arch-time">归档于 ${esc(t.archivedAt || "—")}</span>` : ""}
       <span class="t-actions">
-        ${
-          archived
-            ? `<button class="link" data-act="todo-unarchive">恢复</button>`
-            : t.done
-              ? `<button class="link" data-act="todo-archive">归档</button>`
-              : ""
-        }
+        ${t.done ? `<button class="link" data-act="todo-archive">归档</button>` : ""}
         <button class="link" data-act="todo-edit">编辑</button>
         <button class="link danger" data-act="todo-del">删除</button>
       </span>
     </li>`;
 }
 
-/** 问题 / bug 的筛选条：状态 / 优先级 / 关联模块 / 归档。只影响显示，不动数据。 */
+/* ---------------- 归档侧边抽屉 ----------------
+ * 待办归档 / Bug 归档两类共用一个抽屉：从右边滑进来，标签切换，
+ * 搜索 + 优先级 + 归档日期范围筛选，单条恢复 / 删除，也能勾一批一起处理。
+ * 只画当前项目里归档了的那几条，主卡片一个字都不动。
+ */
+
+/** 当前项目里归档的原始记录（要改数据，所以给的是原对象不是规整后的副本） */
+function archivedRowsOf(tab, projectId = currentProjectId()) {
+  const rows = tab === "issue" ? issueList(projectId) : todoList(projectId);
+  return splitByArchive(rows).archived;
+}
+
+/** 抽屉里一行：归档时间取到「天」，用来跟日期范围比 */
+function archivedDay(row) {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(row.archivedAt || ""));
+  return m ? m[1] : "";
+}
+
+/** 归档条目按归档时间从新到旧（没记时间的排最后） */
+function archiveSorted(rows) {
+  return rows.slice().sort((a, b) => {
+    const x = String(a.archivedAt || "");
+    const y = String(b.archivedAt || "");
+    if (x === y) return 0;
+    if (!x) return 1;
+    if (!y) return -1;
+    return x < y ? 1 : -1;
+  });
+}
+
+/** 当前标签下、过了筛选的归档条目 */
+function archiveVisible() {
+  const kw = archive.kw.trim().toLowerCase();
+  const rows = archivedRowsOf(archive.tab).filter((row) => {
+    if (archive.severity !== "all") {
+      const v = archive.tab === "issue" ? normalizeIssue(row).severity : String(row.priority || "");
+      if (v !== archive.severity) return false;
+    }
+    const day = archivedDay(row);
+    if (archive.from && (!day || day < archive.from)) return false;
+    if (archive.to && (!day || day > archive.to)) return false;
+    if (!kw) return true;
+    const text = archive.tab === "issue"
+      ? [row.title, row.desc, row.module].join(" ")
+      : [row.text, row.note].join(" ");
+    return text.toLowerCase().includes(kw);
+  });
+  return archiveSorted(rows);
+}
+
+function archiveDrawerHtml(p) {
+  if (!archive.open) return "";
+  const tabs = [
+    ["todo", "待办归档", splitByArchive(todoList(p.id)).archived.length],
+    ["issue", "Bug 归档", splitByArchive(issueList(p.id)).archived.length],
+  ];
+  return `
+    <div class="arch-backdrop" data-act="arch-close">
+      <aside class="arch-drawer" role="dialog" aria-modal="true" aria-label="归档记录">
+        <div class="arch-head">
+          <div>
+            <h2>归档记录</h2>
+            <p class="hint">${esc(p.name)} · 归档只是挪出主列表，数据一个字节都没删</p>
+          </div>
+          <button class="btn small" data-act="arch-close" title="关闭（Esc）">关闭</button>
+        </div>
+
+        <div class="arch-tabs" role="tablist">
+          ${tabs
+            .map(
+              ([id, text, n]) => `
+            <button class="arch-tab${archive.tab === id ? " active" : ""}" role="tab"
+              aria-selected="${archive.tab === id}" data-act="arch-tab" data-tab="${id}"
+              >${text}${n ? ` <span class="arch-count">${n}</span>` : ""}</button>`
+            )
+            .join("")}
+        </div>
+
+        <div class="arch-filters">
+          <input id="arch-search" type="search" autocomplete="off" placeholder="搜归档记录…"
+                 value="${esc(archive.kw)}">
+          <div class="row">
+            <select id="arch-severity" title="按优先级筛">
+              <option value="all"${archive.severity === "all" ? " selected" : ""}>全部优先级</option>
+              ${["高", "中", "低"].map(
+                (v) => `<option value="${v}"${archive.severity === v ? " selected" : ""}>${v}</option>`
+              ).join("")}
+              <option value=""${archive.severity === "" ? " selected" : ""}>未标优先级</option>
+            </select>
+            <label class="inline-field" for="arch-from">归档日期</label>
+            <input id="arch-from" type="date" value="${esc(archive.from)}">
+            <span class="hint">到</span>
+            <input id="arch-to" type="date" value="${esc(archive.to)}">
+            <button class="btn small" data-act="arch-filter-clear">清空筛选</button>
+          </div>
+        </div>
+
+        <div class="arch-body" id="arch-body-host">${archiveBodyHtml()}</div>
+      </aside>
+    </div>`;
+}
+
+/** 批量条 + 列表：筛选项一变就只重画这一块，上面的输入框和下拉不会掉焦点 */
+function archiveBodyHtml() {
+  const rows = archiveVisible();
+  const ids = rows.map((r) => r.id);
+  const picked = ids.filter((id) => archive.picked.has(id));
+  const allPicked = ids.length > 0 && picked.length === ids.length;
+  if (!rows.length) {
+    const anyArchived = archivedRowsOf(archive.tab).length;
+    return emptyState(
+      anyArchived ? "没有符合筛选的归档记录" : archive.tab === "issue" ? "还没有归档的 bug" : "还没有归档的待办",
+      anyArchived
+        ? "换个条件，或者点「清空筛选」。"
+        : "做完的待办、修好的 bug 点「归档」就收到这里，随时能恢复。",
+      "",
+      archive.tab === "issue" ? "bug" : "list"
+    );
+  }
+  return `
+    <div class="arch-bulk">
+      <label class="check" title="勾选当前筛选出来的全部条目">
+        <input type="checkbox" id="arch-all" ${allPicked ? "checked" : ""}>
+      </label>
+      <span class="hint" id="arch-picked-info">${
+        picked.length ? `已选 ${picked.length} / ${ids.length} 条` : `共 ${ids.length} 条`
+      }</span>
+      <span class="grow"></span>
+      <button class="btn small" data-act="arch-restore-picked"${picked.length ? "" : " disabled"}>批量恢复</button>
+      <button class="btn small danger" data-act="arch-delete-picked"${picked.length ? "" : " disabled"}>批量删除</button>
+    </div>
+    <ul class="items arch-list">
+      ${rows.map((row) => archiveRowHtml(row, archive.tab)).join("")}
+    </ul>`;
+}
+
+/** 抽屉里的一条归档记录：弱化样式 + 归档时间 + 恢复 / 删除 */
+function archiveRowHtml(row, tab) {
+  const id = esc(row.id);
+  const isIssue = tab === "issue";
+  const it = isIssue ? normalizeIssue(row) : normalizeTodo(row);
+  const picked = archive.picked.has(row.id);
+  return `
+    <li class="item arch-row" data-id="${id}">
+      <label class="check" title="${picked ? "取消勾选" : "勾选这一条（可以批量恢复 / 删除）"}">
+        <input type="checkbox" data-act="arch-pick" ${picked ? "checked" : ""}>
+      </label>
+      ${chip(isIssue ? it.severity : it.priority)}
+      <span class="arch-main">
+        <span class="i-title">${esc(isIssue ? it.title : it.text)}</span>
+        ${isIssue && it.module ? `<span class="arch-note">来源模块：${esc(it.module)}</span>` : ""}
+        ${!isIssue && it.note ? `<span class="arch-note">${esc(it.note)}</span>` : ""}
+      </span>
+      <span class="i-meta">归档于 ${esc(row.archivedAt || "—")}</span>
+      <span class="i-actions">
+        <button class="link" data-act="arch-restore">恢复</button>
+        <button class="link danger" data-act="arch-del">删除</button>
+      </span>
+    </li>`;
+}
+
+/** 问题 / bug 的筛选条：状态 / 优先级 / 关联模块。只影响显示，不动数据。
+ *  （2026-10-08 改版：原来这里还有个「归档」下拉，现在归档统一进侧边抽屉，
+ *   筛选条只管没归档的那些。） */
 function issueFilterBar() {
   const sel = (id, list, current, allLabel) => `
     <select id="${id}" title="${esc(allLabel)}">
@@ -382,23 +544,23 @@ function issueFilterBar() {
       ${sel("issue-filter-status", ISSUE_STATUS, issueFilter.status, "全部状态")}
       ${sel("issue-filter-severity", SEVERITY, issueFilter.severity, "全部优先级")}
       ${sel("issue-filter-module", ISSUE_MODULES, issueFilter.module, "全部模块")}
-      <select id="issue-filter-archive" title="归档条目怎么显示">
-        ${archiveOptions(issueFilter.archived, "未归档")}
-      </select>
       <button class="btn small" data-act="issue-filter-clear">清空筛选</button>
     </div>`;
 }
 
 function issueListHtml(issues) {
   if (!issues.length) return emptyLine("还没有记录问题。");
-  const shown = issues.filter((i) => matchIssue(i, issueFilter));
+  const active = splitByArchive(issues).active;   // 主列表只放没归档的
+  const shown = active.filter((i) => matchIssue(i, issueFilter));
   if (!shown.length) {
-    // 只是被归档挡住的（没归档的把筛选放开就能看见），给一句更准的话
-    const withoutArchive = issues.filter((i) => matchIssue(i, { ...issueFilter, archived: "all" }));
-    const archivedOnly = !withoutArchive.length;
+    const archivedCount = issues.length - active.length;
     return emptyState(
-      archivedOnly ? "没有符合筛选的问题" : "主列表里没有，归档的在下面",
-      archivedOnly ? "换个条件，或者点「清空筛选」。" : "点下面的「归档问题」展开看看。",
+      active.length ? "没有符合筛选的问题" : "活跃的 bug 都清空了",
+      active.length
+        ? "换个条件，或者点「清空筛选」。"
+        : archivedCount
+          ? `归档的还有 ${archivedCount} 条，点右上角「查看归档」。`
+          : "换个条件，或者点「清空筛选」。",
       "",
       "bug"
     );
@@ -406,19 +568,13 @@ function issueListHtml(issues) {
   return `<ul class="items">${shown.map(issueRow).join("")}</ul>`;
 }
 
-/** 归档 bug 的折叠区：条数和状态 / 优先级 / 模块筛选联动，归档档位选「未归档」时才露出来 */
-function issueArchiveHtml(issues) {
-  const archived = issues.filter((i) => matchIssue(i, { ...issueFilter, archived: "only" }));
-  return archiveSection("issue", archived, issueFilter.archived === "no", issueArchiveOpen);
-}
-
+/** 主列表里的一条 bug。归档了的不走这里（它在侧边抽屉里，见 archiveRowHtml）。 */
 function issueRow(i) {
   const it = normalizeIssue(i);
   const closed = isIssueClosed(it.status);
-  const archived = it.isArchived;
   const open = openIssueId === it.id;
   return `
-    <li class="item issue-row${closed ? " done" : ""}${archived ? " archived" : ""}${open ? " open" : ""}"
+    <li class="item issue-row${closed ? " done" : ""}${open ? " open" : ""}"
         data-id="${esc(it.id)}" data-expand="issue" title="${open ? "收起详情" : "点开看详细描述和截图"}">
       ${chip(it.severity)}
       <span class="issue-main">
@@ -426,15 +582,10 @@ function issueRow(i) {
       </span>
       ${imgBadge(it.imagePaths, "截图")}
       ${chip(it.status)}
-      ${archived ? `<span class="i-meta">归档于 ${esc(it.archivedAt || "—")}</span>` : ""}
       <span class="i-actions">
-        ${
-          archived
-            ? `<button class="link" data-act="issue-unarchive">恢复</button>`
-            : closed
-              ? `<button class="link" data-act="issue-archive">归档</button>`
-              : `<button class="link" data-act="issue-done">标记已修复</button>`
-        }
+        ${closed
+          ? `<button class="link" data-act="issue-archive">归档</button>`
+          : `<button class="link" data-act="issue-done">标记已修复</button>`}
         <button class="link" data-act="issue-edit">编辑</button>
         <button class="link danger" data-act="issue-del">删除</button>
       </span>
@@ -457,7 +608,6 @@ function issueDetail(i) {
         <dt>关联模块</dt><dd>${esc(it.module)}</dd>
         <dt>记录于</dt><dd>${esc(it.createdAt || "—")}</dd>
         <dt>修复于</dt><dd>${esc(it.fixedAt || "—")}</dd>
-        ${it.isArchived ? `<dt>归档于</dt><dd>${esc(it.archivedAt || "—")}</dd>` : ""}
         ${days === null ? "" : `<dt>迭代周期</dt><dd>${days} 天</dd>`}
       </dl>
       ${thumbsHtml(it.imagePaths)}
@@ -500,6 +650,12 @@ function onInput(e) {
   if (el.id === "project-filter") {
     filterText = el.value;
     applyFilter();
+    return;
+  }
+  // 抽屉里的搜索：边打边筛，只重画下半截 —— 输入框本身不动，光标不跳
+  if (el.id === "arch-search") {
+    archive.kw = el.value;
+    refreshArchiveBody();
   }
 }
 
@@ -541,6 +697,112 @@ function doUnarchive(row, what) {
   touch(true);
   toast(`${what}已恢复，回到主列表`);
   return true;
+}
+
+/* ---------------- 抽屉的开合与批量的收尾 ---------------- */
+
+/** 记着按下过 Esc 的那次监听只挂一次（抽屉开开关关不用重复挂） */
+let archEscBound = false;
+
+function bindArchiveEsc() {
+  if (archEscBound) return;
+  archEscBound = true;
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Escape" || !archive.open) return;
+      // 弹窗 / 全屏看图压在上面时，Esc 先关它们，别把抽屉一起关了
+      if (document.querySelector(".dlg-backdrop") || document.querySelector(".viewer-backdrop")) return;
+      closeArchive();
+    },
+    true
+  );
+}
+
+/** 打开抽屉：tab 决定默认停在哪一类（点待办卡片的入口就停在待办归档） */
+function openArchive(tab) {
+  archive.open = true;
+  archive.tab = tab === "issue" ? "issue" : "todo";
+  archive.picked.clear();
+  redraw();
+  const box = document.getElementById("arch-search");
+  if (box) setTimeout(() => box.focus(), 0);
+}
+
+function closeArchive() {
+  archive.open = false;
+  archive.kw = "";
+  archive.severity = "all";
+  archive.from = "";
+  archive.to = "";
+  archive.picked.clear();
+  redraw();
+}
+
+/** 只重画抽屉下半截：筛选项边打边改时，上面的输入框和下拉不会掉焦点 */
+function refreshArchiveBody() {
+  const host = (hostRoot && hostRoot.querySelector("#arch-body-host")) || null;
+  if (host) host.innerHTML = archiveBodyHtml();
+}
+
+/** 勾选里的 id 去掉已经不在此列的（恢复 / 删除之后会用到） */
+function pruneArchivePicked() {
+  const valid = new Set(archivedRowsOf(archive.tab).map((r) => r.id));
+  for (const id of [...archive.picked]) if (!valid.has(id)) archive.picked.delete(id);
+}
+
+/** 批量恢复 / 批量删除：一次处理勾中的那些，二次确认只问一次 */
+async function archiveBatch(mode) {
+  const rows = archiveVisible().filter((r) => archive.picked.has(r.id));
+  if (!rows.length) {
+    toast("先勾几条", "err");
+    return;
+  }
+  const what = archive.tab === "issue" ? "问题" : "待办";
+  if (mode === "restore") {
+    for (const row of rows) unarchiveRow(row);
+    archive.picked.clear();
+    touch(true);
+    toast(`${rows.length} 条${what}已恢复，回到主列表`);
+    return;
+  }
+  const ok = await askConfirm({
+    title: `删除这 ${rows.length} 条${what}归档记录？`,
+    message: "会放进回收站，误删可以去「数据与设置」找回。",
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!ok) return;
+  for (const row of rows) {
+    moveToTrash(archive.tab === "issue" ? "issues" : "tasks", row, archive.tab === "issue" ? row.title : row.text);
+  }
+  archive.picked.clear();
+  touch(true);
+  toast(`${rows.length} 条已移入回收站`);
+}
+
+/** 抽屉里单条删除：和别处一样走回收站，不直接抹掉 */
+async function archiveDeleteOne(row) {
+  const what = archive.tab === "issue" ? "问题" : "待办";
+  const label = archive.tab === "issue" ? row.title : row.text;
+  const ok = await askConfirm({
+    title: `删除这条${what}归档记录「${label}」？`,
+    message: "会放进回收站，误删可以去「数据与设置」找回。",
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!ok) return;
+  moveToTrash(archive.tab === "issue" ? "issues" : "tasks", row, label);
+  archive.picked.delete(row.id);
+  touch(true);
+  toast("已移入回收站");
+}
+
+/** 当前这条要处理的归档记录（从点到的按钮那一行往上找 id） */
+function archiveRowOf(btn) {
+  const li = btn.closest("[data-id]");
+  if (!li) return null;
+  return archivedRowsOf(archive.tab).find((r) => r.id === li.dataset.id) || null;
 }
 
 /* ---------------- 弹窗：问题 / bug ----------------
@@ -877,11 +1139,6 @@ async function onClick(e) {
     openItemDialog("devTodo", null, { pid });
   } else if (act === "todo-archive") {
     doArchive(findTodo(id), "待办");
-  } else if (act === "todo-unarchive") {
-    doUnarchive(findTodo(id), "待办");
-  } else if (act === "todo-archive-toggle") {
-    todoArchiveOpen = !todoArchiveOpen;
-    redraw();
   } else if (act === "todo-del") {
     const t = findTodo(id);
     if (!t) return;
@@ -911,13 +1168,33 @@ async function onClick(e) {
     toast(autoArchived ? "已标记修复，并按设置自动归档" : "已标记修复");
   } else if (act === "issue-archive") {
     doArchive(findIssue(id), "问题");
-  } else if (act === "issue-unarchive") {
-    doUnarchive(findIssue(id), "问题");
-  } else if (act === "issue-archive-toggle") {
-    issueArchiveOpen = !issueArchiveOpen;
-    redraw();
   } else if (act === "issue-filter-clear") {
-    issueFilter = { status: "all", severity: "all", module: "all", archived: "no" };
+    issueFilter = { status: "all", severity: "all", module: "all" };
+    redraw();
+  } else if (act === "arch-open") {
+    openArchive(btn.dataset.tab);
+  } else if (act === "arch-close") {
+    // 点遮罩也算关：但点抽屉里面的东西不该关，靠 target 判断
+    if (e.target === btn) closeArchive();
+  } else if (act === "arch-tab") {
+    archive.tab = btn.dataset.tab === "issue" ? "issue" : "todo";
+    archive.picked.clear();
+    redraw();
+  } else if (act === "arch-restore") {
+    const row = archiveRowOf(btn);
+    if (row) doUnarchive(row, archive.tab === "issue" ? "问题" : "待办");
+  } else if (act === "arch-del") {
+    const row = archiveRowOf(btn);
+    if (row) await archiveDeleteOne(row);
+  } else if (act === "arch-delete-picked") {
+    await archiveBatch("delete");
+  } else if (act === "arch-restore-picked") {
+    await archiveBatch("restore");
+  } else if (act === "arch-filter-clear") {
+    archive.kw = "";
+    archive.severity = "all";
+    archive.from = "";
+    archive.to = "";
     redraw();
   } else if (act === "issue-del") {
     const i = findIssue(id);
@@ -961,9 +1238,9 @@ function onChange(e) {
     applyFilter();
     return;
   }
-  // 待办的归档档位（排除归档 / 仅归档 / 全部）
-  if (e.target.id === "todo-archive-filter") {
-    todoArchive = normalizeArchiveFilter(e.target.value);
+  // 待办主列表的活跃档位（全部 / 未完成 / 已完成）
+  if (e.target.id === "todo-state-filter") {
+    todoState = e.target.value;
     redraw();
     return;
   }
@@ -983,9 +1260,37 @@ function onChange(e) {
     redraw();
     return;
   }
-  if (e.target.id === "issue-filter-archive") {
-    issueFilter.archived = normalizeArchiveFilter(e.target.value);
-    redraw();
+  // 归档抽屉：优先级 / 归档日期范围只重画下半截，输入框和下拉都不动
+  if (e.target.id === "arch-severity") {
+    archive.severity = e.target.value;
+    refreshArchiveBody();
+    return;
+  }
+  if (e.target.id === "arch-from") {
+    archive.from = e.target.value;
+    refreshArchiveBody();
+    return;
+  }
+  if (e.target.id === "arch-to") {
+    archive.to = e.target.value;
+    refreshArchiveBody();
+    return;
+  }
+  // 勾一条 / 全选：只更新批量条，列表不重画（复选框自己会亮）
+  if (e.target.closest('[data-act="arch-pick"]')) {
+    const li = e.target.closest("[data-id]");
+    if (!li) return;
+    if (e.target.checked) archive.picked.add(li.dataset.id);
+    else archive.picked.delete(li.dataset.id);
+    refreshArchiveBody();
+    return;
+  }
+  if (e.target.id === "arch-all") {
+    for (const row of archiveVisible()) {
+      if (e.target.checked) archive.picked.add(row.id);
+      else archive.picked.delete(row.id);
+    }
+    refreshArchiveBody();
     return;
   }
   const box = e.target.closest('[data-act="todo-toggle"]');

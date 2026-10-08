@@ -14,22 +14,20 @@ export function archivedOf(row) {
   return Boolean(row && typeof row === "object" && row.isArchived === true);
 }
 
-/** 归档的三个档位：未归档（默认）/ 仅归档 / 全部。主列表和筛选都按它分。 */
-export const ARCHIVE_FILTER = ["no", "only", "all"];
-
-export const ARCHIVE_FILTER_LABEL = {
-  no: "未归档",
-  only: "仅归档",
-  all: "全部",
-};
-
-export function normalizeArchiveFilter(value) {
-  return ARCHIVE_FILTER.includes(value) ? value : "no";
+/**
+ * 把一堆记录按归档拆成两拨：主列表要 `active`，侧边抽屉要 `archived`。
+ * 2026-10-08 从「卡片内折叠」改成「右侧抽屉」之后，两处都是这么分的，
+ * 所以放成纯函数，一条条断言就行。
+ */
+export function splitByArchive(rows) {
+  const active = [];
+  const archived = [];
+  for (const row of rows || []) (archivedOf(row) ? archived : active).push(row);
+  return { active, archived };
 }
 
-/** 按归档档位过一条记录：no 只放没归档的，only 只放归档的，all 都放 */
-export function matchArchive(row, filter = "no") {
-  const mode = normalizeArchiveFilter(filter);
+/** 按归档档位过一条记录：no 只放没归档的（主列表的默认），only 只放归档的，all 都放 */
+function passArchived(row, mode) {
   if (mode === "all") return true;
   return mode === "only" ? archivedOf(row) : !archivedOf(row);
 }
@@ -145,7 +143,7 @@ export function matchIssue(
   { kw = "", status = "all", severity = "all", module = "all", archived = "no" } = {}
 ) {
   const i = normalizeIssue(row);
-  if (!matchArchive(row, archived)) return false;
+  if (!passArchived(row, archived)) return false;
   if (status !== "all" && i.status !== status) return false;
   if (severity !== "all" && i.severity !== severity) return false;
   if (module !== "all" && i.module !== module) return false;

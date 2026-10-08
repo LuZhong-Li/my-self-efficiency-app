@@ -148,8 +148,8 @@ const AUTOSAVE_FIELDS =
   "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, " +
   "#budget-input, #media-filter, #media-cal-platform, #media-list-platform, #media-list-status, " +
   "#media-list-sort, #attach-max-edge, .attach-input, " +
-  "#issue-filter-status, #issue-filter-severity, #issue-filter-module, #issue-filter-archive, " +
-  "#todo-archive-filter, #search-archived, " +
+  "#issue-filter-status, #issue-filter-severity, #issue-filter-module, " +
+  "#todo-state-filter, #search-archived, #arch-search, #arch-severity, #arch-from, #arch-to, " +
   "#game-date, #game-filter-name, #game-filter-from, #game-filter-to";
 
 document.addEventListener(

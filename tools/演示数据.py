@@ -338,6 +338,9 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
     settings.setdefault("themeMode", "light")
     settings.setdefault("backupKeep", 14)
     settings.setdefault("slogan", "把时间花在看得见的地方")
+    # 今日计划顶上那条「今天玩了什么」的摘要开着（游戏娱乐 → 今日计划的联动开关）。
+    # 演示数据里今天正好有游玩记录，一进今日计划就能看见这条跨模块联动。
+    settings.setdefault("planShowGame", True)
 
     projects = [
         {"id": "demo-p1", "name": "小李（个人工作台）", "status": "进行中",
@@ -405,36 +408,47 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
 
     tasks = [
         {"id": "demo-t1", "date": d(0), "text": "把论文提纲列出来", "time": "09:00",
-         "category": "工作", "done": False, "note": "先写粗纲"},
+         "category": "工作", "done": False, "note": "先写粗纲", "priority": "高"},
         {"id": "demo-t2", "date": d(0), "text": "数学刷题 10 道", "time": "10:30",
-         "category": "工作", "done": True, "note": "积分那几道"},
+         "category": "工作", "done": True, "note": "积分那几道", "priority": "中"},
         {"id": "demo-t3", "date": d(0), "text": "跑步 5 公里", "time": "19:30",
-         "category": "运动", "done": True, "note": ""},
+         "category": "运动", "done": True, "note": "", "priority": "低"},
         {"id": "demo-t4", "date": d(0), "text": "回一下邮件", "time": "", "category": "工作",
-         "done": False, "note": ""},
+         "done": False, "note": "挑要紧的三封回", "priority": "中"},
         {"id": "demo-t5", "date": d(0), "text": "给家里打个电话", "time": "21:00",
-         "category": "生活", "done": False, "note": ""},
+         "category": "生活", "done": False, "note": "", "priority": "低"},
         {"id": "demo-t6", "date": d(-1), "text": "整理上周的笔记", "time": "",
          "category": "工作", "done": False, "note": ""},
         {"id": "demo-t7", "date": d(-2), "text": "交水电费", "time": "",
          "category": "生活", "done": False, "note": ""},
         {"id": "demo-t8", "date": d(-4), "text": "把书桌收拾一下", "time": "",
-         "category": "生活", "done": False, "note": ""},
+         "category": "生活", "done": False, "note": "", "priority": "低"},
         {"id": "demo-t9", "date": d(1), "text": "牙医复诊", "time": "10:00",
-         "category": "生活", "done": False, "note": ""},
+         "category": "生活", "done": False, "note": "", "priority": "中"},
         {"id": "demo-t10", "date": d(3), "text": "小组分享", "time": "14:00",
-         "category": "工作", "done": False, "note": "准备三页 PPT"},
+         "category": "工作", "done": False, "note": "准备三页 PPT", "priority": "高"},
         {"id": "demo-t11", "date": d(6), "text": "交房租", "time": "", "category": "生活",
-         "done": False, "note": ""},
+         "done": False, "note": "", "priority": "高"},
         {"id": "demo-t12", "date": d(9), "text": "月度复盘", "time": "20:00",
-         "category": "工作", "done": False, "note": ""},
-        # 开发工作页里挂在项目上的待办（date 留空，不混进今日计划）
-        {"id": "demo-t13", "date": "", "text": "把月历的氛围底再调淡一点", "time": "",
-         "category": "工作", "done": False, "note": "", "belong": "dev:demo-p1"},
+         "category": "工作", "done": False, "note": "", "priority": "中"},
+        # 游戏娱乐顺手加进今日计划的那条：sourceModule 让它挂上「游戏娱乐」来源标签
+        {"id": "demo-t17", "date": d(0), "text": "玩游戏放松", "time": "22:00",
+         "category": "生活", "done": False, "note": "", "priority": "低",
+         "sourceModule": "game"},
+        # 开发工作页里挂在项目上的待办：默认 date 留空、只属于项目。
+        # demo-t13 / demo-t15 两条勾了「加入今日计划」（date 盖成今天 + isTodayPlan），
+        # 用来演示跨模块联动：它们同时出现在今日计划和首页总览，行上带「开发待办」
+        # 来源标签，打勾只改这一条原始记录，项目里那份跟着一起变。
+        # demo-t14 故意没勾（已完成的普通待办），用来看两者的区别。
+        {"id": "demo-t13", "date": d(0), "text": "把月历的氛围底再调淡一点", "time": "21:00",
+         "category": "工作", "done": False, "note": "顺手改的，不着急",
+         "belong": "dev:demo-p1", "priority": "中", "isTodayPlan": True},
         {"id": "demo-t14", "date": "", "text": "看看导入恢复的提示文案", "time": "",
-         "category": "工作", "done": True, "note": "", "belong": "dev:demo-p1"},
-        {"id": "demo-t15", "date": "", "text": "列 10 个常用句型", "time": "",
-         "category": "工作", "done": False, "note": "", "belong": "dev:demo-p2"},
+         "category": "工作", "done": True, "note": "", "belong": "dev:demo-p1",
+         "priority": "低"},
+        {"id": "demo-t15", "date": d(0), "text": "列 10 个常用句型", "time": "20:00",
+         "category": "工作", "done": False, "note": "", "belong": "dev:demo-p2",
+         "priority": "高", "isTodayPlan": True},
         # 归档过的一条：演示「做完的挪进归档区，点开才看得见」
         {"id": "demo-t16", "date": "", "text": "给项目卡片补上小图标", "time": "",
          "category": "工作", "done": True, "note": "顺手做的", "belong": "dev:demo-p1",
@@ -442,6 +456,8 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
     ]
     for task in tasks:
         task.setdefault("belong", "plan")
+        task.setdefault("priority", "")
+        task.setdefault("isTodayPlan", False)
         task.setdefault("createdAt", d(0) + "T08:00:00")
         if task["done"]:
             task.setdefault("doneAt", d(0) + "T20:00:00")
@@ -500,6 +516,11 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
         {"id": "demo-c13", "title": "旧数据不用账号也能算", "platform": "知乎",
          "status": "想法", "planDate": "", "publishDate": "", "link": "",
          "views": 0, "likes": 0, "comments": 0, "collects": 0, "fansGain": 0, "note": ""},
+        # 废弃归档的一条：作品列表默认不显示它，把状态筛到「已废弃」才看得到
+        {"id": "demo-c14", "title": "去年想做的「一周复盘」系列", "accountId": "demo-ma1",
+         "platform": "B站", "status": "废弃", "planDate": "", "publishDate": "", "link": "",
+         "views": 0, "likes": 0, "comments": 0, "collects": 0, "fansGain": 0,
+         "note": "隔太久，选题过时了，归档留着以后参考"},
     ]
 
     # 自媒体账号与粉丝快照：快照是「手动校正」的锚点，有它趋势才有真实起点
@@ -773,6 +794,33 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
         }],
     }
 
+    # 回收站：你原来里面有什么（自己删过的）就原样留着；一份都没有的时候
+    # 补三条演示条目，让「数据与设置 → 回收站」这一页也有东西看
+    # （只是摆着，默认不会自己去恢复；想找回点「恢复」就行）。
+    trash = old.get("trash")
+    if not trash:
+        trash = [
+            {"id": "demo-del1", "table": "tasks", "label": "把书桌第二层清一遍",
+             "deletedAt": "%s 21:30" % d(-2),
+             "row": {"id": "demo-del-r1", "date": d(-2), "text": "把书桌第二层清一遍",
+                     "time": "", "category": "生活", "done": True, "note": "",
+                     "belong": "plan", "priority": "低", "isTodayPlan": False,
+                     "imagePaths": [], "isArchived": False, "archivedAt": "",
+                     "createdAt": "%sT09:00:00" % d(-2),
+                     "doneAt": "%sT21:00:00" % d(-2)}},
+            {"id": "demo-del2", "table": "games", "label": "某款永远排不上的游戏",
+             "deletedAt": "%s 11:00" % d(-5),
+             "row": {"id": "demo-del-g1", "name": "某款永远排不上的游戏", "platform": "PC",
+                     "status": "想玩", "progress": "", "hours": 0, "targetHours": 0,
+                     "finishDate": "", "imagePaths": []}},
+            {"id": "demo-del3", "table": "finance.transactions", "label": "记重的那一笔 ¥25.00",
+             "deletedAt": "%s 20:10" % d(-1),
+             "row": {"id": "demo-del-tx1", "type": "expense", "amountCents": 2500,
+                     "date": d(-1), "category": "餐饮", "accountId": "demo-a1",
+                     "note": "记重的一笔", "imagePaths": [],
+                     "createdAt": "%s 12:00" % d(-1)}},
+        ]
+
     return {
         "version": 1,
         "rev": 0,                                   # 真正写的时候会重算
@@ -812,7 +860,7 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
         },
         "debt": {"items": debt_items},
         "settings": settings,                       # 你选的皮肤 / 明暗一律保留
-        "trash": old.get("trash") or [],            # 回收站也原样留着
+        "trash": trash,                             # 回收站也原样留着（空的时候补三条演示条目）
     }
 
 

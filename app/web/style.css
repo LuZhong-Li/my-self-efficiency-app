@@ -2706,6 +2706,28 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
 .attach-btn:hover { border-color: var(--accent); color: var(--accent); }
 .attach-btn:hover .ic { color: currentColor; }
 
+.attach-hint { color: var(--muted); font-size: 12px; }
+.attach-hint kbd {
+  font: inherit;
+  padding: 1px 5px;
+  border: var(--bw) solid var(--line);
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--ink);
+}
+
+/* 粘贴 / 选图刚收下时闪一下，给个「收到了」的反馈 */
+.attach.flash .attach-btn { border-color: var(--accent); color: var(--accent); }
+.attach.flash .attach-btn .ic { color: currentColor; }
+.attach.flash .attach-list { animation: attach-drop 0.4s ease; }
+@keyframes attach-drop {
+  from { opacity: 0.35; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .attach.flash .attach-list { animation: none; }
+}
+
 .attach-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .attach-tip { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .attach-err { margin: 8px 0 0; color: var(--err); font-size: 12px; }

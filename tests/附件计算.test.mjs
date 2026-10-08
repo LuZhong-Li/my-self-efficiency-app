@@ -7,6 +7,7 @@ import {
   COMPRESS_PRESETS, DEFAULT_ATTACH_SETTINGS, ATTACH_MODULES,
   normalizeAttachSettings, presetLabel,
   extForMime, extOfName, checkImageFile, rowPaths,
+  clipboardImages, clipboardHasText,
   fitEdge, decideEncode, stampOf, uniqueName,
   attachmentPath, parseAttachmentPath, isValidAttachmentPath, fileNameOf,
   viewerStep, humanSize,
@@ -202,6 +203,38 @@ eq(humanSize(1023), "1023 字节", "不到 1KB 就按字节");
 eq(humanSize(1024), "1.0 KB", "1024 起按 KB");
 eq(humanSize(1536), "1.5 KB", "1.5KB 保留一位");
 eq(humanSize(3 * 1024 * 1024), "3.00 MB", "MB 保留两位");
+
+/* ---------------- 粘贴（Ctrl+V）里挑图 ---------------- */
+
+const png = { name: "pasted.png", type: "image/png", size: 1234 };
+const jpg = { name: "小票.jpg", type: "image/jpeg", size: 4321 };
+
+/** DataTransferItem 那副样子：kind + type + getAsFile() */
+function fileItem(file, type = file.type) {
+  return { kind: "file", type, getAsFile: () => file };
+}
+function textItem(type = "text/plain") {
+  return { kind: "string", type };
+}
+
+const oneShot = clipboardImages([fileItem(png)]);
+eq(oneShot.length, 1, "截图（只有一张 png）能挑出来");
+eq(oneShot[0] === png, true, "挑出来的就是那个 File 本身");
+
+eq(clipboardImages([fileItem(png), fileItem(jpg)]).length, 2, "一次夹两张也都要");
+eq(clipboardImages([textItem()]).length, 0, "只有文字时什么都不挑");
+eq(clipboardImages([fileItem(png), textItem()]).length, 1, "图文一起时只挑图（文字那条不碰）");
+eq(clipboardImages([fileItem({ name: "动图.gif" }, "image/gif")]).length, 0, "gif 不收，和选图那条线一致");
+eq(clipboardImages([{ kind: "file", type: "image/png" }]).length, 0, "取不到 File 的（失效 item）跳过");
+eq(clipboardImages([null, undefined]).length, 0, "夹着空条目也不会炸");
+eq(clipboardImages(null).length, 0, "整个剪贴板是空的也不炸");
+eq(clipboardImages(undefined).length, 0, "剪贴板都没给也不炸");
+
+eq(clipboardHasText([textItem("text/plain")]), true, "有纯文字 → 这次粘贴不抢");
+eq(clipboardHasText([textItem("text/html"), fileItem(png)]), true, "从网页复制的图文一起 → 不抢");
+eq(clipboardHasText([fileItem(png)]), false, "只有图片 → 可以放心接");
+eq(clipboardHasText([{ kind: "string", type: "" }]), false, "kind 是 string 但没 type 的不算文字");
+eq(clipboardHasText(null), false, "空剪贴板不算有文字");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

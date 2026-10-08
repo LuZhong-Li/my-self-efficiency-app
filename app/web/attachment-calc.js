@@ -105,6 +105,38 @@ export function checkImageFile({ type, size, name } = {}) {
   return { ok: true, error: "" };
 }
 
+/**
+ * 剪贴板（Ctrl+V）里夹带的那几张图。
+ * 递进来的是 DataTransferItem 那一串：kind 是 "file" 的才是文件，"string" 是文字；
+ * 文件还得落在 png / jpg / webp 里。取不到 File 的（item 已经失效那种）跳过。
+ * 传进来的东西认不出是啥一律当空的，绝不抛错 —— 粘贴是随手一按，不该炸。
+ */
+export function clipboardImages(items) {
+  const out = [];
+  if (!items || typeof items[Symbol.iterator] !== "function") return out;
+  for (const item of items) {
+    if (!item || item.kind !== "file") continue;
+    if (!IMAGE_TYPES.includes(String(item.type || "").toLowerCase())) continue;
+    const file = typeof item.getAsFile === "function" ? item.getAsFile() : null;
+    if (file) out.push(file);
+  }
+  return out;
+}
+
+/**
+ * 剪贴板里是不是还夹着文字？
+ * 从 Excel、网页上复制的常常是「文字 + 图片」一起，这种不抢这次粘贴，
+ * 让文字照常落进输入框；截图（Win+Shift+S）只有图片，不受这条影响。
+ */
+export function clipboardHasText(items) {
+  if (!items || typeof items[Symbol.iterator] !== "function") return false;
+  for (const item of items) {
+    if (!item || item.kind !== "string") continue;
+    if (String(item.type || "").toLowerCase().startsWith("text/")) return true;
+  }
+  return false;
+}
+
 /** 一条记录上的图片路径（老数据没有这个字段，一律当空数组） */
 export function rowPaths(row) {
   const list = row && row.imagePaths;

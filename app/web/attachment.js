@@ -18,6 +18,7 @@ import { icon } from "./icons.js";
 import {
   normalizeAttachSettings, checkImageFile, decideEncode, extForMime, extOfName,
   rowPaths, fileNameOf, viewerStep, MAX_UPLOAD_BYTES, JPEG_QUALITY, PNG_FALLBACK_BYTES,
+  clipboardImages, clipboardHasText,
 } from "./attachment-calc.js";
 
 export { rowPaths } from "./attachment-calc.js";
@@ -309,12 +310,42 @@ function attachInnerHtml() {
       <button type="button" class="attach-btn" data-attach-act="pick">
         ${icon("image", 16)}添加图片备注
       </button>
+      <span class="attach-hint">或在弹窗里按 <kbd>Ctrl</kbd>+<kbd>V</kbd> 贴截图</span>
       <span class="attach-count"></span>
     </div>
     <input type="file" class="attach-input" accept="image/png,image/jpeg,image/webp" multiple hidden>
     <div class="attach-list"></div>
-    <p class="attach-tip">可选，能加多张：小票截图、付款截图都行；点缩略图看大图，右上角的 × 单独移除。</p>
+    <p class="attach-tip">可选，能加多张：截图（Win+Shift+S）之后直接按 Ctrl+V 就贴进来了，
+      小票截图、付款截图都行；点缩略图看大图，右上角的 × 单独移除。</p>
     <p class="attach-err" hidden></p>`;
+}
+
+/**
+ * 把一批文件收进这个附件区：查一道、压一道、进预览列表。
+ * 「点按钮选本地文件」和「Ctrl+V 粘贴截图」两条路都走这里，规则只有一份。
+ * 收了图就轻轻闪一下，给个「贴进来了」的反馈。
+ */
+async function absorbFiles(entry, files) {
+  const state = entry.state;
+  state.error = "";
+  const maxEdge = attachmentSettings().maxEdge;
+  let added = 0;
+  for (const file of files) {
+    const check = checkImageFile({ type: file.type, size: file.size, name: file.name });
+    if (!check.ok) {
+      state.error = check.error;
+      continue;
+    }
+    try {
+      state.files.push(await prepareImage(file, maxEdge));
+      added++;
+    } catch (err) {
+      state.error = (err && err.message) || "这张图读不出来，换一张试试";
+    }
+  }
+  if (added) entry.flash();
+  entry.paint();
+  entry.changed();
 }
 
 /**
@@ -342,17 +373,31 @@ export function mountAttach(host, state, options = {}) {
   const error = host.querySelector(".attach-err");
   const input = host.querySelector(".attach-input");
 
-  const paint = () => {
-    list.innerHTML = pickerTilesHtml(state);
-    const n = state.paths.length + state.files.length;
+  // 事件都按 entry.state 走（不是挂载时那个 state），弹窗里换过一版状态也不会画错
+  const entry = { state, options, paint, changed, flash };
+
+  function paint() {
+    list.innerHTML = pickerTilesHtml(entry.state);
+    const n = entry.state.paths.length + entry.state.files.length;
     count.textContent = n ? `已选 ${n} 张` : "";
-    error.textContent = state.error || "";
-    error.hidden = !state.error;
-  };
+    error.textContent = entry.state.error || "";
+    error.hidden = !entry.state.error;
+  }
+
+  function changed() {
+    const fn = entry.options && entry.options.onChange;
+    if (typeof fn === "function") fn(entry.state);
+  }
+
+  /** 刚收下图片时整块闪一下；连贴两张也要能重新播一遍动画 */
+  function flash() {
+    host.classList.remove("flash");
+    void host.offsetWidth;
+    host.classList.add("flash");
+    window.setTimeout(() => host.classList.remove("flash"), 600);
+  }
+
   paint();
-  const changed = () => {
-    if (typeof options.onChange === "function") options.onChange(state);
-  };
 
   host.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-attach-act]");
@@ -363,18 +408,18 @@ export function mountAttach(host, state, options = {}) {
     }
     if (btn.dataset.attachAct !== "drop") return;
     const key = btn.dataset.key;
-    const at = state.files.findIndex((f) => f.key === key);
+    const at = entry.state.files.findIndex((f) => f.key === key);
     if (at >= 0) {
       try {
-        URL.revokeObjectURL(state.files[at].url);
+        URL.revokeObjectURL(entry.state.files[at].url);
       } catch {
         /* 已经回收过就算了 */
       }
-      state.files.splice(at, 1);
+      entry.state.files.splice(at, 1);
     } else {
-      state.paths = state.paths.filter((p) => p !== key);
+      entry.state.paths = entry.state.paths.filter((p) => p !== key);
     }
-    state.error = "";
+    entry.state.error = "";
     paint();
     changed();
   });
@@ -383,27 +428,52 @@ export function mountAttach(host, state, options = {}) {
     const picked = Array.from(input.files || []);
     input.value = "";   // 同一张图连选两次也要能触发 change
     if (!picked.length) return;
-    state.error = "";
-    const maxEdge = attachmentSettings().maxEdge;
-    for (const file of picked) {
-      const check = checkImageFile({ type: file.type, size: file.size, name: file.name });
-      if (!check.ok) {
-        state.error = check.error;
-        continue;
-      }
-      try {
-        state.files.push(await prepareImage(file, maxEdge));
-      } catch (err) {
-        state.error = (err && err.message) || "这张图读不出来，换一张试试";
-      }
-    }
-    paint();
-    changed();
+    await absorbFiles(entry, picked);
   });
 
-  mounted.set(host, { state, paint, options });
+  mounted.set(host, entry);
   return state;
 }
+
+/* ---------------- 粘贴（Ctrl+V） ----------------
+ * 截图（Win+Shift+S）截完，图就在剪贴板里；在弹窗里按 Ctrl+V 直接进附件区，
+ * 省掉「先另存成文件 → 再点按钮去挑」那两步。
+ *
+ * 两条克制的规矩：
+ *   · 只认「当前那个弹窗里的附件区」—— 页面正文、搜索框里按 Ctrl+V 一切照旧；
+ *   · 剪贴板里同时夹着文字就不抢这次粘贴（Excel / 网页里复制来的常常图文一起，
+ *     文字该照常落进输入框）；截图只有图片，不受这条影响。
+ */
+
+/** 当前开着的弹窗里的附件区；没有（或只是摆设）就返回 null */
+function activeAttachHost() {
+  if (typeof document === "undefined") return null;
+  const backdrops = document.querySelectorAll(".dlg-backdrop");
+  for (let i = backdrops.length - 1; i >= 0; i--) {
+    const host = backdrops[i].querySelector(".attach");
+    if (host && mounted.has(host)) return host;
+  }
+  return null;
+}
+
+let pasteReady = false;
+
+export function installPasteHandler() {
+  if (pasteReady || typeof document === "undefined") return;
+  pasteReady = true;
+  document.addEventListener("paste", (e) => {
+    if (document.querySelector(".viewer-backdrop")) return;   // 正在看大图，别抢
+    const host = activeAttachHost();
+    if (!host) return;
+    const items = e.clipboardData ? e.clipboardData.items : null;
+    const images = clipboardImages(items);
+    if (!images.length || clipboardHasText(items)) return;
+    e.preventDefault();   // 图已经收下了，别让它再落进底下的输入框
+    absorbFiles(mounted.get(host), images);
+  });
+}
+
+installPasteHandler();
 
 /* ---------------- 全屏查看 ---------------- */
 

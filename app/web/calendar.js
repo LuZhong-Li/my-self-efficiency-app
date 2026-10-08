@@ -13,10 +13,12 @@
  */
 
 import { touch, uid, table, esc, todayStr, dateStr, moveToTrash } from "./store.js";
-import { bindFresh, emptyState, options } from "./ui.js";
+import { bindFresh, emptyState, options, priorityChip, sourceTag } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { durationText } from "./game-calc.js";
+import { taskOwnerOf, devProjectOf } from "./task-calc.js";
+import { updateTaskStatus } from "./task-actions.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const CATEGORIES = ["工作", "生活", "运动", "其他"];
@@ -267,15 +269,25 @@ function dayDetail(date) {
         `任务（${tasks.length}）`,
         tasks
           .map(
-            (t) => `<li class="item${t.done ? " done" : ""}" data-id="${esc(t.id)}">
+            (t) => {
+              // 从别的模块「加入今日计划」的待办也画在这儿，但它们只能回原模块删
+              const dev = taskOwnerOf(t) === "dev";
+              return `<li class="item${t.done ? " done" : ""}" data-id="${esc(t.id)}">
               <label class="check" title="${t.done ? "取消完成" : "标记完成"}">
                 <input type="checkbox" data-act="toggle" ${t.done ? "checked" : ""}>
               </label>
               <span class="i-title">${esc(t.text)}</span>
+              ${priorityChip(t.priority)}
+              ${sourceTag(t)}
               ${t.time ? `<span class="i-meta">${esc(t.time)}</span>` : ""}
               <span class="chip">${esc(t.category || "其他")}</span>
-              <span class="i-actions"><button class="link danger" data-act="cal-del">删除</button></span>
-            </li>`
+              <span class="i-actions">${
+                dev
+                  ? `<a class="link" href="#dev/${esc(devProjectOf(t))}">回项目</a>`
+                  : `<button class="link danger" data-act="cal-del">删除</button>`
+              }</span>
+            </li>`;
+            }
           )
           .join("")
       )
@@ -418,6 +430,11 @@ async function onClick(e) {
     const li = btn.closest("[data-id]");
     const task = li ? table("tasks").find((t) => t.id === li.dataset.id) : null;
     if (!task) return;
+    // 别的模块加进来的待办只能在原模块删（和今日计划页一个规矩）
+    if (taskOwnerOf(task) === "dev") {
+      toast("这条待办属于开发工作的项目，请回项目里删", "err");
+      return;
+    }
     const ok = await askConfirm({
       title: `删除「${task.text}」？`,
       message: "会放进回收站。",
@@ -456,9 +473,7 @@ function onChange(e) {
   const box = e.target.closest('[data-act="toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");
-  const task = table("tasks").find((t) => t.id === (li && li.dataset.id));
-  if (!task) return;
-  task.done = box.checked;
-  task.doneAt = box.checked ? new Date().toISOString() : null;
-  touch();
+  if (!li) return;
+  // 统一入口：月历上勾完成，首页和原模块那条跟着一起变
+  updateTaskStatus(li.dataset.id, box.checked);
 }

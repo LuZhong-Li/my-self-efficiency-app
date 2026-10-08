@@ -352,6 +352,9 @@ def main() -> int:
         check("老的任务 / 学习 / 对象 / 打卡 / 游戏读出来都带上 imagePaths: []", fresh_ok)
         check("老任务读出来带上 priority: 空（开发待办才有优先级）",
               back2["tasks"][0].get("priority") == "")
+        # 跨模块联动那个「加入今日计划」开关也是后加的，老任务补 False
+        check("老任务读出来补齐「加入今日计划」开关（默认关）",
+              back2["tasks"][0].get("isTodayPlan") is False)
         check("老任务读出来也补齐归档标记（默认没归档）",
               back2["tasks"][0].get("isArchived") is False
               and back2["tasks"][0].get("archivedAt") == "",

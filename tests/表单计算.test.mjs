@@ -165,7 +165,7 @@ eq(valuesOf("fitness", null, { date: "2026-10-01" }).date, "2026-10-01", "extra 
 
 const bag = { text: "  写方案  ", minutes: "", category: "生活" };
 eqDeep(readValues("todayPlan", (name) => bag[name]),
-  { text: "  写方案  ", time: "", category: "生活", note: "" },
+  { text: "  写方案  ", time: "", category: "生活", priority: "", note: "" },
   "读表单：没填的字段回空串，不去动两头的空格（校验和写回各管各的）");
 
 /* ---------------- 校验 ---------------- */
@@ -206,6 +206,7 @@ const todo = newRow("devTodo", { text: "把月历氛围底调淡", priority: "�
 eqDeep(todo, {
   id: "id-1", date: "", time: "", category: "工作", done: false, note: "",
   priority: "高", belong: "dev:demo-p1", createdAt: "2026-10-07T10:00:00.000Z",
+  isTodayPlan: false,
   text: "把月历氛围底调淡", imagePaths: [],
 }, "新增一条开发待办：空壳 + 表单值 + imagePaths: []");
 
@@ -213,6 +214,8 @@ const plan = newRow("todayPlan", { text: "写方案", time: "09:00", category: "
 eq(plan.belong, "plan", "今日计划的任务 belong 是 plan");
 eq(plan.date, "2026-10-07", "今日计划默认记到今天");
 eq(plan.done, false, "新增的任务默认没完成");
+eq(plan.priority, "", "新增的今日计划任务默认不标优先级");
+eq(plan.isTodayPlan, false, "新增的今日计划任务默认不占那个跨模块开关");
 eqDeep(plan.imagePaths, [], "新记录带空图片数组");
 
 const study = newRow("studyRecord", { date: "2026-10-06", subjectId: "s1", minutes: "45", content: "第 3 章", takeaway: "" }, ctx);

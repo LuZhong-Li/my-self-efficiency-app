@@ -4,9 +4,11 @@ import {
   touch, uid, table, esc, todayStr, nowText, moveToTrash,
   autoArchiveTodoOf, autoArchiveIssueOf,
 } from "./store.js";
-import { emptyLine, emptyState, chip, options, bindFresh, pageHeader } from "./ui.js";
+import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
+import { inTodayPlan } from "./task-calc.js";
+import { markTaskDone, toggleTaskInTodayPlan } from "./task-actions.js";
 import {
   createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
   purgeRowAttachments, thumbsHtml, rowPaths, imgBadge, openPathViewer,
@@ -322,7 +324,8 @@ function renderDetail(root, p) {
       }
     </section>
 
-    <p class="hint">项目待办不会出现在「今日计划」里，它们只属于这个项目。</p>
+    <p class="hint">项目待办默认只属于这个项目；勾上某条右边的「今日计划」，
+      它就同时出现在今日计划和首页总览（改一处，两边跟着变）。删除仍然只能在这里删。</p>
     ${archiveDrawerHtml(p)}
   `;
 }
@@ -364,15 +367,21 @@ function todoSectionHtml(todos) {
 
 /** 主列表里的一条待办。归档了的不走这里（它在侧边抽屉里，见 archiveRowHtml）。 */
 function todoRow(t) {
+  // 这条待办今天要不要进「今日计划」（勾上就是加入，取消就是移出；任务本身留在这儿）
+  const planned = inTodayPlan(t, todayStr());
   return `
     <li class="task${t.done ? " done" : ""}" data-id="${esc(t.id)}">
       <label class="check" title="${t.done ? "取消完成" : "标记完成"}">
         <input type="checkbox" data-act="todo-toggle" ${t.done ? "checked" : ""}>
       </label>
       <span class="t-text">${esc(t.text)}</span>
-      ${t.priority ? `<span class="chip">${esc(t.priority)}</span>` : ""}
+      ${priorityChip(t.priority)}
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>
+      <label class="plan-pick" title="加入今日计划：勾上之后，这条也出现在今日计划和首页总览，两边状态同步">
+        <input type="checkbox" data-act="todo-plan" ${planned ? "checked" : ""}>
+        <span>今日计划</span>
+      </label>
       <span class="t-actions">
         ${iconAct("todo-edit", "pencil", "编辑")}
         ${t.done ? iconAct("todo-archive", "archive", "归档（归档后收进侧边抽屉）") : ""}
@@ -1304,13 +1313,28 @@ function onChange(e) {
     refreshArchiveBody();
     return;
   }
+  // 待办行右边那个「今日计划」勾选框：加入 / 移出今日计划（任务本身留在项目里）
+  const planBox = e.target.closest('[data-act="todo-plan"]');
+  if (planBox) {
+    const host = planBox.closest("[data-id]");
+    if (!host) return;
+    const saved = toggleTaskInTodayPlan(host.dataset.id, planBox.checked);
+    if (saved) {
+      toast(
+        planBox.checked
+          ? "已加入今日计划（首页总览也看得到）"
+          : "已移出今日计划，待办还在项目里"
+      );
+    }
+    return;
+  }
   const box = e.target.closest('[data-act="todo-toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");
   const t = li ? findTodo(li.dataset.id) : null;
   if (!t) return;
-  t.done = box.checked;
-  t.doneAt = box.checked ? new Date().toISOString() : null;
+  // 统一入口：写状态的那两行只有一份实现（task-actions.js）
+  markTaskDone(t, box.checked);
   // 设置里开着「勾选完成后自动归档」就顺手归档；关着就留在主列表等手动归档
   if (box.checked && autoArchiveTodoOf() && !archivedOf(t)) {
     archiveRow(t);

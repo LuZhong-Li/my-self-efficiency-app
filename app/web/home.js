@@ -8,15 +8,16 @@
  */
 
 import {
-  store, touch, table, esc, todayStr,
+  store, touch, esc, todayStr,
   homeViewOf, setHomeView, memoCollapsedOf, setMemoCollapsed,
 } from "./store.js";
 import {
   HOME_TASK_LIMIT, progressOf, overdueTasks, cardsFor, otherVisibleIn,
   financeBriefOf, financeTextOf,
 } from "./home-view.js";
-import { bindFresh, emptyState } from "./ui.js";
+import { bindFresh, emptyState, priorityChip, sourceTag } from "./ui.js";
 import { icon } from "./icons.js";
+import { updateTaskStatus } from "./task-actions.js";
 
 let memoTimer = null;
 
@@ -253,7 +254,9 @@ function row(t) {
         <input type="checkbox" data-act="toggle" ${t.done ? "checked" : ""}>
       </label>
       <span class="t-text">${esc(t.text)}</span>
-      <span class="t-cat">${esc(t.category || "其他")}</span>
+      ${priorityChip(t.priority)}
+      ${sourceTag(t)}
+      ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}
       <span class="t-time">${t.time ? esc(t.time) : ""}</span>
     </li>`;
 }
@@ -271,11 +274,9 @@ function onChange(e) {
   const box = e.target.closest('[data-act="toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");
-  const task = table("tasks").find((t) => t.id === (li && li.dataset.id));
-  if (!task) return;
-  task.done = box.checked;
-  task.doneAt = box.checked ? new Date().toISOString() : null;
-  touch();
+  if (!li) return;
+  // 和今日计划、原模块共用同一个入口：在这里勾完，那边那条跟着变
+  updateTaskStatus(li.dataset.id, box.checked);
 }
 
 function onClick(e) {

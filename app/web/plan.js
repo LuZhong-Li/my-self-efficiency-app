@@ -9,15 +9,16 @@ import {
   touch, todayStr, formatDateCN, table, esc, moveToTrash,
   planShowGameOf, setPlanShowGame,
 } from "./store.js";
-import { bindFresh, pageHeader, markEnter } from "./ui.js";
+import { bindFresh, pageHeader, markEnter, priorityChip, sourceTag } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { renderCalendar } from "./calendar.js";
 import { icon } from "./icons.js";
 import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
 import { syncGoalTasks, goalBriefHtml } from "./goals.js";
-import { sourceLabelOf } from "./goal-calc.js";
 import { recordsOn, durationText } from "./game-calc.js";
+import { planTasksOf, planStatsOf, taskOwnerOf, devProjectOf } from "./task-calc.js";
+import { updateTaskStatus, toggleTaskInTodayPlan } from "./task-actions.js";
 
 let mode = "today";   // today = 今天的清单，month = 月历
 
@@ -57,10 +58,12 @@ function renderTodayView(body) {
   // 先把今天该生成的目标待办补上，再照着最新的 tasks 画
   syncGoalTasks(today);
   const all = table("tasks");
-  const todayTasks = all.filter((t) => t.date === today).sort(order);
+  // 「今天的任务」= 日期是今天的 + 别的模块「加入今日计划」的（见 task-calc.js）
+  const todayTasks = planTasksOf(all, today);
   const overdue = all
-    .filter((t) => t.date && t.date < today && !t.done)
+    .filter((t) => t.date && t.date < today && !t.done && !t.isArchived)
     .sort((a, b) => (a.date === b.date ? byTime(a, b) : a.date < b.date ? -1 : 1));
+  const p = planStatsOf(todayTasks);
 
   body.innerHTML = `
     ${goalBriefHtml(today)}
@@ -68,13 +71,20 @@ function renderTodayView(body) {
     <section class="card">
       <div class="card-head">
         <h2>今天的任务</h2>
+        <span class="dev-stats plan-stats" title="今日计划的完成情况，从别的模块加进来的也算在内">
+          <i>未完成 ${p.open}</i>
+          <i>已完成 ${p.done}</i>
+        </span>
         <div class="card-tools">
-          <span class="hint">${esc(summary(todayTasks))}</span>
+          <span class="hint">${p.total ? `完成 ${p.percent}%` : "一条都还没有"}</span>
           <button class="link" data-act="game-toggle" title="游戏娱乐里的游玩记录，要不要在今日计划露一面">${
             planShowGameOf() ? "不显示今日游玩" : "显示今日游玩"
           }</button>
           <button class="btn primary small" data-act="add">${icon("plus", 14)}添加任务</button>
         </div>
+      </div>
+      <div class="progress-track plan-track" title="今天完成 ${p.percent}%">
+        <span style="width:${p.percent}%"></span>
       </div>
 
       ${overdueBlock(overdue)}
@@ -82,7 +92,8 @@ function renderTodayView(body) {
       ${
         todayTasks.length
           ? `<ul class="tasks">${todayTasks.map(row).join("")}</ul>`
-          : `<p class="empty">今天还没有任务，点右上角「添加任务」加一条。</p>`
+          : `<p class="empty">今天还没有任务：点右上角「添加任务」加一条，
+             或者去「开发工作」的项目里，把待办勾上「加入今日计划」。</p>`
       }
     </section>
   `;
@@ -119,18 +130,6 @@ function byTime(a, b) {
   return a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
 }
 
-function order(a, b) {
-  if (a.done !== b.done) return a.done ? 1 : -1; // 没做完的排前面
-  const t = byTime(a, b);
-  if (t !== 0) return t;
-  return (a.createdAt || "") < (b.createdAt || "") ? -1 : 1;
-}
-
-function summary(items) {
-  const done = items.filter((t) => t.done).length;
-  return items.length ? `共 ${items.length} 条 · 已完成 ${done} 条` : "一条都还没有";
-}
-
 /* ---------------- 画 ---------------- */
 
 function overdueBlock(items) {
@@ -160,6 +159,9 @@ function overdueBlock(items) {
 }
 
 function row(t) {
+  // 挂在开发工作项目上的待办是「外来的」：删除要回项目里删，这里只给移出 + 回项目
+  const dev = taskOwnerOf(t) === "dev";
+  const pid = devProjectOf(t);
   return `
     <li class="task ${t.done ? "done" : ""}" data-id="${esc(t.id)}">
       <label class="check" title="${t.done ? "取消完成" : "标记完成"}">
@@ -167,13 +169,19 @@ function row(t) {
       </label>
       <span class="t-time">${t.time ? esc(t.time) : "—"}</span>
       <span class="t-text">${esc(t.text)}</span>
+      ${priorityChip(t.priority)}
       ${imgBadge(t.imagePaths, "图")}
-      ${t.sourceModule ? `<span class="t-src" title="由模块目标自动生成，内容可以改，删了也不会再自动补">${esc(sourceLabelOf(t.sourceModule))}</span>` : ""}
-      <span class="t-cat">${esc(t.category || "其他")}</span>
+      ${sourceTag(t)}
+      ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}
       <span class="t-note">${esc(t.note || "")}</span>
       <span class="t-actions">
         <button class="link" data-act="edit">编辑</button>
-        <button class="link danger" data-act="delete">删除</button>
+        ${
+          dev
+            ? `<button class="link" data-act="unplan" title="只从今日计划里移出去，任务留在开发工作的项目里">移出今日计划</button>
+               <a class="link" href="#dev/${esc(pid)}">回项目</a>`
+            : `<button class="link danger" data-act="delete">删除</button>`
+        }
       </span>
     </li>`;
 }
@@ -233,11 +241,21 @@ async function onClick(e) {
   if (!task) return;
 
   if (act === "edit") {
-    openItemDialog("todayPlan", task);
+    // 开发工作的待办用它自己那张字段表改（优先级、备注都在），改的是同一条记录
+    if (taskOwnerOf(task) === "dev") openItemDialog("devTodo", task, { pid: devProjectOf(task) });
+    else openItemDialog("todayPlan", task);
+  } else if (act === "unplan") {
+    toggleTaskInTodayPlan(task.id, false);
+    toast("已移出今日计划，任务还在开发工作里");
   } else if (act === "move") {
     task.date = todayStr();
     touch(true);
   } else if (act === "delete") {
+    // 外来的待办只能在原模块删（防止在今日计划里误删别的模块的东西）
+    if (taskOwnerOf(task) === "dev") {
+      toast("这条待办属于开发工作的项目，请回项目里删", "err");
+      return;
+    }
     const ok = await askConfirm({
       title: "删除这条任务？",
       message: `${task.text}\n\n会放进回收站，误删可去「数据与设置」找回。`,
@@ -255,9 +273,7 @@ function onChange(e) {
   const box = e.target.closest('[data-act="toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");
-  const task = li ? findTask(li.dataset.id) : null;
-  if (!task) return;
-  task.done = box.checked;
-  task.doneAt = box.checked ? new Date().toISOString() : null;
-  touch(); // 勾选走 400ms 防抖，连着勾几条不会写好几次盘
+  if (!li) return;
+  // 统一入口：勾完立刻落盘，首页总览、原模块那条跟着一起变
+  updateTaskStatus(li.dataset.id, box.checked);
 }

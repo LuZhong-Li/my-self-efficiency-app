@@ -12,6 +12,7 @@ import { fmtMoney } from "./money.js";
 import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
 import { fmtCount, growthText, overviewOf, isArchived, isPublished, weekRangeOf } from "./media-calc.js";
 import { isIssueClosed } from "./dev-calc.js";
+import { inTodayPlan, taskArchived } from "./task-calc.js";
 
 /** 简洁模式最多直接列几条待办，多的收进「查看更多待办」 */
 export const HOME_TASK_LIMIT = 4;
@@ -56,15 +57,17 @@ function compareTasks(a, b) {
   return (a.createdAt || "") < (b.createdAt || "") ? -1 : 1;
 }
 
-/** 今天那几条：做完的排最后，其余按时间点，没填时间点的排最后 */
+/** 今天那几条：做完的排最后，其余按时间点，没填时间点的排最后。
+ *  口径和「今日计划」共用一套（见 task-calc.js 的 inTodayPlan）：
+ *  除了日期是今天的，别的模块「加入今日计划」的待办也在这一列里。 */
 export function todayTasks(tasks, today) {
-  return (tasks || []).filter((t) => t && t.date === today).sort(compareTasks);
+  return (tasks || []).filter((t) => inTodayPlan(t, today)).sort(compareTasks);
 }
 
-/** 昨天及更早没做完的，日期从早到晚 */
+/** 昨天及更早没做完的，日期从早到晚（归档的不算，归档的在归档区看） */
 export function overdueTasks(data, today) {
   return rows(data, "tasks")
-    .filter((t) => t && !t.done && t.date && t.date < today)
+    .filter((t) => t && !t.done && !taskArchived(t) && t.date && t.date < today)
     .sort((a, b) => (a.date === b.date ? compareTasks(a, b) : a.date < b.date ? -1 : 1));
 }
 

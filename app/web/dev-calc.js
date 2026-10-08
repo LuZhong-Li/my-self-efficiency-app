@@ -96,6 +96,8 @@ export function normalizeTodo(row) {
     done: r.done === true,
     priority: String(r.priority || ""),
     note: String(r.note || ""),
+    date: String(r.date || ""),
+    isTodayPlan: r.isTodayPlan === true,   // 有没有被「加入今日计划」
     imagePaths: rowPaths(r),
     createdAt: String(r.createdAt || ""),
     doneAt: String(r.doneAt || ""),

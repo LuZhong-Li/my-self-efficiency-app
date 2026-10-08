@@ -3,6 +3,7 @@
 import { esc } from "./store.js";
 import { icon } from "./icons.js";
 import { moduleOf } from "./modules.js";
+import { priorityClass, taskSourceLabel, taskOwnerOf } from "./task-calc.js";
 
 /** 一段小标题 + 右侧说明，用来分隔同一张卡片里的几个区块 */
 export function sectionHead(title, count, extra = "") {
@@ -18,6 +19,25 @@ export function emptyLine(text) {
 export function chip(text) {
   if (!text) return "";
   return `<span class="chip">${esc(text)}</span>`;
+}
+
+/** 优先级胶囊（高 / 中 / 低，各有自己的颜色）。没标优先级的返回空串，不画。 */
+export function priorityChip(priority) {
+  const cls = priorityClass(priority);
+  if (!cls) return "";
+  return `<span class="chip ${cls}" title="优先级：${esc(priority)}">${esc(priority)}</span>`;
+}
+
+/** 来源标签：这条待办是从哪个模块进来的（开发待办 / 健身目标任务…）。
+ *  今日计划自己的任务不挂这个标签，所以返回空串。 */
+export function sourceTag(task) {
+  const text = taskSourceLabel(task);
+  if (!text) return "";
+  const dev = taskOwnerOf(task) === "dev";
+  const tip = dev
+    ? "这条待办挂在开发工作的项目上：状态和正文两边同步，删除要回项目里删"
+    : "这条是从别的模块加进来的，正文照样能改";
+  return `<span class="t-src${dev ? " neutral" : ""}" title="${esc(tip)}">${esc(text)}</span>`;
 }
 
 /** 把 <select> 的选项拼出来 */

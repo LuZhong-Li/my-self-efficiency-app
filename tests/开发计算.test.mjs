@@ -199,6 +199,7 @@ const todo = normalizeTodo({ id: "t1", belong: "dev:p1", text: "写文档", done
   isArchived: true, archivedAt: "2026-10-08 09:00" });
 eqDeep(todo, {
   id: "t1", belong: "dev:p1", text: "写文档", done: true, priority: "高", note: "顺手",
+  date: "", isTodayPlan: false,
   imagePaths: ["a.png"], createdAt: "", doneAt: "",
   isArchived: true, archivedAt: "2026-10-08 09:00",
 }, "待办规整：归档字段照搬，缺的补默认值");

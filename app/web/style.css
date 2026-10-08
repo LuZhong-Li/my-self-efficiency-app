@@ -3147,6 +3147,56 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
   color: color-mix(in srgb, var(--accent) 82%, var(--ink));
 }
 
+/* ---------------- 待办跨模块联动（2026-10-08 加） ----------------
+   优先级胶囊（高 / 中 / 低）、开发工作那条「今日计划」勾选框、
+   今日计划顶部那排「未完成 / 已完成」数字和进度条。 */
+
+/* 优先级：高红、中橙、低绿，都是磨砂半透，和「模块目标」那几个小标签一个路数 */
+.chip.pri-high {
+  background: color-mix(in srgb, var(--err) 18%, transparent);
+  color: color-mix(in srgb, var(--err) 78%, var(--ink));
+}
+.chip.pri-mid {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: color-mix(in srgb, var(--warn) 76%, var(--ink));
+}
+.chip.pri-low {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: color-mix(in srgb, var(--ok) 74%, var(--ink));
+}
+
+/* 「开发待办」这个来源标签用浅灰磨砂，和「健身目标任务」那种带色的区分开 */
+.t-src.neutral {
+  background: var(--chip);
+  color: var(--chip-ink);
+}
+
+/* 开发工作待办行右边那个「今日计划」勾选框：一行小字加一个方框，鼠标移上去才明显 */
+.plan-pick {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.plan-pick:hover { background: var(--hover); }
+.plan-pick input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.plan-pick input:checked + span { color: var(--ink); font-weight: 600; }
+
+/* 今日计划顶部那排数字 + 下面那条细进度条 */
+.plan-stats { margin-right: 4px; }
+.plan-track { margin: 10px 0 4px; }
+
 /* 目标弹窗里的两样新控件：只读的「所属模块」、两个开关 */
 .dlg-static {
   padding: 10px 12px;

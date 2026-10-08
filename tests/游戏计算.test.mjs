@@ -6,7 +6,7 @@ import {
   DURATION_UNITS, LOOSE_NAME, normalizeRecord, durationText, hoursOf, hoursText,
   toMinutes, shownDuration, linkGameId, belongsTo, recordsOn, recordsOfGame,
   totalMinutesOfGame, sumMinutes, weekStartOf, statsOf, topGames, hasFilter,
-  filterRecords, recordTitle, elapsedMinutes, clockText, overTargetGames,
+  filterRecords, recordTitle, rangeText, dateSpan, elapsedMinutes, clockText, overTargetGames,
 } from "../app/web/game-calc.js";
 
 let pass = 0;
@@ -210,6 +210,26 @@ eq(recordTitle({ gameName: "王者荣耀", durationMin: 120 }), "王者荣耀 ·
   "列表行上那句「游戏名 · 时长」");
 eq(recordTitle({ gameName: "", durationMin: 0 }), LOOSE_NAME + " · —",
   "没写名字、没填时长也给得出话");
+
+/* ---------------- 日期区间框里显示什么 ---------------- */
+
+eq(rangeText({ from: "2026-10-01", to: "2026-10-08" }), "2026/10/01 ~ 2026/10/08",
+  "筛选栏那句「筛选区间」：起止都有就写一段，日期是 yyyy/mm/dd");
+eq(rangeText({ from: "2026-10-08", to: "2026-10-08" }), "2026/10/08",
+  "两端同一天就写一天，不写成「x ~ x」");
+eq(rangeText({ from: "2026-10-01" }), "从 2026/10/01 起", "只填了开始，就写「从…起」");
+eq(rangeText({ to: "2026-10-08" }), "到 2026/10/08 为止", "只填了结束，就写「到…为止」");
+eq(rangeText({}), "", "一天都没填给空串，界面上那边写「不限日期」");
+eq(rangeText({ from: "  ", to: "" }), "", "空白也算没填");
+eq(rangeText(null), "", "压根没有筛选对象也不炸");
+
+eqDeep(dateSpan(records), { from: "2026-09-20", to: "2026-10-07" },
+  "整批记录实际覆盖的跨度：最早 9-20、最晚 10-07");
+eqDeep(dateSpan(records.slice(1, 4)), { from: "2026-10-07", to: "2026-10-07" },
+  "只有一天的话两头都是那天");
+eqDeep(dateSpan([]), { from: "", to: "" }, "一条都没有就两头空着");
+eqDeep(dateSpan([{ id: "x", durationMin: 30 }]), { from: "", to: "" },
+  "没写日期的记录不算跨度（免得把区间框填成别的日子）");
 
 /* ---------------- 快速计时 ---------------- */
 

@@ -42,9 +42,11 @@
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   --shadow-lift: 0 6px 20px rgba(0, 0, 0, 0.1);
 
-  /* 滚动条滑块：弹窗里那条细指示条（系统自带那条又粗又灰，见 .dlg-form） */
+  /* 滚动条滑块：全站一套细胶囊（系统自带那条又粗又灰，见下面的全局滚动条规则） */
   --sb-thumb: rgba(126, 146, 190, 0.38);
   --sb-thumb-hover: rgba(92, 118, 190, 0.6);
+  --sb-edge: rgba(255, 255, 255, 0.6);     /* 滑块那圈 1px 高光边 */
+  --sb-shadow: inset 0 0 6px rgba(255, 255, 255, 0.35), 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 html[data-theme="dark"] {
@@ -79,9 +81,39 @@ html[data-theme="dark"] {
   /* 深色下换成淡蓝白——浅蓝灰在深底上几乎看不见 */
   --sb-thumb: rgba(168, 188, 255, 0.28);
   --sb-thumb-hover: rgba(168, 188, 255, 0.5);
+  --sb-edge: rgba(255, 255, 255, 0.16);
+  --sb-shadow: inset 0 0 6px rgba(255, 255, 255, 0.18), 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 * { box-sizing: border-box; }
+
+/* ---------------- 滚动条：全站一套细胶囊（2026-10-08 统一） ----------------
+   以前只有弹窗那一块改过，主界面（main）、侧栏、归档抽屉、搜索面板、快速备忘、
+   记账的账户横条都还是 Windows 自带那条 —— 15px 宽、灰轨道 + 灰滑块，
+   铺在一页半透明的液态玻璃里特别扎眼。
+
+   现在全站一套：6px、轨道透明、滑块是浅蓝灰半透明的胶囊，
+   一圈 1px 高光边 + 一点内高光，悬停颜色加深。
+   **形状和参数只有这一处**，颜色走变量 —— 四套皮肤 × 明暗各自配
+   （笔记 / 粗野那两套各有自己的灰度，硬套蓝灰会很怪）。 */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  border: 1px solid var(--sb-edge);
+  border-radius: 999px;
+  background: var(--sb-thumb);
+  box-shadow: var(--sb-shadow);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Firefox 不认 ::-webkit-scrollbar，只能走标准属性给一条细的；
+   Chromium 这边故意**不写** scrollbar-width / scrollbar-color —— 一旦写了，
+   上面那几条 ::-webkit-scrollbar 就会被忽略，胶囊和悬停色就都没了。 */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+}
 
 .ic { flex: 0 0 auto; vertical-align: -3px; }
 .card-head h2 { display: flex; align-items: center; gap: 8px; }
@@ -1159,30 +1191,15 @@ html[data-skin="glass"] .arch-drawer {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
 }
 
-/* 弹窗里那条滚动条：系统自带的那条又粗又灰，跟这套界面不是一路人。
-   右边那份内边距先拿掉再补回去 —— 内容一格都不动，只有滚动条从内边距那儿
-   挪到卡片边上（贴边），宽度也从 15px 收到 6px。 */
+/* 弹窗这块滚动区的「贴边」：右边那份内边距先拿掉再补回去 —— 内容一格都不动，
+   只有滚动条从内边距那儿挪到卡片边上。（粗细和配色走开头的全局滚动条规则） */
 .dlg-form {
   min-height: 0;
   overflow-y: auto;
   margin-right: calc(var(--dlg-pad) * -1);
   padding-right: var(--dlg-pad);
 }
-.dlg-form::-webkit-scrollbar { width: 6px; }
-.dlg-form::-webkit-scrollbar-track { background: transparent; }
-.dlg-form::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: var(--sb-thumb);
-}
-.dlg-form::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); }
-.dlg-form::-webkit-scrollbar-corner { background: transparent; }
-
-/* Firefox 不认 ::-webkit-scrollbar，只能走标准属性给一条细的；
-   Chromium 这边故意**不写** scrollbar-width / scrollbar-color —— 一旦写了，
-   上面那几条 ::-webkit-scrollbar 就会被忽略，胶囊和悬停色就都没了。 */
-@supports not selector(::-webkit-scrollbar) {
-  .dlg-form { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
-}
+/* 滚动条本身走文件开头那套全局规则（2026-10-08 起全站统一，不再单独写一份） */
 
 .dlg-actions { flex: 0 0 auto; }
 
@@ -1490,6 +1507,12 @@ html[data-skin="notebook"] {
   --err: #e16259;
   --warn-bg: #fbf3db;
   --warn-line: rgba(55, 53, 47, 0.16);
+
+  /* 笔记风是暖灰的纯平表面，滚动条跟着墨色走，不要蓝灰那套 */
+  --sb-thumb: rgba(55, 53, 47, 0.26);
+  --sb-thumb-hover: rgba(55, 53, 47, 0.45);
+  --sb-edge: rgba(255, 255, 255, 0.7);
+  --sb-shadow: none;
 }
 
 html[data-skin="notebook"][data-theme="dark"] {
@@ -1514,6 +1537,10 @@ html[data-skin="notebook"][data-theme="dark"] {
   --err: #e88b84;
   --warn-bg: #33291a;
   --warn-line: rgba(255, 255, 255, 0.14);
+
+  --sb-thumb: rgba(255, 255, 255, 0.2);
+  --sb-thumb-hover: rgba(255, 255, 255, 0.38);
+  --sb-edge: rgba(255, 255, 255, 0.08);
 }
 
 /* 笔记风的密度和形状：卡片更扁、标签变成小方块、按钮不那么圆 */
@@ -1568,6 +1595,12 @@ html[data-skin="neo"] {
   --err: #ad422e;
   --warn-bg: #fbf3db;
   --warn-line: #20221f;
+
+  /* 粗野风：滑块用墨色实心、没有高光和阴影（和这套硬边的语言一致） */
+  --sb-thumb: rgba(32, 34, 31, 0.4);
+  --sb-thumb-hover: rgba(32, 34, 31, 0.65);
+  --sb-edge: transparent;
+  --sb-shadow: none;
 }
 
 html[data-skin="neo"][data-theme="dark"] {
@@ -1592,6 +1625,9 @@ html[data-skin="neo"][data-theme="dark"] {
   --err: #e0714f;
   --warn-bg: #33291a;
   --warn-line: #f3efe4;
+
+  --sb-thumb: rgba(243, 239, 228, 0.34);
+  --sb-thumb-hover: rgba(243, 239, 228, 0.6);
 }
 
 html[data-skin="neo"] .card,
@@ -3162,6 +3198,14 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
 .gm-filter input[type="text"] { flex: 1 1 160px; min-width: 120px; }
 .gm-filter-label,
 .gm-filter-sep { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+/* 筛选栏右边那句「筛选区间：2026/10/01 ~ 2026/10/08」，只在翻历史时出现 */
+.gm-filter-range {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 /* 统计那五格：窗口窄了自己折行 */
 .gm-grid {

@@ -276,6 +276,43 @@ export function recordTitle(record) {
   return name + " · " + durationText(record && record.durationMin);
 }
 
+/* ---------------- 日期区间怎么显示（本地日期，不走 UTC） ---------------- */
+
+/** "2026-10-08" → "2026/10/08"。给人和给框看的是两套：框的 value 必须是
+ *  yyyy-mm-dd（浏览器原生日期控件只认这个），斜杠只出现在提示文字里。 */
+function slashed(iso) {
+  return text(iso).replace(/-/g, "/");
+}
+
+/**
+ * 筛选栏上那句「筛选区间：2026/10/01 ~ 2026/10/08」。
+ * 两端同一天就写一天；只填了一头就写「从…起 / 到…为止」；
+ * 一天都没填给空串（界面上那边会写成「不限日期」）。
+ */
+export function rangeText(filter) {
+  const f = filter || {};
+  const from = slashed(f.from);
+  const to = slashed(f.to);
+  if (from && to) return from === to ? from : from + " ~ " + to;
+  if (from) return "从 " + from + " 起";
+  if (to) return "到 " + to + " 为止";
+  return "";
+}
+
+/**
+ * 这批记录实际覆盖的日期跨度（最早那天、最晚那天）。
+ * 「看记录」只按游戏名筛的时候，用它把区间坐实成一个真日期范围 ——
+ * 框里就不是一个跟列表对不上的「今天」，而列表里有哪些天一天也没落下。
+ * 一条带日期的记录都没有，两头给空串。
+ */
+export function dateSpan(records) {
+  const days = (records || [])
+    .map((r) => text(r && r.playDate))
+    .filter(Boolean)
+    .sort();
+  return { from: days[0] || "", to: days[days.length - 1] || "" };
+}
+
 /* ---------------- 快速计时 ---------------- */
 
 /** 开始计时的那一刻到现在过了多少分钟（至少 1 分钟） */

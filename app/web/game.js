@@ -20,6 +20,7 @@ import { GAME_STATUSES } from "./item-form.js";
 import {
   recordsOn, recordsOfGame, statsOf, topGames, filterRecords, hasFilter,
   durationText, hoursText, totalMinutesOfGame, elapsedMinutes, clockText, overTargetGames,
+  rangeText, dateSpan,
 } from "./game-calc.js";
 
 let viewDate = null;                              // 游玩记录卡片在看哪一天（默认今天）
@@ -65,6 +66,7 @@ function recordCardHtml({ dayRecords, history, stats }) {
   const days = isDayView();
   const list = days ? dayRecords : history;
   const running = timerStartedAt();
+  const shown = rangeShown();
   return `
     <section class="card gm-records">
       <div class="card-head">
@@ -100,9 +102,14 @@ function recordCardHtml({ dayRecords, history, stats }) {
         <span class="gm-filter-label">翻历史</span>
         <input id="game-filter-name" maxlength="40" autocomplete="off"
           placeholder="按游戏名筛…" value="${esc(filter.name)}">
-        <input id="game-filter-from" type="date" value="${esc(filter.from)}" title="从哪天起">
+        <input id="game-filter-from" type="date" value="${esc(shown.from)}" title="从哪天起">
         <span class="gm-filter-sep">到</span>
-        <input id="game-filter-to" type="date" value="${esc(filter.to)}" title="到哪天">
+        <input id="game-filter-to" type="date" value="${esc(shown.to)}" title="到哪天">
+        ${
+          days
+            ? ""
+            : `<span class="gm-filter-range">筛选区间：${esc(rangeText(filter) || "不限日期")}</span>`
+        }
         ${isDayView() ? "" : `<button class="btn small" data-act="gm-filter-clear">清除筛选</button>`}
       </div>
 
@@ -302,6 +309,48 @@ function clearFilter() {
   filter.to = "";
 }
 
+/**
+ * 两个区间框里显示什么：在筛历史就显示真区间，没筛（在看某一天）就显示那一天。
+ * 这样什么时候打开页面、什么时候翻完历史，框里都是一个真实日期 ——
+ * 不会一进来就挂着「yyyy/mm/dd」那种占位，和顶上那个日期控件是一套格式。
+ */
+function rangeShown() {
+  if (isDayView()) return { from: viewDate, to: viewDate };
+  return { from: filter.from, to: filter.to };
+}
+
+/**
+ * 只按游戏名筛（点清单里的「看记录」、或者在名字框里打字）时区间还是空的：
+ * 把日期坐实成这批记录实际覆盖的那几天。结果一条不多一条不少，
+ * 框里却看得见真实日期，也不会出现「框里写着今天、列表里却有上个月」这种对不上的地方。
+ */
+function seedRange() {
+  if (!filter.name || filter.from || filter.to) return;
+  const span = dateSpan(filterRecords(table("gameRecords"), { name: filter.name }));
+  if (!span.from) return;         // 一条带日期的记录都没有，就还让框跟着「正在看的那天」
+  filter.from = span.from;
+  filter.to = span.to;
+}
+
+/**
+ * 手动改区间：框里不留空（清空就当回它原来显示的那天），另一个还空着的框按它
+ * 当时显示的日期坐实；最后兜住「开始不能晚于结束」—— 把另一端一起带过去，
+ * 而不是把刚填的值换到另一个框里（那样一眼看不出自己填的跑哪去了）。
+ */
+function applyDateEdit(id, value) {
+  const shown = rangeShown();
+  const picked = value || "";
+  if (id === "game-filter-from") {
+    filter.from = picked || shown.from;
+    if (!filter.to) filter.to = shown.to;
+    if (filter.from > filter.to) filter.to = filter.from;
+  } else {
+    filter.to = picked || shown.to;
+    if (!filter.from) filter.from = shown.from;
+    if (filter.from > filter.to) filter.from = filter.to;
+  }
+}
+
 /* ---------------- 快速计时 ---------------- */
 
 function timerStartedAt() {
@@ -422,6 +471,7 @@ function showHistory(name) {
   filter.name = name || "";
   filter.from = "";
   filter.to = "";
+  seedRange();       // 只看名字的话，把区间落成这款游戏真正玩过的那几天
   redraw();
   const card = document.querySelector(".gm-records");
   if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -536,12 +586,10 @@ function onChange(e) {
     redraw();
   } else if (el.id === "game-filter-name") {
     filter.name = el.value;
+    seedRange();
     redraw();
-  } else if (el.id === "game-filter-from") {
-    filter.from = el.value;
-    redraw();
-  } else if (el.id === "game-filter-to") {
-    filter.to = el.value;
+  } else if (el.id === "game-filter-from" || el.id === "game-filter-to") {
+    applyDateEdit(el.id, el.value);
     redraw();
   }
 }

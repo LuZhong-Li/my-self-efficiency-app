@@ -5,7 +5,8 @@
 import {
   SEVERITY, ISSUE_STATUS, ISSUE_MODULES, DEFAULT_ISSUE_MODULE,
   normalizeStatus, isIssueClosed, normalizeSeverity, normalizeModule,
-  normalizeIssue, normalizeProgress, issueStats, matchIssue, cycleDays, progressSorted,
+  normalizeIssue, normalizeProgress, normalizeTodo, issueStats, matchIssue, cycleDays, progressSorted,
+  ARCHIVE_FILTER, ARCHIVE_FILTER_LABEL, normalizeArchiveFilter, archivedOf, matchArchive,
 } from "../app/web/dev-calc.js";
 
 let pass = 0;
@@ -165,6 +166,74 @@ eq(progressSorted([]).length, 0, "空数组不炸");
 eq(progressSorted(null).length, 0, "null 不炸");
 eq(progressSorted([{ date: "2026-10-07", text: "带图的", imagePaths: ["x"] }])[0].imagePaths[0], "x",
   "排序之后图片路径还在");
+
+/* ---------------- 归档：标记 / 档位 / 统计 / 筛选 ---------------- */
+
+eqDeep(ARCHIVE_FILTER, ["no", "only", "all"], "归档三个档位：未归档 / 仅归档 / 全部");
+eq(ARCHIVE_FILTER_LABEL.only, "仅归档", "档位有中文名");
+
+eq(archivedOf({ isArchived: true }), true, "标了 isArchived: true 就是归档了");
+eq(archivedOf({ isArchived: false }), false, "isArchived: false 是没归档");
+eq(archivedOf({}), false, "老数据没这个字段 → 当没归档（不用搬数据）");
+eq(archivedOf(null), false, "null 不炸");
+eq(archivedOf({ isArchived: "true" }), false, "只认真正的布尔 true，字符串不算");
+
+eq(normalizeArchiveFilter("only"), "only", "认得出的档位原样");
+eq(normalizeArchiveFilter("随便写的"), "no", "认不出退回「未归档」");
+eq(normalizeArchiveFilter(undefined), "no", "不给就默认未归档");
+
+const rows = [{ id: "a", isArchived: true }, { id: "b" }, { id: "c", isArchived: false }];
+eqDeep(rows.filter((r) => matchArchive(r, "no")).map((r) => r.id), ["b", "c"],
+  "「未归档」只留没归档的");
+eqDeep(rows.filter((r) => matchArchive(r, "only")).map((r) => r.id), ["a"], "「仅归档」只留归档的");
+eqDeep(rows.filter((r) => matchArchive(r, "all")).map((r) => r.id), ["a", "b", "c"], "「全部」都留");
+eqDeep(rows.filter((r) => matchArchive(r)).map((r) => r.id), ["b", "c"], "不传档位默认按未归档");
+
+const oldIssue = normalizeIssue({ id: "i-old", title: "老条目" });
+eq(oldIssue.isArchived, false, "老 bug 读出来默认没归档");
+eq(oldIssue.archivedAt, "", "老 bug 的归档时间是空串（不是 undefined）");
+const keptIssue = normalizeIssue({ id: "i-keep", title: "归档条目",
+  isArchived: true, archivedAt: "2026-10-08 10:00" });
+eq(keptIssue.isArchived, true, "归档标记带出来");
+eq(keptIssue.archivedAt, "2026-10-08 10:00", "归档时间带出来");
+
+const todo = normalizeTodo({ id: "t1", belong: "dev:p1", text: "写文档", done: true,
+  priority: "高", note: "顺手", imagePaths: ["a.png"],
+  isArchived: true, archivedAt: "2026-10-08 09:00" });
+eqDeep(todo, {
+  id: "t1", belong: "dev:p1", text: "写文档", done: true, priority: "高", note: "顺手",
+  imagePaths: ["a.png"], createdAt: "", doneAt: "",
+  isArchived: true, archivedAt: "2026-10-08 09:00",
+}, "待办规整：归档字段照搬，缺的补默认值");
+eqDeep(normalizeTodo(null), normalizeTodo({}), "null 和空对象规整成一样的东西");
+eq(normalizeTodo({ done: "yes" }).done, false, "done 只认真正的布尔 true");
+eq(normalizeTodo({ imagePaths: "坏掉的" }).imagePaths.length, 0, "图片字段被写坏了也不炸");
+
+const ARCH_MIX = [
+  { id: "a1", status: "待处理", severity: "高" },
+  { id: "a2", status: "已修复", severity: "中" },
+  { id: "a3", status: "已修复", severity: "低", isArchived: true },
+  { id: "a4", status: "进行中", severity: "高", isArchived: true },
+];
+eq(issueStats(ARCH_MIX).total, 2, "统计默认不数归档的");
+eq(issueStats(ARCH_MIX).fixed, 1, "已修复的数里不含归档那条");
+eq(issueStats(ARCH_MIX).open, 1, "未解决的数里不含归档那条");
+eq(issueStats(ARCH_MIX, { includeArchived: true }).total, 4, "要看全量可以传 includeArchived");
+eq(issueStats(ARCH_MIX, { includeArchived: true }).fixed, 2, "全量统计连归档的已修复一起数");
+
+eq(matchIssue(ARCH_MIX[0], {}), true, "默认档位下，没归档的照常显示");
+eq(matchIssue(ARCH_MIX[2], {}), false, "默认档位下，归档的不进主列表");
+eq(matchIssue(ARCH_MIX[2], { archived: "all" }), true, "「全部」能把归档的放出来");
+eq(matchIssue(ARCH_MIX[2], { archived: "only" }), true, "「仅归档」筛得到归档的");
+eq(matchIssue(ARCH_MIX[0], { archived: "only" }), false, "「仅归档」不放过没归档的");
+eq(matchIssue(ARCH_MIX[3], { archived: "only", status: "进行中", severity: "高" }), true,
+  "归档档位和状态 / 优先级一起筛");
+eq(matchIssue(ARCH_MIX[3], { archived: "only", status: "已修复" }), false,
+  "归档档位和状态一起筛时，状态对不上就不过");
+eq(matchIssue({ title: "归档了的标题", isArchived: true }, { kw: "归档", archived: "only" }), true,
+  "归档条目也能按关键词筛（前提是档位放它出来）");
+eq(matchIssue({ title: "归档了的标题", isArchived: true }, { kw: "归档" }), false,
+  "档位没放开时，归档条目连关键词都命中不到（默认不搜归档）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

@@ -435,6 +435,10 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
          "category": "工作", "done": True, "note": "", "belong": "dev:demo-p1"},
         {"id": "demo-t15", "date": "", "text": "列 10 个常用句型", "time": "",
          "category": "工作", "done": False, "note": "", "belong": "dev:demo-p2"},
+        # 归档过的一条：演示「做完的挪进归档区，点开才看得见」
+        {"id": "demo-t16", "date": "", "text": "给项目卡片补上小图标", "time": "",
+         "category": "工作", "done": True, "note": "顺手做的", "belong": "dev:demo-p1",
+         "isArchived": True, "archivedAt": "%s 20:10" % d(-3)},
     ]
     for task in tasks:
         task.setdefault("belong", "plan")
@@ -541,6 +545,12 @@ def demo_data(existing: dict | None, demo_images: dict[str, list[str]] | None = 
          "desc": "窗口高 764px 时弹窗有 902px，底下那两个按钮点不着。\n"
                  "复现：加两张图之后按 Tab 到底就是。",
          "imagePaths": [], "createdAt": "%s 14:05" % d(-1), "fixedAt": ""},
+        # 归档过的一条：演示「修好的挪进归档区，统计里不再占数」
+        {"id": "demo-i6", "projectId": "demo-p1", "title": "深色下设置页的小字偏灰",
+         "severity": "低", "status": "已修复", "module": "数据与设置",
+         "desc": "深色底下比浅色更糊，把 --muted 在深色里提亮了一点。",
+         "imagePaths": [], "createdAt": "%s 11:20" % d(-8), "fixedAt": "%s 09:40" % d(-7),
+         "isArchived": True, "archivedAt": "%s 10:00" % d(-7)},
     ]
 
     progress = [

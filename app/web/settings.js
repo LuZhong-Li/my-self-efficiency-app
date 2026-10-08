@@ -15,6 +15,10 @@ import {
   dropFromTrash,
   emptyTrash,
   TRASH_TABLE_LABEL,
+  autoArchiveTodoOf,
+  setAutoArchiveTodo,
+  autoArchiveIssueOf,
+  setAutoArchiveIssue,
 } from "./store.js";
 import { THEME_MODE_LABEL } from "./theme.js";
 import { bindFresh, pageHeader } from "./ui.js";
@@ -167,6 +171,40 @@ export async function renderSettings(el) {
 
     <section class="card">
       <div class="card-head">
+        <h2>归档</h2>
+      </div>
+      <p class="hint">
+        开发工作里做完的待办、修好的问题可以归档：归档只是从主列表挪进折叠区，
+        <strong>数据一个字节都不删</strong>，随时能恢复；统计和全局搜索默认不看归档条目。
+        下面两个开关是「自动归档」，都关着就全靠手动。
+      </p>
+
+      <div class="pref-row">
+        <div class="pref-label">
+          <strong>待办：勾选完成后自动归档</strong>
+          <small>只作用于「开发工作」里挂在项目上的待办，今日计划的任务不受影响</small>
+        </div>
+        <div class="row">
+          <button class="btn" data-act="auto-archive-todo" data-on="0">手动归档</button>
+          <button class="btn" data-act="auto-archive-todo" data-on="1">完成后自动归档</button>
+        </div>
+      </div>
+
+      <div class="pref-row">
+        <div class="pref-label">
+          <strong>问题 / bug：标记「已修复」后自动归档</strong>
+          <small>在列表上点「标记已修复」，或在弹窗里把状态改成已修复，都会顺手归档</small>
+        </div>
+        <div class="row">
+          <button class="btn" data-act="auto-archive-issue" data-on="0">手动归档</button>
+          <button class="btn" data-act="auto-archive-issue" data-on="1">修好后自动归档</button>
+        </div>
+      </div>
+      <p class="msg" id="archive-msg"></p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
         <h2>回收站</h2>
         <span class="hint" id="trash-count"></span>
       </div>
@@ -205,6 +243,7 @@ export async function renderSettings(el) {
   renderFacts();
   renderThemeButtons();
   renderAttach();
+  renderArchive();
   renderTrash();
   await refreshHealth();   // 文件大小 / 附件占用这两处会变，进来就重新问一次
   await refreshBackups();
@@ -263,6 +302,19 @@ function renderAttach() {
   }
   const sel = document.getElementById("attach-max-edge");
   if (sel) sel.value = String(s.maxEdge);
+}
+
+/** 归档那一块：两个自动归档开关选中了哪个 */
+function renderArchive() {
+  const pairs = [
+    ["auto-archive-todo", autoArchiveTodoOf()],
+    ["auto-archive-issue", autoArchiveIssueOf()],
+  ];
+  for (const [act, on] of pairs) {
+    for (const btn of document.querySelectorAll(`[data-act="${act}"]`)) {
+      btn.classList.toggle("active", (btn.dataset.on === "1") === on);
+    }
+  }
 }
 
 function renderThemeButtons() {
@@ -466,6 +518,24 @@ async function onClick(e) {
         on ? "以后彻底删除记录时，它的图片也会一起删掉。" : "以后彻底删除记录时，图片会留着。",
         "ok"
       );
+    } else if (act === "auto-archive-todo") {
+      const on = btn.dataset.on === "1";
+      setAutoArchiveTodo(on);
+      renderArchive();   // 同上：落盘重画之后在新的 DOM 上刷选中态
+      setMsg(
+        "archive-msg",
+        on ? "以后「开发工作」里的待办一勾完成，就自动归档。" : "以后待办勾完成只留在主列表，归档要手动点。",
+        "ok"
+      );
+    } else if (act === "auto-archive-issue") {
+      const on = btn.dataset.on === "1";
+      setAutoArchiveIssue(on);
+      renderArchive();
+      setMsg(
+        "archive-msg",
+        on ? "以后问题 / bug 标成「已修复」就自动归档。" : "以后问题 / bug 修好后留在主列表，归档要手动点。",
+        "ok"
+      );
     } else if (act === "theme") {
       setThemeMode(btn.dataset.theme);
       renderThemeButtons();
@@ -491,6 +561,8 @@ async function onClick(e) {
       "trash-restore": "trash-msg",
       "trash-purge": "trash-msg",
       "trash-empty": "trash-msg",
+      "auto-archive-todo": "archive-msg",
+      "auto-archive-issue": "archive-msg",
       "clear-do": "clear-msg",
     }[act];
     if (box) setMsg(box, "没成功：" + err.message, "err");

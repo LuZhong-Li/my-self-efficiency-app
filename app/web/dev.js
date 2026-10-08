@@ -1,6 +1,9 @@
 /* 开发工作：项目列表 → 点进项目看待办 / 问题 / 进展 */
 
-import { touch, uid, table, esc, todayStr, nowText, moveToTrash } from "./store.js";
+import {
+  touch, uid, table, esc, todayStr, nowText, moveToTrash,
+  autoArchiveTodoOf, autoArchiveIssueOf,
+} from "./store.js";
 import { emptyLine, emptyState, chip, options, bindFresh, pageHeader } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
@@ -12,7 +15,8 @@ import { openItemDialog, trashItem } from "./item-dialog.js";
 import { PROJECT_STATUSES } from "./item-form.js";
 import {
   SEVERITY, ISSUE_STATUS, ISSUE_MODULES, DEFAULT_ISSUE_MODULE,
-  normalizeIssue, normalizeProgress, isIssueClosed, issueStats, matchIssue,
+  normalizeIssue, normalizeProgress, normalizeTodo, normalizeArchiveFilter,
+  isIssueClosed, issueStats, matchIssue, archivedOf, matchArchive,
   cycleDays, progressSorted,
 } from "./dev-calc.js";
 
@@ -22,10 +26,22 @@ let hostRoot = null;
 // 筛选状态：只影响显示，不动数据
 let filterText = "";
 let filterStatus = "all";
-let issueFilter = { status: "all", severity: "all", module: "all" };
+let issueFilter = { status: "all", severity: "all", module: "all", archived: "no" };
+// 待办的归档档位（排除归档 / 仅归档 / 全部）与「归档区展开没展开」。
+// 只活在这一次会话里：刷新页面回到默认（归档默认收起，才不占地方）。
+let todoArchive = "no";
+let todoArchiveOpen = false;
+let issueArchiveOpen = false;
 // 展开了哪一条（点条目本身展开详情，图片在详情里看）
 let openIssueId = "";
 let openProgressId = "";
+
+/** 归档档位的下拉选项：value → 界面上的字（待办那份第一项叫「排除归档」） */
+function archiveOptions(current, noLabel = "排除归档") {
+  return [["no", noLabel], ["only", "仅归档"], ["all", "全部"]]
+    .map(([v, text]) => `<option value="${v}"${v === current ? " selected" : ""}>${text}</option>`)
+    .join("");
+}
 
 export function renderDev(root, sub) {
   hostRoot = root;
@@ -180,8 +196,9 @@ function applyFilter() {
 }
 
 function projCard(p) {
-  const openTodos = todoList(p.id).filter((t) => !t.done).length;
-  const bugs = issueList(p.id).filter((i) => !isIssueClosed(i.status)).length;
+  // 卡片上这两个数也不含归档的（归档的不占主列表，也就不该占这里的数）
+  const openTodos = todoList(p.id).filter((t) => !t.done && !archivedOf(t)).length;
+  const bugs = issueList(p.id).filter((i) => !isIssueClosed(i.status) && !archivedOf(i)).length;
   const paths = rowPaths(p);
   return `
     <!-- draggable="false" 很关键：这是个链接，浏览器默认允许原生拖拽，
@@ -209,10 +226,12 @@ function projCard(p) {
 /* ---------------- 项目详情 ---------------- */
 
 function renderDetail(root, p) {
-  const todos = todoList(p.id);
+  const todos = todoList(p.id).map(normalizeTodo);
   const issues = issueList(p.id);
   const progress = progressList(p.id);
-  const st = issueStats(issues);
+  const st = issueStats(issues);                       // 默认不数归档的
+  const activeTodos = todos.filter((t) => !t.isArchived);
+  const todoDone = activeTodos.filter((t) => t.done).length;
 
   root.innerHTML = `
     ${pageHeader("dev", `<a class="link" href="#dev">← 返回项目列表</a>`)}
@@ -244,22 +263,19 @@ function renderDetail(root, p) {
       <div class="card-head">
         <h2>待办</h2>
         <div class="card-tools">
-          <span class="hint">未完成 ${todos.filter((t) => !t.done).length} 条</span>
+          <span class="hint">未完成 ${activeTodos.length - todoDone} ｜ 已完成 ${todoDone}</span>
+          ${todos.length > 1 ? `<select id="todo-archive-filter" title="归档待办怎么显示">${archiveOptions(todoArchive)}</select>` : ""}
           <button class="btn primary small" data-act="todo-add">${icon("plus", 14)}添加待办</button>
         </div>
       </div>
-      ${
-        todos.length
-          ? `<ul class="tasks">${todos.map(todoRow).join("")}</ul>`
-          : emptyLine("还没有待办，点右上角「添加待办」加一条。")
-      }
+      ${todoSectionHtml(todos)}
     </section>
 
     <section class="card">
       <div class="card-head">
         <h2>问题 / bug</h2>
         <div class="card-tools">
-          <span class="dev-stats" title="未解决 = 待处理 + 进行中 + 已复现">
+          <span class="dev-stats" title="未解决 = 待处理 + 进行中 + 已复现；归档的不算在内">
             <i>未解决 ${st.open}</i>
             <i>进行中 ${st.doing}</i>
             <i>已修复 ${st.fixed}</i>
@@ -269,6 +285,7 @@ function renderDetail(root, p) {
       </div>
       ${issues.length ? issueFilterBar() : ""}
       <div id="issue-list-host">${issueListHtml(issues)}</div>
+      ${issueArchiveHtml(issues)}
     </section>
 
     <section class="card">
@@ -290,24 +307,68 @@ function renderDetail(root, p) {
   `;
 }
 
-function todoRow(t) {
+/** 待办卡片的内容：主列表（按归档档位筛）+ 归档折叠区 */
+function todoSectionHtml(todos) {
+  if (!todos.length) return emptyLine("还没有待办，点右上角「添加待办」加一条。");
+  const archived = todos.filter((t) => t.isArchived);
+  const shown = todos.filter((t) => matchArchive(t, todoArchive));
+  const emptyText = todoArchive === "only"
+    ? "还没有归档的待办。"
+    : archived.length ? "主列表里没有待办，归档的在下面。" : "还没有待办。";
+  const main = shown.length
+    ? `<ul class="tasks">${shown.map(todoRow).join("")}</ul>`
+    : emptyLine(emptyText);
+  // 归档档位选「仅归档 / 全部」时，主列表里已经能看到归档条目了，就别再叠一个折叠区
+  return main + archiveSection("todo", archived, todoArchive === "no", todoArchiveOpen);
+}
+
+/**
+ * 归档折叠区：默认收起，点标题展开；一条都没有就整个不画。
+ * 只有「主列表没在显示归档」的时候才出现（选了仅归档 / 全部时归档就在主列表里）。
+ */
+function archiveSection(kind, rows, visible, open) {
+  if (!visible || !rows.length) return "";
+  const isTodo = kind === "todo";
+  const title = isTodo ? "归档待办" : "归档问题";
+  const html = isTodo ? rows.map(todoRow).join("") : rows.map(issueRow).join("");
   return `
-    <li class="task${t.done ? " done" : ""}" data-id="${esc(t.id)}">
-      <label class="check" title="${t.done ? "取消完成" : "标记完成"}">
-        <input type="checkbox" data-act="todo-toggle" ${t.done ? "checked" : ""}>
+    <div class="archive-block">
+      <button class="archive-toggle" data-act="${kind}-archive-toggle" aria-expanded="${open}">
+        <span class="archive-caret">${open ? "▾" : "▸"}</span>
+        <span>${title}</span>
+        <span class="archive-count">${rows.length} 条</span>
+      </button>
+      ${open ? `<div class="archive-body">${isTodo ? `<ul class="tasks">${html}</ul>` : `<ul class="items">${html}</ul>`}</div>` : ""}
+    </div>`;
+}
+
+function todoRow(t) {
+  const archived = archivedOf(t);
+  return `
+    <li class="task${t.done ? " done" : ""}${archived ? " archived" : ""}" data-id="${esc(t.id)}">
+      <label class="check" title="${archived ? "归档条目：先恢复再修改" : t.done ? "取消完成" : "标记完成"}">
+        <input type="checkbox" data-act="todo-toggle" ${t.done ? "checked" : ""}${archived ? " disabled" : ""}>
       </label>
       <span class="t-text">${esc(t.text)}</span>
       ${t.priority ? `<span class="chip">${esc(t.priority)}</span>` : ""}
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>
+      ${archived ? `<span class="t-note arch-time">归档于 ${esc(t.archivedAt || "—")}</span>` : ""}
       <span class="t-actions">
+        ${
+          archived
+            ? `<button class="link" data-act="todo-unarchive">恢复</button>`
+            : t.done
+              ? `<button class="link" data-act="todo-archive">归档</button>`
+              : ""
+        }
         <button class="link" data-act="todo-edit">编辑</button>
         <button class="link danger" data-act="todo-del">删除</button>
       </span>
     </li>`;
 }
 
-/** 问题 / bug 的筛选条：状态 / 优先级 / 关联模块。只影响显示，不动数据。 */
+/** 问题 / bug 的筛选条：状态 / 优先级 / 关联模块 / 归档。只影响显示，不动数据。 */
 function issueFilterBar() {
   const sel = (id, list, current, allLabel) => `
     <select id="${id}" title="${esc(allLabel)}">
@@ -321,6 +382,9 @@ function issueFilterBar() {
       ${sel("issue-filter-status", ISSUE_STATUS, issueFilter.status, "全部状态")}
       ${sel("issue-filter-severity", SEVERITY, issueFilter.severity, "全部优先级")}
       ${sel("issue-filter-module", ISSUE_MODULES, issueFilter.module, "全部模块")}
+      <select id="issue-filter-archive" title="归档条目怎么显示">
+        ${archiveOptions(issueFilter.archived, "未归档")}
+      </select>
       <button class="btn small" data-act="issue-filter-clear">清空筛选</button>
     </div>`;
 }
@@ -329,17 +393,32 @@ function issueListHtml(issues) {
   if (!issues.length) return emptyLine("还没有记录问题。");
   const shown = issues.filter((i) => matchIssue(i, issueFilter));
   if (!shown.length) {
-    return emptyState("没有符合筛选的问题", "换个条件，或者点「清空筛选」。", "", "bug");
+    // 只是被归档挡住的（没归档的把筛选放开就能看见），给一句更准的话
+    const withoutArchive = issues.filter((i) => matchIssue(i, { ...issueFilter, archived: "all" }));
+    const archivedOnly = !withoutArchive.length;
+    return emptyState(
+      archivedOnly ? "没有符合筛选的问题" : "主列表里没有，归档的在下面",
+      archivedOnly ? "换个条件，或者点「清空筛选」。" : "点下面的「归档问题」展开看看。",
+      "",
+      "bug"
+    );
   }
   return `<ul class="items">${shown.map(issueRow).join("")}</ul>`;
+}
+
+/** 归档 bug 的折叠区：条数和状态 / 优先级 / 模块筛选联动，归档档位选「未归档」时才露出来 */
+function issueArchiveHtml(issues) {
+  const archived = issues.filter((i) => matchIssue(i, { ...issueFilter, archived: "only" }));
+  return archiveSection("issue", archived, issueFilter.archived === "no", issueArchiveOpen);
 }
 
 function issueRow(i) {
   const it = normalizeIssue(i);
   const closed = isIssueClosed(it.status);
+  const archived = it.isArchived;
   const open = openIssueId === it.id;
   return `
-    <li class="item issue-row${closed ? " done" : ""}${open ? " open" : ""}"
+    <li class="item issue-row${closed ? " done" : ""}${archived ? " archived" : ""}${open ? " open" : ""}"
         data-id="${esc(it.id)}" data-expand="issue" title="${open ? "收起详情" : "点开看详细描述和截图"}">
       ${chip(it.severity)}
       <span class="issue-main">
@@ -347,8 +426,15 @@ function issueRow(i) {
       </span>
       ${imgBadge(it.imagePaths, "截图")}
       ${chip(it.status)}
+      ${archived ? `<span class="i-meta">归档于 ${esc(it.archivedAt || "—")}</span>` : ""}
       <span class="i-actions">
-        ${closed ? "" : `<button class="link" data-act="issue-done">标记已修复</button>`}
+        ${
+          archived
+            ? `<button class="link" data-act="issue-unarchive">恢复</button>`
+            : closed
+              ? `<button class="link" data-act="issue-archive">归档</button>`
+              : `<button class="link" data-act="issue-done">标记已修复</button>`
+        }
         <button class="link" data-act="issue-edit">编辑</button>
         <button class="link danger" data-act="issue-del">删除</button>
       </span>
@@ -371,6 +457,7 @@ function issueDetail(i) {
         <dt>关联模块</dt><dd>${esc(it.module)}</dd>
         <dt>记录于</dt><dd>${esc(it.createdAt || "—")}</dd>
         <dt>修复于</dt><dd>${esc(it.fixedAt || "—")}</dd>
+        ${it.isArchived ? `<dt>归档于</dt><dd>${esc(it.archivedAt || "—")}</dd>` : ""}
         ${days === null ? "" : `<dt>迭代周期</dt><dd>${days} 天</dd>`}
       </dl>
       ${thumbsHtml(it.imagePaths)}
@@ -424,6 +511,38 @@ function findIssue(id) {
   return table("issues").find((i) => i.id === id) || null;
 }
 
+/* ---------------- 归档 / 恢复 ----------------
+ * 归档只是把 isArchived 置上、记一下时刻：数据一个字节都不删，
+ * 按地址还找得回来。主列表按它分流，统计和搜索默认不看归档。
+ */
+
+function archiveRow(row) {
+  row.isArchived = true;
+  row.archivedAt = nowText();
+}
+
+function unarchiveRow(row) {
+  row.isArchived = false;
+  row.archivedAt = "";
+}
+
+/** 归档一条（待办 / 问题共用）：写标记 + 落盘 + 提一句 */
+function doArchive(row, what) {
+  if (!row || archivedOf(row)) return false;
+  archiveRow(row);
+  touch(true);
+  toast(`${what}已归档，在归档区点「恢复」就能回来`);
+  return true;
+}
+
+function doUnarchive(row, what) {
+  if (!row || !archivedOf(row)) return false;
+  unarchiveRow(row);
+  touch(true);
+  toast(`${what}已恢复，回到主列表`);
+  return true;
+}
+
 /* ---------------- 弹窗：问题 / bug ----------------
  * 和「记一笔」一个规矩：Esc 关、点遮罩关、回车保存、Tab 在弹窗里绕圈；
  * 图片点「保存」才写进 数据\attachments\buglog\，点「取消」一个字节都不留。
@@ -449,6 +568,12 @@ function issueFormHtml(v) {
     <label class="dlg-label" for="issue-desc">详细描述</label>
     <textarea id="issue-desc" rows="5" maxlength="2000"
       placeholder="复现步骤 / 预期行为 / 实际现象（可留空）">${esc(v.desc)}</textarea>
+    ${
+      v.isArchived
+        ? `<p class="dlg-hint">这条已经归档（归档于 ${esc(v.archivedAt || "—")}）。
+             归档不删数据，点「取消归档」就回到主列表；统计和全局搜索默认不看归档条目。</p>`
+        : ""
+    }
     <div class="attach-host" id="issue-attach"></div>`;
 }
 
@@ -464,12 +589,22 @@ function openIssueDialog(issue) {
     bodyHtml: issueFormHtml(v),
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
+      ...(editing
+        ? [{ id: v.isArchived ? "unarchive" : "archive",
+             label: v.isArchived ? "取消归档" : "归档" }]
+        : []),
       { id: "cancel", label: "取消" },
       { id: "save", label: "保存", kind: "primary" },
     ],
     onClose: () => disposeAttach(attach),
     onAction: (act, el) => {
       if (act === "cancel") return true;
+      if (act === "archive" || act === "unarchive") {
+        const want = act === "archive";
+        if (want) doArchive(issue, "问题"); else doUnarchive(issue, "问题");
+        dlg.close();     // 状态变了，弹窗先收起来；页面跟着重画
+        return false;
+      }
       if (act === "delete") {
         (async () => {
           const ok = await askConfirm({
@@ -515,9 +650,12 @@ function openIssueDialog(issue) {
           Object.assign(issue, next, { imagePaths });
           // 修复时间自动记：修好了写上（已经是修复态就不覆盖），退回去就清掉
           issue.fixedAt = next.status === "已修复" ? (issue.fixedAt || nowText()) : "";
+          // 「修好后自动归档」开着时，改成已修复就顺手归档（已经归档的不重复动）
+          const autoArchived = next.status === "已修复" && autoArchiveIssueOf() && !issue.isArchived;
+          if (autoArchived) archiveRow(issue);
           touch(true);
           dlg.close();
-          toast("已保存");
+          toast(autoArchived ? "已保存，并按设置自动归档" : "已保存");
           const removed = before.filter((p) => !imagePaths.includes(p));
           if (removed.length) purgeRowAttachments({ imagePaths: removed });
         } else {
@@ -528,7 +666,12 @@ function openIssueDialog(issue) {
             imagePaths,
             createdAt: nowText(),
             fixedAt: next.status === "已修复" ? nowText() : "",
+            isArchived: false,   // 「修好后自动归档」开着时，下面马上补上
+            archivedAt: "",
           });
+          // 修好一个就自动归档（设置里开着才这么做；新增时也照这个规矩）
+          const created = table("issues")[table("issues").length - 1];
+          if (created.status === "已修复" && autoArchiveIssueOf()) archiveRow(created);
           touch(true);
           dlg.close();
           toast(uploaded.length ? `已记一个问题（带 ${uploaded.length} 张图）` : "已记一个问题");
@@ -541,6 +684,30 @@ function openIssueDialog(issue) {
   mountAttach(dlg.el.querySelector("#issue-attach"), attach);
   bindDialogEnter(dlg, "#issue-title");
   return dlg;
+}
+
+/* ---------------- 弹窗：待办 ----------------
+ * 待办的新增 / 编辑还是走那套通用弹窗（item-form.js 的 devTodo），
+ * 只是编辑时多两样：已归档的显示归档时间，未归档的给一个「归档」按钮。
+ * 弹窗体系本身没动，多出来的按钮由 openItemDialog 的 extraButtons 传进去。
+ */
+
+function openTodoDialog(todo, pid) {
+  const archived = archivedOf(todo);
+  return openItemDialog("devTodo", todo, {
+    pid,
+    extraHtml: archived
+      ? `<p class="dlg-hint">这条已经归档（归档于 ${esc(todo.archivedAt || "—")}）。
+           归档不删数据，点「取消归档」就回到主列表。</p>`
+      : "",
+    extraButtons: [
+      { id: archived ? "unarchive" : "archive", label: archived ? "取消归档" : "归档" },
+    ],
+    onExtraAction: (act) => {
+      if (act === "archive") return doArchive(todo, "待办");
+      if (act === "unarchive") return doUnarchive(todo, "待办");
+    },
+  });
 }
 
 /* ---------------- 弹窗：最近进展 ---------------- */
@@ -705,9 +872,16 @@ async function onClick(e) {
     toast("项目已移入回收站");
   } else if (act === "todo-edit") {
     const t = findTodo(id);
-    if (t) openItemDialog("devTodo", t, { pid });
+    if (t) openTodoDialog(t, pid);
   } else if (act === "todo-add") {
     openItemDialog("devTodo", null, { pid });
+  } else if (act === "todo-archive") {
+    doArchive(findTodo(id), "待办");
+  } else if (act === "todo-unarchive") {
+    doUnarchive(findTodo(id), "待办");
+  } else if (act === "todo-archive-toggle") {
+    todoArchiveOpen = !todoArchiveOpen;
+    redraw();
   } else if (act === "todo-del") {
     const t = findTodo(id);
     if (!t) return;
@@ -731,10 +905,19 @@ async function onClick(e) {
     if (!i) return;
     i.status = "已修复";        // 「已解决」2026-10-07 改了名，顺手把修复时间记上
     i.fixedAt = nowText();
+    const autoArchived = autoArchiveIssueOf() && !i.isArchived;
+    if (autoArchived) archiveRow(i);
     touch(true);
-    toast("已标记修复");
+    toast(autoArchived ? "已标记修复，并按设置自动归档" : "已标记修复");
+  } else if (act === "issue-archive") {
+    doArchive(findIssue(id), "问题");
+  } else if (act === "issue-unarchive") {
+    doUnarchive(findIssue(id), "问题");
+  } else if (act === "issue-archive-toggle") {
+    issueArchiveOpen = !issueArchiveOpen;
+    redraw();
   } else if (act === "issue-filter-clear") {
-    issueFilter = { status: "all", severity: "all", module: "all" };
+    issueFilter = { status: "all", severity: "all", module: "all", archived: "no" };
     redraw();
   } else if (act === "issue-del") {
     const i = findIssue(id);
@@ -778,6 +961,12 @@ function onChange(e) {
     applyFilter();
     return;
   }
+  // 待办的归档档位（排除归档 / 仅归档 / 全部）
+  if (e.target.id === "todo-archive-filter") {
+    todoArchive = normalizeArchiveFilter(e.target.value);
+    redraw();
+    return;
+  }
   // 问题 / bug 的三个筛选：只影响显示，筛完停在这一页
   if (e.target.id === "issue-filter-status") {
     issueFilter.status = e.target.value;
@@ -794,6 +983,11 @@ function onChange(e) {
     redraw();
     return;
   }
+  if (e.target.id === "issue-filter-archive") {
+    issueFilter.archived = normalizeArchiveFilter(e.target.value);
+    redraw();
+    return;
+  }
   const box = e.target.closest('[data-act="todo-toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");
@@ -801,5 +995,12 @@ function onChange(e) {
   if (!t) return;
   t.done = box.checked;
   t.doneAt = box.checked ? new Date().toISOString() : null;
+  // 设置里开着「勾选完成后自动归档」就顺手归档；关着就留在主列表等手动归档
+  if (box.checked && autoArchiveTodoOf() && !archivedOf(t)) {
+    archiveRow(t);
+    touch(true);
+    toast("已完成，并按设置自动归档");
+    return;
+  }
   touch();
 }

@@ -326,6 +326,10 @@ def main() -> int:
         check("老的任务 / 学习 / 对象 / 打卡 / 游戏读出来都带上 imagePaths: []", fresh_ok)
         check("老任务读出来带上 priority: 空（开发待办才有优先级）",
               back2["tasks"][0].get("priority") == "")
+        check("老任务读出来也补齐归档标记（默认没归档）",
+              back2["tasks"][0].get("isArchived") is False
+              and back2["tasks"][0].get("archivedAt") == "",
+              str({k: back2["tasks"][0].get(k) for k in ("isArchived", "archivedAt")}))
         check("老游戏手填的 hours 一个字节都没动", back2["games"][0].get("hours") == 1,
               str(back2["games"][0].get("hours")))
         check("老游戏补齐「每月目标 / 通关日期」两格",
@@ -393,7 +397,27 @@ def main() -> int:
         check("老 bug 状态「处理中」迁成「进行中」", bug1.get("status") == "进行中", str(bug1.get("status")))
         check("老 bug 状态「已解决」迁成「已修复」", bug2.get("status") == "已修复", str(bug2.get("status")))
         check("老 bug 条目带上 imagePaths: []", bug1.get("imagePaths") == [])
+        check("老 bug 条目补齐归档标记（默认没归档）",
+              bug1.get("isArchived") is False and bug1.get("archivedAt") == "",
+              str({k: bug1.get(k) for k in ("isArchived", "archivedAt")}))
         check("老进展条目也带上 imagePaths: []", back["progress"][0].get("imagePaths") == [])
+
+        # 归档是「状态分流」不是删除：归档的条目导出、导入之后一条都不能少
+        cur = call(port, "/api/data")[1]
+        cur["issues"][0]["isArchived"] = True
+        cur["issues"][0]["archivedAt"] = "2026-10-08 09:00"
+        cur["tasks"][0]["isArchived"] = True
+        cur["tasks"][0]["archivedAt"] = "2026-10-08 09:30"
+        call(port, "/api/data", "POST", cur)
+        status, exp_arch = call(port, "/api/export", "POST", {})
+        call(port, "/api/import", "POST", exp_arch)
+        back_arch = call(port, "/api/data")[1]
+        check("归档条目导出导入之后还在（归档不删数据）",
+              back_arch["issues"][0].get("isArchived") is True
+              and back_arch["issues"][0].get("archivedAt") == "2026-10-08 09:00"
+              and back_arch["tasks"][0].get("isArchived") is True
+              and back_arch["tasks"][0].get("archivedAt") == "2026-10-08 09:30",
+              str({k: back_arch["issues"][0].get(k) for k in ("isArchived", "archivedAt")}))
 
         # 图片路径只写进 JSON，不写二进制；老记录读出来自动补 imagePaths
         cur = call(port, "/api/data")[1]

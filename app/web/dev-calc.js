@@ -1,12 +1,38 @@
-/* 开发工作的纯逻辑：bug 条目的字段规整、状态口径、统计与筛选。
+/* 开发工作的纯逻辑：待办 / bug 条目的字段规整、状态口径、统计、筛选与归档。
  *
  * 抽出来是因为两件最容易写错的事：**哪些状态算「没解决」**，以及
- * **老板本里的状态名怎么迁**。放成纯函数，`node tests\开发计算.test.mjs`
+ * **老版本里的状态名怎么迁**；归档也是同一类事——「哪条该出现在主列表」
+ * 只由这里说了算，页面照着画就行。放成纯函数，`node tests\开发计算.test.mjs`
  * 就能一条条断言，不用开浏览器。
  */
 
 import { MODULES } from "./modules.js";
 import { rowPaths } from "./attachment-calc.js";
+
+/** 一条记录归没归档。缺字段的老数据一律当「没归档」，所以老数据不用搬。 */
+export function archivedOf(row) {
+  return Boolean(row && typeof row === "object" && row.isArchived === true);
+}
+
+/** 归档的三个档位：未归档（默认）/ 仅归档 / 全部。主列表和筛选都按它分。 */
+export const ARCHIVE_FILTER = ["no", "only", "all"];
+
+export const ARCHIVE_FILTER_LABEL = {
+  no: "未归档",
+  only: "仅归档",
+  all: "全部",
+};
+
+export function normalizeArchiveFilter(value) {
+  return ARCHIVE_FILTER.includes(value) ? value : "no";
+}
+
+/** 按归档档位过一条记录：no 只放没归档的，only 只放归档的，all 都放 */
+export function matchArchive(row, filter = "no") {
+  const mode = normalizeArchiveFilter(filter);
+  if (mode === "all") return true;
+  return mode === "only" ? archivedOf(row) : !archivedOf(row);
+}
 
 /** 优先级（UI 上叫「优先级」，字段名沿用原来的 severity，老数据不用搬） */
 export const SEVERITY = ["高", "中", "低"];
@@ -57,6 +83,26 @@ export function normalizeIssue(row) {
     imagePaths: rowPaths(r),
     createdAt: String(r.createdAt || ""),
     fixedAt: String(r.fixedAt || ""),
+    isArchived: archivedOf(r),
+    archivedAt: String(r.archivedAt || ""),
+  };
+}
+
+/** 一条开发待办的展示用副本（今日计划的任务不走这里，它们不看归档） */
+export function normalizeTodo(row) {
+  const r = row && typeof row === "object" ? row : {};
+  return {
+    id: String(r.id || ""),
+    belong: String(r.belong || ""),
+    text: String(r.text || ""),
+    done: r.done === true,
+    priority: String(r.priority || ""),
+    note: String(r.note || ""),
+    imagePaths: rowPaths(r),
+    createdAt: String(r.createdAt || ""),
+    doneAt: String(r.doneAt || ""),
+    isArchived: archivedOf(r),
+    archivedAt: String(r.archivedAt || ""),
   };
 }
 
@@ -72,9 +118,11 @@ export function normalizeProgress(row) {
   };
 }
 
-/** 卡片标题上那几个数：未解决 / 进行中 / 已修复 */
-export function issueStats(issues) {
-  const list = (issues || []).map(normalizeIssue);
+/** 卡片标题上那几个数：未解决 / 进行中 / 已修复。
+ *  默认不算归档的（归档的不占主列表，也不该占这几个数）；
+ *  要连归档一起数就传 { includeArchived: true }。 */
+export function issueStats(issues, { includeArchived = false } = {}) {
+  const list = (issues || []).map(normalizeIssue).filter((i) => includeArchived || !i.isArchived);
   const pending = list.filter((i) => i.status === "待处理").length;
   const doing = list.filter((i) => i.status === "进行中").length;
   const reproduced = list.filter((i) => i.status === "已复现").length;
@@ -91,9 +139,13 @@ export function issueStats(issues) {
   };
 }
 
-/** 按关键词 / 状态 / 优先级 / 模块筛一条 bug。全部是「只看显示」，不动数据。 */
-export function matchIssue(row, { kw = "", status = "all", severity = "all", module = "all" } = {}) {
+/** 按关键词 / 状态 / 优先级 / 模块 / 归档筛一条 bug。全部是「只看显示」，不动数据。 */
+export function matchIssue(
+  row,
+  { kw = "", status = "all", severity = "all", module = "all", archived = "no" } = {}
+) {
   const i = normalizeIssue(row);
+  if (!matchArchive(row, archived)) return false;
   if (status !== "all" && i.status !== status) return false;
   if (severity !== "all" && i.severity !== severity) return false;
   if (module !== "all" && i.module !== module) return false;

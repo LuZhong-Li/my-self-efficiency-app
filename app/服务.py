@@ -398,8 +398,10 @@ def migrate(data: dict) -> dict:
             continue
         if not isinstance(row.get("imagePaths"), list):
             row["imagePaths"] = []
-        for key in ("desc", "module", "createdAt", "fixedAt"):
+        for key in ("desc", "module", "createdAt", "fixedAt", "archivedAt"):
             row.setdefault(key, "")
+        # 归档标记（2026-10-08 加的）：老条目一律当没归档，数据一条都不动
+        row.setdefault("isArchived", False)
         if row.get("status") == "处理中":
             row["status"] = "进行中"
         elif row.get("status") == "已解决":
@@ -438,10 +440,13 @@ def migrate(data: dict) -> dict:
             continue
         row.setdefault("targetHours", 0)
         row.setdefault("finishDate", "")
-    # 开发待办多了个「优先级」字段（今日计划的任务不标，留空）
+    # 开发待办多了个「优先级」字段（今日计划的任务不标，留空）；
+    # 归档标记（isArchived / archivedAt）也是后加的，补齐默认值，老的当没归档
     for row in data.get("tasks") or []:
         if isinstance(row, dict):
             row.setdefault("priority", "")
+            row.setdefault("isArchived", False)
+            row.setdefault("archivedAt", "")
     # 项目也扩了字段：详细描述、预计结束日期、图片
     # （「一句话简介」是老字段 intro，名字不动，老数据零成本）
     for row in data.get("projects") or []:

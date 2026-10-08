@@ -183,6 +183,20 @@ body {
 .sr-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-none { padding: 12px 8px; color: var(--muted); font-size: 13px; }
 
+/* 搜索结果底部的「包含归档记录」：默认不看归档条目，勾上才连归档一起搜 */
+.sr-archive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px;
+  border-top: var(--bw) dashed var(--divider);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sr-archive input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+
 /* ---------------- 骨架：侧边栏 + 内容区 ---------------- */
 
 .body-row {
@@ -507,6 +521,47 @@ code {
 
 .task.done .t-text { color: var(--muted); text-decoration: line-through; }
 .task.done .t-cat { opacity: 0.5; }
+
+/* ---------------- 归档（开发工作的待办 / 问题） ----------------
+   归档条目不是删掉，只是挪出主列表：文字变浅、底色更淡，
+   一眼能看出是「历史」不是「待处理」；默认收在折叠区里，不占地方。 */
+
+.task.archived,
+.item.archived {
+  opacity: 0.6;
+  background: color-mix(in srgb, var(--field) 45%, transparent);
+}
+.task.archived:hover,
+.item.archived:hover { opacity: 0.85; }
+.task.archived .t-text,
+.item.archived .i-title { color: var(--muted); }
+.arch-time { font-size: 12px; opacity: 0.85; }
+
+.archive-block {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: var(--bw) dashed var(--divider);
+}
+
+.archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.archive-toggle:hover { background: var(--hover); color: var(--ink); }
+.archive-caret { flex: 0 0 auto; font-size: 11px; }
+.archive-count { margin-left: auto; font-size: 12px; opacity: 0.75; }
+.archive-body { margin-top: 4px; }
 
 .task.editing {
   flex-wrap: wrap;

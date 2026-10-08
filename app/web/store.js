@@ -148,7 +148,8 @@ const AUTOSAVE_FIELDS =
   "#memo, [data-slot], [data-day], #slogan, #keep-input, #project-filter, #project-status-filter, " +
   "#budget-input, #media-filter, #media-cal-platform, #media-list-platform, #media-list-status, " +
   "#media-list-sort, #attach-max-edge, .attach-input, " +
-  "#issue-filter-status, #issue-filter-severity, #issue-filter-module, " +
+  "#issue-filter-status, #issue-filter-severity, #issue-filter-module, #issue-filter-archive, " +
+  "#todo-archive-filter, #search-archived, " +
   "#game-date, #game-filter-name, #game-filter-from, #game-filter-to";
 
 document.addEventListener(
@@ -432,6 +433,33 @@ export function setPlanShowGame(on) {
   if (!store.data) return;
   if (!store.data.settings) store.data.settings = {};
   store.data.settings.planShowGame = Boolean(on);
+  touch(true);
+}
+
+/* ---------------- 开发工作的自动归档开关 ----------------
+ * 两个开关也存进 settings：关着（默认）就全靠手动归档，
+ * 开着则「待办勾完成」「bug 标已修复」时顺手归档。和明暗、视图一样
+ * 跟着数据文件走，两个窗口开着也会同步。 */
+
+export function autoArchiveTodoOf() {
+  return ((store.data && store.data.settings) || {}).autoArchiveTodo === true;
+}
+
+export function setAutoArchiveTodo(on) {
+  if (!store.data) return;
+  if (!store.data.settings) store.data.settings = {};
+  store.data.settings.autoArchiveTodo = Boolean(on);
+  touch(true);
+}
+
+export function autoArchiveIssueOf() {
+  return ((store.data && store.data.settings) || {}).autoArchiveIssue === true;
+}
+
+export function setAutoArchiveIssue(on) {
+  if (!store.data) return;
+  if (!store.data.settings) store.data.settings = {};
+  store.data.settings.autoArchiveIssue = Boolean(on);
   touch(true);
 }
 

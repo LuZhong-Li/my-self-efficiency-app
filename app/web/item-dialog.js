@@ -54,16 +54,23 @@ function persistRow(spec, ctx, saved, created) {
  * @param {string} type    item-form.js 里的类型名（todayPlan / devTodo / …）
  * @param {object|null} row 编辑时传那条记录；新增传 null
  * @param {{date?: string, pid?: string, ctx?: object,
+ *          extraHtml?: string,
+ *          extraButtons?: {id: string, label: string}[],
+ *          onExtraAction?: (id: string, el: HTMLElement) => (boolean | void),
  *          onSaved?: (row: object, created: boolean) => void}} options
  *        date  —— 从某一天点「添加」时的默认日期
  *        pid   —— 项目 id（开发待办要）
  *        ctx   —— 下拉的动态选项，比如 { subjects: [[id, 名称], …] }
+ *        extraHtml / extraButtons / onExtraAction
+ *              —— 编辑时额外加的一段说明和几个按钮（开发待办的「归档」就是这么进来的，
+ *                 没有新开一种弹窗）。onExtraAction 返回 false 表示弹窗继续开着。
  *        onSaved —— 存完之后叫一下，让调用方跟着切日期 / 重画
  * @returns {{ el: HTMLElement, close: () => void }}
  */
 export function openItemDialog(type, row, options = {}) {
   const spec = formOf(type);
   const editing = Boolean(row);
+  const extraButtons = Array.isArray(options.extraButtons) ? options.extraButtons : [];
   const ctx = {
     uid,
     nowIso: () => new Date().toISOString(),
@@ -90,15 +97,23 @@ export function openItemDialog(type, row, options = {}) {
     bodyHtml: `
       ${spec.hint ? `<p class="dlg-hint">${spec.hint}</p>` : ""}
       <div class="dlg-fields">${formHtml(type, values, ctx)}</div>
+      ${options.extraHtml || ""}
       ${attach ? `<div class="attach-host" id="item-attach"></div>` : ""}`,
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
+      ...extraButtons,
       { id: "cancel", label: "取消" },
       { id: "save", label: "保存", kind: "primary" },
     ],
     onClose: () => { if (attach) disposeAttach(attach); },
     onAction: (act, el) => {
       if (act === "cancel") return true;
+
+      if (extraButtons.some((b) => b.id === act)) {
+        return typeof options.onExtraAction === "function"
+          ? options.onExtraAction(act, el)
+          : true;
+      }
 
       if (act === "delete") {
         // 先想清楚要动哪几张表（包括「删项目要连待办 / 问题 / 进展一起走」这种）

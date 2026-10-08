@@ -203,3 +203,57 @@ export function validateAccountInput({ name, initText, accounts, selfId = "" }) 
   out.ok = !out.nameErr && !out.initErr;
   return out;
 }
+
+/* ---------------- 分类：兜底与当日筛选 ---------------- */
+
+/** 内置的兜底分类。数据里没有 finance.categories（或者某一边是空的）时用这一套。
+ *
+ *  内容必须和服务端 app/服务.py 的 default_finance() + DEBT_CATEGORIES 一模一样：
+ *  正常情况是服务端补（重启后第一次读数据就补上了），但服务端那个进程可能还停在
+ *  旧版本上（2026-10-08 踩的就是这个：进程从 10-06 起一直没重启，前端拿到的新
+ *  界面配着旧数据，弹窗里那排分类按钮就是空的一片）。有这一份兜底，
+ *  界面不靠服务端也能把分类显示出来。
+ *  自检里有一条「前端兜底分类和服务端骨架一模一样」盯着这两边别走岔。 */
+export const DEFAULT_CATEGORIES = {
+  expense: ["餐饮", "交通", "购物", "学习", "娱乐", "住房", "医疗", "其他", "债务还款"],
+  income: ["工资", "兼职", "红包", "退款", "其他", "债务收款"],
+};
+
+/** 把缺的分类补齐，返回 true 表示真补过（调用方据此决定要不要落盘）。
+ *
+ *  只补空的那一边：整块 categories 不在、或者某一边不是数组 / 是空数组时才填默认值；
+ *  已经有一串分类就一个都不动。将来做「自定义分类」时，用户删掉的分类不该被这里复活。 */
+export function ensureCategories(finance) {
+  if (!finance || typeof finance !== "object") return false;
+  let changed = false;
+  const cats = finance.categories;
+  if (!cats || typeof cats !== "object" || Array.isArray(cats)) {
+    finance.categories = {};
+    changed = true;
+  }
+  for (const kind of ["expense", "income"]) {
+    const cur = finance.categories[kind];
+    if (!Array.isArray(cur) || !cur.length) {
+      finance.categories[kind] = DEFAULT_CATEGORIES[kind].slice();
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** 这一天出现过的分类（按当天条目的先后顺序去重）。
+ *  当日明细头上那个筛选下拉用它——只列这天真有的分类，不把一整张分类表铺开。 */
+export function dayCategories(list) {
+  const out = [];
+  for (const t of list || []) {
+    const cat = t && t.category;
+    if (cat && !out.includes(cat)) out.push(cat);
+  }
+  return out;
+}
+
+/** 按分类过滤；cat 传空串就是「全部」（返回一份浅拷贝，不动传进来的数组）。 */
+export function filterByCategory(list, cat) {
+  const rows = list || [];
+  return cat ? rows.filter((t) => t && t.category === cat) : rows.slice();
+}

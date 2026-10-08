@@ -41,6 +41,10 @@
   --bw: 1px;              /* 边框粗细：粗野风会调粗，笔记风是发丝线 */
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   --shadow-lift: 0 6px 20px rgba(0, 0, 0, 0.1);
+
+  /* 滚动条滑块：弹窗里那条细指示条（系统自带那条又粗又灰，见 .dlg-form） */
+  --sb-thumb: rgba(126, 146, 190, 0.38);
+  --sb-thumb-hover: rgba(92, 118, 190, 0.6);
 }
 
 html[data-theme="dark"] {
@@ -71,6 +75,10 @@ html[data-theme="dark"] {
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   --shadow-lift: 0 6px 20px rgba(0, 0, 0, 0.45);
   --chrome: #1e2127;
+
+  /* 深色下换成淡蓝白——浅蓝灰在深底上几乎看不见 */
+  --sb-thumb: rgba(168, 188, 255, 0.28);
+  --sb-thumb-hover: rgba(168, 188, 255, 0.5);
 }
 
 * { box-sizing: border-box; }
@@ -1138,19 +1146,44 @@ html[data-skin="glass"] .arch-drawer {
 .dlg {
   /* 内容长了（比如弹窗里加了图片附件区）就只让中间那块滚，
      标题和下面那排按钮始终看得见 —— 不然「保存」会被顶到窗口外面点不着 */
+  --dlg-pad: 24px; /* 弹窗内边距；下面滚动条要拿它贴边，改的时候一起改 */
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 420px;
   max-height: calc(100vh - 48px);
-  padding: 24px;
+  padding: var(--dlg-pad);
   background: var(--card);
   border: var(--bw) solid var(--line);
   border-radius: var(--r-lg);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
 }
 
-.dlg-form { min-height: 0; overflow-y: auto; }
+/* 弹窗里那条滚动条：系统自带的那条又粗又灰，跟这套界面不是一路人。
+   右边那份内边距先拿掉再补回去 —— 内容一格都不动，只有滚动条从内边距那儿
+   挪到卡片边上（贴边），宽度也从 15px 收到 6px。 */
+.dlg-form {
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: calc(var(--dlg-pad) * -1);
+  padding-right: var(--dlg-pad);
+}
+.dlg-form::-webkit-scrollbar { width: 6px; }
+.dlg-form::-webkit-scrollbar-track { background: transparent; }
+.dlg-form::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--sb-thumb);
+}
+.dlg-form::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); }
+.dlg-form::-webkit-scrollbar-corner { background: transparent; }
+
+/* Firefox 不认 ::-webkit-scrollbar，只能走标准属性给一条细的；
+   Chromium 这边故意**不写** scrollbar-width / scrollbar-color —— 一旦写了，
+   上面那几条 ::-webkit-scrollbar 就会被忽略，胶囊和悬停色就都没了。 */
+@supports not selector(::-webkit-scrollbar) {
+  .dlg-form { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+}
+
 .dlg-actions { flex: 0 0 auto; }
 
 .dlg-body { display: flex; gap: 16px; align-items: flex-start; }
@@ -2304,6 +2337,8 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
 /* ---------------- 记账：当日明细与弹窗表单 ---------------- */
 
 .fin-day-sum { display: flex; gap: 12px; margin-bottom: 8px; font-size: 13px; }
+/* 当日明细头上的分类筛选：矮一档，别跟卡片标题抢高度（右栏只有 320px 宽） */
+.fin-day-cat { padding: 2px 6px; font-size: 12px; border-radius: var(--r-sm); }
 .fin-row .fin-cat { font-size: 15px; line-height: 1; }
 .fin-row .fin-amount { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* 收入一行淡绿底、支出一行淡红底（压得很淡，十二条也不会变成彩虹） */

@@ -14,6 +14,7 @@ import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import {
   monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
   accountBalanceCents, balanceTotals, categoryBudgetStates, validateAccountInput,
+  ensureCategories, dayCategories, filterByCategory,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -26,6 +27,7 @@ import {
 let selected = null; // 月历上选中的那天
 let ringPick = null; // 环形图上点开的分类（展开明细用）
 let ringType = "expense"; // 环形图看哪一头：expense / income
+let dayCat = ""; // 当日明细的分类筛选；空串 = 全部（那天不止一个分类时才露出来）
 
 /** 左栏：月历。格子里画当天的支出（红）和收入（绿），超支的日子套一圈红边。 */
 function calendarCard(txs) {
@@ -253,23 +255,40 @@ function ringCard(txs) {
     }`;
 }
 
-/** 右栏第二张：选中那天的一笔笔账（点一行就能改）。 */
+/** 右栏第二张：选中那天的一笔笔账（点一行就能改）。
+ *  那天有两个以上分类时，卡片头上多一个分类下拉——想核某一种分类花在哪几笔，
+ *  不用再一天天翻。只列这天真有的分类；选中的分类不在这一天，就按「全部」显示。 */
 function dayCard(txs) {
-  const list = txs.filter((t) => t.date === selected).sort(byCreatedAt);
-  if (!list.length) {
+  const all = txs.filter((t) => t.date === selected).sort(byCreatedAt);
+  if (!all.length) {
     return `
       <div class="card-head"><h2>当日明细</h2><span class="hint">${esc(dayLabel(selected))}</span></div>
       ${emptyState("这天还没记账", "右上角「记一笔」记上第一笔。", "", "money")}`;
   }
-  const totals = dayTotals(txs, selected);
+  const cats = dayCategories(all);
+  const cat = cats.includes(dayCat) ? dayCat : ""; // 换天之后，老筛选可能不在这一天里
+  const list = filterByCategory(all, cat);
+  // 加减号后面是「下面这几笔」的合计，不是整天那个数——筛完之后上下两边对得上
+  const totals = dayTotals(list, selected);
   return `
     <div class="card-head">
       <h2>当日明细</h2>
-      <span class="hint">${esc(dayLabel(selected))}</span>
+      <div class="card-tools">
+        ${
+          cats.length > 1
+            ? `<select id="day-cat" class="fin-day-cat" title="只看某一种分类">
+                 <option value=""${cat ? "" : " selected"}>全部分类</option>
+                 ${options(cats, cat)}
+               </select>`
+            : ""
+        }
+        <span class="hint">${esc(dayLabel(selected))}</span>
+      </div>
     </div>
     <div class="fin-day-sum">
       <span class="fin-amount expense">-${fmtMoney(totals.expenseCents)}</span>
       <span class="fin-amount income">+${fmtMoney(totals.incomeCents)}</span>
+      ${cat ? `<span class="hint">${esc(cat)} · ${list.length} 笔</span>` : ""}
     </div>
     <ul class="items">${list.map(txRow).join("")}</ul>`;
 }
@@ -598,6 +617,7 @@ function openTxDialog(tx) {
             });
           }
           selected = next.date; // 记完停在那一天，方便核对
+          dayCat = ""; // 回到「全部」：刚记的这笔要是被筛选挡在外面，会以为没存上
           showMonth(monthKey(next.date)); // 补记到别的月份时，日历跟着翻过去
           touch(true);
           dlg.close();
@@ -661,6 +681,10 @@ function openTxDialog(tx) {
 export function renderFinance(root, sub = "") {
   const onDebt = sub === "debt";
   if (!selected) selected = todayStr();
+  // 老数据里可能没有 finance.categories（服务端进程还停在旧版本上时它就一直缺着），
+  // 补一套默认分类再画——不然「记一笔」里那排分类按钮是空的一片。
+  // 静默落盘：只是把数据补全，不必为一个键把整页重画一遍。
+  if (ensureCategories(financeOf())) touch(true, true);
   const txs = table("finance.transactions");
   const unsettled = splitBySettled(table("debt.items"), todayStr()).open.length;
 
@@ -711,10 +735,20 @@ function redraw() {
   renderFinance(document.getElementById("view"));
 }
 
+/** 只重画右栏那张「当日明细」。分类筛选下拉用它——整页重画会把下拉本身换掉，
+ *  焦点和展开状态都跟着丢。它还在 bindFresh 那层容器里，change 事件照样收得到。 */
+function redrawDay() {
+  const host = document.getElementById("fin-day");
+  if (host) host.innerHTML = dayCard(table("finance.transactions"));
+}
+
 function onClick(e) {
   const cal = calendarAction(e);
   if (cal.handled) {
-    if (cal.selected) selected = cal.selected;
+    if (cal.selected) {
+      selected = cal.selected;
+      dayCat = ""; // 换了一天，之前选的分类不一定还在这天里，统一回到「全部」
+    }
     redraw();
     return;
   }
@@ -819,6 +853,11 @@ function onSubmit(e) {
 }
 
 function onChange(e) {
+  if (e.target.id === "day-cat") {
+    dayCat = e.target.value;
+    redrawDay();
+    return;
+  }
   if (e.target.id !== "budget-input") return;
   const text = e.target.value.trim();
   const cents = text === "" ? 0 : yuanToCents(text);

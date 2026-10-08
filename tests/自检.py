@@ -87,6 +87,24 @@ def check_no_external() -> None:
     check("界面文件里没有任何外部链接（断网也能用）", not bad, "；".join(bad[:3]))
 
 
+def js_default_categories() -> dict:
+    """把前端那份兜底分类抠出来（app/web/finance-calc.js 里的 DEFAULT_CATEGORIES）。
+
+    它和服务端 default_finance() 是同一个约定，两份必须一模一样。抠不到就返回
+    空字典，让下面那条检查报失败——宁可报红，也别悄悄放过。
+    """
+    text = (WEB / "finance-calc.js").read_text(encoding="utf-8")
+    block = re.search(r"DEFAULT_CATEGORIES\s*=\s*\{(.*?)\n\};", text, re.S)
+    if not block:
+        return {}
+    out = {}
+    for kind in ("expense", "income"):
+        found = re.search(kind + r"\s*:\s*\[(.*?)\]", block.group(1), re.S)
+        if found:
+            out[kind] = re.findall(r'"([^"]+)"', found.group(1))
+    return out
+
+
 def fetch_raw(port: int, path: str):
     """取原始字节。call() 是按 JSON 解析的，图片这类二进制得走这一条。"""
     req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path))
@@ -236,6 +254,14 @@ def main() -> int:
         cats = call(port, "/api/data")[1]["finance"]["categories"]
         check("记账分类里有「债务还款 / 债务收款」",
               "债务还款" in cats.get("expense", []) and "债务收款" in cats.get("income", []))
+        # 前端也留了一份兜底分类：服务端那个进程还停在旧版本上时（2026-10-08 那次
+        # 就是进程从 10-06 起没重启过），「记一笔」里那排分类按钮不至于空一片。
+        # 两份必须一致，否则服务端补的跟前端兜底的会走岔。
+        js_cats = js_default_categories()
+        check("前端兜底分类跟服务端骨架一模一样",
+              bool(js_cats) and js_cats.get("expense") == cats.get("expense")
+              and js_cats.get("income") == cats.get("income"),
+              "前端 %s / 服务端 %s" % (js_cats, cats))
 
         # 图片附件：上传 → 落盘 → 取回 → 删除，一条线走完
         status, up = call(port, "/api/attachment", "POST", {

@@ -8,6 +8,7 @@ import {
   categoryTotals, budgetState, overDays, byCreatedAt,
   accountBalanceCents, balanceTotals,
   categoryBudgetStates, validateAccountInput,
+  ensureCategories, dayCategories, filterByCategory, DEFAULT_CATEGORIES,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -204,6 +205,35 @@ eq(CBS[1].category, "交通", "第二个是交通");
 eq(categoryBudgetStates(TX, "2026-10", { 交通: 1000 })[0].level, "over", "交通预算 10.00、花了 12.00 → over");
 eq(categoryBudgetStates(TX, "2026-09", { 餐饮: 50000 })[0].usedCents, 0, "那个月没花，就是 0");
 eq(categoryBudgetStates(TX, "2026-10", {}).length, 0, "没设任何分类预算就是空数组");
+
+// 分类兜底：老数据缺 finance.categories 时前端自己补一套默认分类
+// （服务端也会补，但它那个进程还停在旧版本上时，就指望这一份了）
+const F1 = {};
+eq(ensureCategories(F1), true, "整块 categories 都没有 → 补一套");
+eqDeep(F1.categories.expense, DEFAULT_CATEGORIES.expense, "支出那边补成默认的一套");
+eqDeep(F1.categories.income, DEFAULT_CATEGORIES.income, "收入那边补成默认的一套");
+eq(ensureCategories(F1), false, "补过一次之后再调就不算改动（不会反复落盘）");
+
+const F2 = { categories: { expense: ["我自己的分类"], income: [] } };
+eq(ensureCategories(F2), true, "只有一边空也算补过");
+eqDeep(F2.categories.expense, ["我自己的分类"], "已经有分类的那一边一个人都不动");
+eqDeep(F2.categories.income, DEFAULT_CATEGORIES.income, "空的那一边补默认");
+
+const F3 = { categories: { expense: ["a"], income: ["b"] } };
+eq(ensureCategories(F3), false, "两边都有就什么都不做");
+eqDeep(F3.categories, { expense: ["a"], income: ["b"] }, "已有的分类原样留着");
+eq(ensureCategories(null), false, "没有 finance 对象也不炸");
+
+// 当日明细的分类筛选：只列这天真有的分类，按当天条目的先后顺序
+const DAY7 = TX.filter((t) => t.date === "2026-10-07");
+eqDeep(dayCategories(DAY7), ["餐饮", "交通", "工资"], "去重，且保持当天出现的先后");
+eq(dayCategories([]).length, 0, "没条目就没有分类");
+eq(dayCategories([{ category: "" }, { category: null }]).length, 0, "空分类名不算一个分类");
+eq(filterByCategory(DAY7, "").length, 3, "空串 = 全部");
+eq(filterByCategory(DAY7, "餐饮").length, 1, "只看餐饮就剩一笔");
+eq(filterByCategory(DAY7, "餐饮")[0].id, "a", "剩下的是那一笔餐饮");
+eq(filterByCategory(DAY7, "没有这个分类").length, 0, "对不上的分类就是空列表");
+eq(filterByCategory(DAY7, "") === DAY7, false, "返回的是拷贝，不动传进来的数组");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

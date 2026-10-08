@@ -150,7 +150,7 @@ const AUTOSAVE_FIELDS =
   "#media-list-sort, #attach-max-edge, .attach-input, " +
   "#issue-filter-status, #issue-filter-severity, #issue-filter-module, " +
   "#todo-state-filter, #search-archived, #arch-search, #arch-severity, #arch-from, #arch-to, " +
-  "#game-date, #game-filter-name, #game-filter-from, #game-filter-to";
+  "#game-date, #game-filter-name, #game-filter-from, #game-filter-to, #day-cat";
 
 document.addEventListener(
   "input",

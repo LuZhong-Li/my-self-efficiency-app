@@ -20,6 +20,7 @@ import { initSearch } from "./search.js";
 import { icon } from "./icons.js";
 import { markEnter } from "./ui.js";
 import { toast } from "./dialog.js";
+import { setupConflict } from "./conflict.js";
 
 const view = document.getElementById("view");
 const sideNav = document.getElementById("side-nav");
@@ -108,6 +109,7 @@ async function boot() {
   onChange(render);
   onTheme(renderThemeButton);
   initSearch();
+  setupConflict();
   themeBtn.addEventListener("click", () => {
     const mode = cycleTheme();
     if (store.loaded) toast(`明暗已切到「${THEME_MODE_LABEL[mode]}」`);

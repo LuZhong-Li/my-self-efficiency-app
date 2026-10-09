@@ -180,6 +180,25 @@ def main() -> int:
         check("拿旧修订号写入会被拒绝（防两个窗口互相覆盖）",
               status == 409 and conflict.get("conflict"))
 
+        # 写入闸（数据.lock）：一个窗口正在写的时候，另一个窗口的保存被挡回去，不覆盖
+        lock_file = data_dir / "数据.lock"
+        cur = call(port, "/api/data")[1]
+        lock_file.write_text("99999 自检占位", encoding="utf-8")
+        status, busy = call(port, "/api/data", "POST", cur)
+        check("别人正拿着写入锁时保存被挡回去（返回忙，不覆盖磁盘）",
+              status == 409 and busy.get("busy") is True, str(busy)[:80])
+        lock_file.unlink()
+
+        # 上次崩了留下的过期锁：超过 10 秒就算残留，清掉重来，保存照常
+        cur = call(port, "/api/data")[1]
+        lock_file.write_text("99999 崩溃残留", encoding="utf-8")
+        old = time.time() - 60
+        os.utime(lock_file, (old, old))
+        status, saved_after = call(port, "/api/data", "POST", cur)
+        check("过期的残留锁会被自动清掉，保存照常成功",
+              status == 200 and saved_after.get("ok"), str(saved_after)[:80])
+        check("保存完写入锁不残留", not lock_file.exists())
+
         # 来源校验
         fresh = call(port, "/api/data")[1]
         status, denied = call(port, "/api/data", "POST", fresh, origin="http://evil.example")

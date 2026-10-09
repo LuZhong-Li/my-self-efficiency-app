@@ -18,7 +18,11 @@ export const store = {
   pendingSave: false,
   dirty: false,   // 有改动还没落盘
   pendingForm: false, // 有表单填了一半还没提交（关窗口前要提醒）
+  conflict: false,    // 撞上「别的窗口改过数据」：本窗口的改动先不往磁盘写（绝不覆盖）
+  conflictRev: null,  // 冲突时磁盘上的修订号（弹窗提示用）
   timer: null,
+  retryTimer: null,   // 撞上「文件正被写」时的重试闹钟
+  retryCount: 0,
   lastSavedAt: null,
 };
 
@@ -38,6 +42,24 @@ export function setStatus(text, kind) {
   for (const fn of statusHandlers) fn(text, kind);
 }
 
+/* 撞上冲突 / 磁盘被别处改过时，数据层只把事件抛出来，由界面弹窗去问用户
+ * （见 conflict.js）。数据层自己绝不替用户决定丢哪一份。 */
+const conflictHandlers = [];
+
+export function onConflict(fn) {
+  conflictHandlers.push(fn);
+}
+
+function emitConflict(info) {
+  for (const fn of conflictHandlers) {
+    try {
+      fn(info);
+    } catch {
+      /* 弹窗那边出岔子不该连累数据层 */
+    }
+  }
+}
+
 /* ---------------- 读 ---------------- */
 
 export async function initStore() {
@@ -53,6 +75,10 @@ export async function readFromDisk() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     store.data = await res.json();
     store.loaded = true;
+    // 读到的就是磁盘上最新那份：冲突自然解除，也就不再有「没落盘的改动」。
+    store.conflict = false;
+    store.conflictRev = null;
+    store.dirty = false;
     applyTheme();
     applySkin(skinOf());
     emitChange();
@@ -79,6 +105,11 @@ export function touch(immediate = false, silent = false) {
   if (!store.data) return Promise.resolve();
   if (!silent) emitChange();
   store.dirty = true;
+  // 冲突还没处理完：改动先压在内存里，绝不往磁盘写（写了就是覆盖别人）
+  if (store.conflict) {
+    if (immediate) emitConflict({ kind: "conflict", rev: store.conflictRev });
+    return Promise.resolve();
+  }
   clearTimeout(store.timer);
   if (immediate) {
     return saveNow();
@@ -90,6 +121,7 @@ export function touch(immediate = false, silent = false) {
 
 async function saveNow() {
   if (!store.data) return;
+  if (store.conflict) return;   // 冲突未处理完，见 touch()
   if (store.saving) {
     store.pendingSave = true;
     return;
@@ -103,16 +135,20 @@ async function saveNow() {
     });
     const body = await res.json().catch(() => ({}));
 
-    // 409：另一个窗口在我们读取之后先写过了。别覆盖它，重新读一份。
+    // 409 有两种：①冲突（另一个窗口先改过了）②文件正被写（并发抢占）。
+    // 两种都不覆盖磁盘，本窗口的改动一律留着，交给用户决定。
     if (res.status === 409 && body.conflict) {
-      store.dirty = false;
-      await readFromDisk();
-      setStatus("另一个窗口刚改过数据，已重新载入", "err");
+      markConflict(body);
+      return;
+    }
+    if (res.status === 409 && body.busy) {
+      retrySaveLater();
       return;
     }
     if (!res.ok || !body.ok) throw new Error(body.error || ("HTTP " + res.status));
     if (typeof body.rev === "number") store.data.rev = body.rev;
     store.dirty = false;
+    store.retryCount = 0;
     store.lastSavedAt = body.savedAt;
     setStatus("已保存 · " + body.savedAt, "ok");
     broadcast({ type: "saved", rev: store.data.rev });
@@ -122,9 +158,73 @@ async function saveNow() {
     store.saving = false;
     if (store.pendingSave) {
       store.pendingSave = false;
-      saveNow();
+      if (!store.conflict) saveNow();
     }
   }
+}
+
+/** 撞上冲突：把本窗口的改动**留住**（dirty 不动、data 不换），弹窗交给用户决定。 */
+function markConflict(body) {
+  store.dirty = true;         // 关键：绝不丢本窗口的改动
+  store.conflict = true;
+  store.conflictRev = typeof body.rev === "number" ? body.rev : null;
+  store.pendingSave = false;
+  store.retryCount = 0;
+  setStatus("检测到数据冲突：别的窗口改过数据，本次没有保存", "err");
+  emitConflict({ kind: "conflict", rev: store.conflictRev });
+}
+
+/** 磁盘正被另一次写占着（并发）：改动留着，过一会儿自己再试，不覆盖。 */
+function retrySaveLater() {
+  clearTimeout(store.retryTimer);
+  store.retryCount += 1;
+  if (store.retryCount > 20) {
+    store.retryCount = 0;
+    setStatus("文件一直被占用，请稍后再点一次保存", "err");
+    return;
+  }
+  setStatus("文件正在保存，稍后自动重试…", "err");
+  store.retryTimer = setTimeout(() => {
+    if (store.dirty && !store.conflict && !store.saving) saveNow();
+  }, 600);
+}
+
+/* ---------------- 冲突处理（给 conflict.js 的弹窗用） ---------------- */
+
+/** 丢掉本窗口改动，读磁盘上最新那份（弹窗里的「刷新并加载最新数据」） */
+export async function discardAndReload() {
+  clearTimeout(store.retryTimer);
+  store.dirty = false;
+  await readFromDisk();      // 里面会把 conflict 清掉
+  setStatus("已加载磁盘上的最新数据", "ok");
+}
+
+/** 本窗口的改动先留着（导出了备份 / 点了取消），只是暂时不再往磁盘写 */
+export function holdLocalChanges() {
+  store.conflict = true;
+  setStatus("数据冲突未解决：本窗口改动还没保存（点这里可再处理）", "err");
+}
+
+/** 冲突还没处理完，想再打开一次那个弹窗（点状态栏会走这里） */
+export function reopenConflict() {
+  if (store.conflict) emitConflict({ kind: "conflict", rev: store.conflictRev });
+}
+
+/** 把本窗口内存里这一份导出成 JSON 下载下来（冲突时留个备份，方便手动合并） */
+export function downloadCurrentData() {
+  if (!store.data) return;
+  const stamp = nowText().replace(/[: ]/g, "-");
+  const blob = new Blob([JSON.stringify(store.data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "小李-本窗口改动-" + stamp + ".json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 window.addEventListener("beforeunload", (e) => {
@@ -187,8 +287,15 @@ function setupChannel() {
       const msg = e.data || {};
       if (msg.type !== "saved") return;
       if (msg.rev === (store.data && store.data.rev)) return;
-      if (store.dirty) {
-        setStatus("另一个窗口改了数据，你这边还有没保存的改动，刷新一下更稳妥", "err");
+      // 本窗口还有没落盘的内容（改过、表单填了一半、正存着、或已经在冲突里）：
+      // 不擅自刷新把编辑内容冲掉，问一句（见 conflict.js）。
+      if (store.conflict) {
+        setStatus("别的窗口又保存了数据，本窗口的改动仍未落盘（点这里可处理）", "err");
+        return;
+      }
+      if (store.dirty || store.saving || store.pendingForm) {
+        setStatus("别的窗口保存了数据，本窗口还有没落盘的内容", "err");
+        emitConflict({ kind: "disk", rev: msg.rev });
         return;
       }
       await readFromDisk();

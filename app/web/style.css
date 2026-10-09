@@ -329,6 +329,12 @@ main > * { max-width: 1100px; margin-left: auto; margin-right: auto; }
   white-space: nowrap;
 }
 .top-status.err { color: var(--err); }
+/* 有数据冲突时状态栏变成可点的处理入口（点一下重开处理弹窗） */
+.top-status.conflict {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
 
 /* ---------------- 卡片 ---------------- */
 

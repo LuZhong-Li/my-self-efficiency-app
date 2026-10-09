@@ -51,6 +51,11 @@ EXPORT_DIR = os.path.join(DATA_DIR, "导出")
 LOG_DIR = os.path.join(DATA_DIR, "日志")
 LOG_FILE = os.path.join(LOG_DIR, "运行.log")
 PREV_FILE = os.path.join(BACKUP_DIR, "_最近一次.json")
+# 写入闸：同一时间只让一个进程写 数据.json。写的时候在这儿放一个标记文件，
+# 写完删掉；被别人拿着的期间，另外那份的保存会被挡回去（不覆盖）。
+# 上次崩在写盘中途会留下残留，超过 LOCK_STALE_SECONDS 就当过期，清掉重来。
+LOCK_FILE = os.path.join(DATA_DIR, "数据.lock")
+LOCK_STALE_SECONDS = 10
 # 图片附件：单独一个文件夹，主数据文件里只存相对路径（attachments/模块/文件名）。
 # 放在 数据 目录下面是有意的——备份、搬到别的盘（XIAOLI_DATA_DIR）都是一整份走，
 # 而且 同步到小李.cmd / .gitignore 本来就不碰 数据 目录，图片不会跟着代码跑。
@@ -195,6 +200,68 @@ def ensure_dirs() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(BACKUP_DIR, exist_ok=True)
     os.makedirs(ATTACH_DIR, exist_ok=True)
+
+
+# --------------------------------------------------------------------------
+# 写入闸：多窗口 / 多进程同时写 数据.json 时，别互相覆盖
+# --------------------------------------------------------------------------
+
+class DataBusy(Exception):
+    """别人正拿着写入闸，这次写盘要排队"""
+
+
+def _lock_is_stale() -> bool:
+    """锁文件是不是「过期」了：上次崩在写盘中途留下的残留，超过 10 秒就不认它。"""
+    try:
+        return time.time() - os.path.getmtime(LOCK_FILE) > LOCK_STALE_SECONDS
+    except OSError:
+        return False
+
+
+def release_write_lock() -> None:
+    """放开写入闸（删掉标记文件）；本来就没有也不报错。"""
+    try:
+        os.remove(LOCK_FILE)
+    except OSError:
+        pass
+
+
+def _make_lock() -> bool:
+    """建标记文件。O_CREAT|O_EXCL 的规矩是「谁先建出来谁说了算」，跨进程也管用。"""
+    try:
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    except OSError:
+        # 因为权限之类根本建不出这个文件时，别硬拦：放过去写，总比整个存不了强
+        return True
+    try:
+        os.write(fd, ("%d %s" % (os.getpid(), now_text())).encode("utf-8"))
+    finally:
+        os.close(fd)
+    return True
+
+
+def acquire_write_lock() -> None:
+    """占住写入闸。已经有人拿着时，那把锁要是过期了就清掉再抢一次；
+    还抢不到，就抛 DataBusy，让接口回一句「文件正在保存，请稍后重试」。"""
+    ensure_dirs()
+    if _make_lock():
+        return
+    if _lock_is_stale():
+        log_line("发现过期的写入锁，清掉重来（%s）" % os.path.basename(LOCK_FILE))
+        release_write_lock()
+        if _make_lock():
+            return
+    raise DataBusy()
+
+
+def clear_stale_lock() -> None:
+    """启动时清一次：上次崩在写盘中途留下的锁不该挡着这次。
+    只在过期时清，免得把另一个进程正在写的那一次误删。"""
+    if os.path.exists(LOCK_FILE) and _lock_is_stale():
+        release_write_lock()
+        log_line("启动时清理了过期的写入锁")
 
 
 # --------------------------------------------------------------------------
@@ -748,25 +815,40 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": "数据格式不对，拒绝写入"}, 400)
             return
 
-        # 修订号：页面读取时是多少，写回来就必须是多少。
-        # 对不上说明另一个窗口先改过了，拒掉，免得互相覆盖。
-        with LOCK:
-            current = load_data()
-        cur_rev = int(current.get("rev") or 0)
-        sent_rev = data.get("rev")
-        if isinstance(sent_rev, int) and sent_rev != cur_rev:
-            log_line("拒绝写入：修订号不一致（页面 %s，磁盘 %s）" % (sent_rev, cur_rev))
+        # 写入闸 + 修订号，两道一起上：
+        #   闸（数据.lock）挡住「两个进程同一刻都在写」这种并发竞态；
+        #   修订号挡住「两个窗口先后改、后写的把先写的覆盖掉」这种丢数据 ——
+        #   页面读取时 rev 是多少，写回来就必须是多少，对不上就拒掉。
+        try:
+            acquire_write_lock()
+        except DataBusy:
+            log_line("拒绝写入：文件正在保存中，稍后重试")
             self.send_json({
                 "ok": False,
-                "conflict": True,
-                "rev": cur_rev,
-                "error": "另一个窗口刚改过数据",
+                "busy": True,
+                "error": "文件正在保存，请稍后重试",
             }, 409)
             return
+        try:
+            with LOCK:
+                current = load_data()
+            cur_rev = int(current.get("rev") or 0)
+            sent_rev = data.get("rev")
+            if isinstance(sent_rev, int) and sent_rev != cur_rev:
+                log_line("拒绝写入：修订号不一致（页面 %s，磁盘 %s）" % (sent_rev, cur_rev))
+                self.send_json({
+                    "ok": False,
+                    "conflict": True,
+                    "rev": cur_rev,
+                    "error": "另一个窗口刚改过数据",
+                }, 409)
+                return
 
-        data["rev"] = cur_rev + 1
-        data["updatedAt"] = now_text()
-        size = save_data(data)
+            data["rev"] = cur_rev + 1
+            data["updatedAt"] = now_text()
+            size = save_data(data)
+        finally:
+            release_write_lock()
         prune_backups(keep_count(data))
         print("  · 已保存到 数据.json（%d 字节，%s）" % (size, now_text()))
         self.send_json({
@@ -827,22 +909,40 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(data, dict) or "version" not in data:
             self.send_json({"ok": False, "error": "这个文件不像是本程序导出的数据"}, 400)
             return
-        snapshot = write_backup("导入前")
-        # 导入也要推进修订号：否则页面手里那个旧号会一直跟磁盘对不上
-        data["rev"] = int(load_data().get("rev") or 0) + 1
-        data["updatedAt"] = now_text()
-        size = save_data(data)
+        try:
+            acquire_write_lock()
+        except DataBusy:
+            self.send_json({"ok": False, "busy": True,
+                            "error": "文件正在保存，请稍后重试"}, 409)
+            return
+        try:
+            snapshot = write_backup("导入前")
+            # 导入也要推进修订号：否则页面手里那个旧号会一直跟磁盘对不上
+            data["rev"] = int(load_data().get("rev") or 0) + 1
+            data["updatedAt"] = now_text()
+            size = save_data(data)
+        finally:
+            release_write_lock()
         prune_backups(keep_count(data))
         print("  · 已导入恢复（导入前的数据存为 %s）" % snapshot)
         log_line("导入恢复（导入前存为 %s）" % snapshot)
         self.send_json({"ok": True, "snapshot": snapshot, "bytes": size, "data": data})
 
     def api_clear(self) -> None:
-        snapshot = write_backup("清空前")
-        fresh = default_data()
-        fresh["rev"] = int(load_data().get("rev") or 0) + 1
-        fresh["updatedAt"] = now_text()
-        save_data(fresh)
+        try:
+            acquire_write_lock()
+        except DataBusy:
+            self.send_json({"ok": False, "busy": True,
+                            "error": "文件正在保存，请稍后重试"}, 409)
+            return
+        try:
+            snapshot = write_backup("清空前")
+            fresh = default_data()
+            fresh["rev"] = int(load_data().get("rev") or 0) + 1
+            fresh["updatedAt"] = now_text()
+            save_data(fresh)
+        finally:
+            release_write_lock()
         prune_backups(keep_count(fresh))
         print("  · 已清空数据（清空前存为 %s）" % snapshot)
         log_line("清空数据（清空前存为 %s）" % snapshot)
@@ -1132,6 +1232,7 @@ def start_server() -> tuple[ThreadingHTTPServer, int]:
 def main() -> int:
     setup_console()
     ensure_dirs()
+    clear_stale_lock()   # 上次崩在写盘中途留下的锁，别挡着这次
 
     print("=" * 60)
     print("  %s  %s" % (APP_NAME, APP_VERSION))

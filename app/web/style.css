@@ -3136,6 +3136,166 @@ body.media-dragging .cal-cell { border-color: var(--accent); }
   word-break: break-word;
 }
 
+/* 首页「目标总览」卡片（2026-10-09 加）：
+   把健身 / 学习 / 饮食三个模块的模块目标各抽一行，只读、点一下跳回模块页。
+   进度条配色按完成度分档 —— < 80% 蓝、80~99% 黄、>= 100% 绿。
+   配色走全站变量（--accent / --warn / --ok），换明暗 / 皮肤自动跟着变，不另写主题分支。 */
+
+.goal-ov-list { display: flex; flex-direction: column; }
+
+.goal-ov-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: var(--r-md);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.goal-ov-row + .goal-ov-row { margin-top: 2px; }
+.goal-ov-row:hover { background: var(--hover); }
+
+.goal-ov-name {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.goal-ov-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-ov-row.off .goal-ov-name { color: var(--muted); }
+
+.goal-ov-bar { flex: 1 1 auto; }
+.goal-ov-bar > span.blue { background: var(--accent); }
+.goal-ov-bar > span.gold { background: var(--warn); }
+.goal-ov-bar > span.green { background: var(--ok); }
+
+.goal-ov-num {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.goal-ov-over { margin-left: 4px; color: var(--ok); font-style: normal; font-weight: 600; }
+
+.goal-ov-empty { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+
+/* 「各模块今日进度」那一行整行可点（跳今日计划），光标给个手型 */
+.goal-ov-row[data-route] { cursor: pointer; }
+.goal-ov-row[data-route]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 进度右边的「− 2/5 +」快按钮：小圆玻璃钮，加减只影响这一组的待办勾选 */
+.day-ctrl { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+.day-ctrl .goal-ov-num { min-width: 34px; text-align: center; }
+
+.day-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: var(--bw) solid var(--line);
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.day-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--hover); }
+.day-btn:active:not(:disabled) { transform: scale(0.92); }
+.day-btn:disabled { opacity: 0.4; cursor: default; }
+html[data-skin="glass"] .day-btn { background: var(--soft); }
+
+/* 超额完成：数字绿色高亮（进度条本身也满格绿色 + 后面跟一个「超额」小标） */
+.goal-ov-num.over { color: var(--ok); font-weight: 600; }
+
+/* 「今日目标」设置弹窗：每个模块一行（类型 / 目标值 / 单位 / 步长） */
+.dt-grid { display: flex; flex-direction: column; gap: 8px; }
+.dt-row {
+  display: grid;
+  grid-template-columns: 56px 76px minmax(0, 1.2fr) 64px 68px;
+  gap: 8px;
+  align-items: center;
+}
+.dt-head { color: var(--muted); font-size: 12px; }
+.dt-name { font-size: 13px; }
+.dt-row select, .dt-row input { width: 100%; }
+
+/* 今日计划里每个模块一组：组头是「模块名 ─ 进度条 ─ [− 2/5 +]」 */
+.plan-group + .plan-group { margin-top: 4px; }
+.plan-group-head { align-items: center; gap: 12px; margin: 20px 0 8px; }
+.plan-group-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.plan-group-name .ic { color: var(--muted); transition: transform 0.15s ease; }
+.plan-group-name:hover { color: var(--accent); }
+.plan-group-name:hover .ic { color: var(--accent); }
+.plan-group-bar { min-width: 60px; }
+
+/* 分组折叠：点模块名把这一组收起来（只影响显示，不动数据） */
+.plan-group.collapsed .plan-group-name .ic { transform: rotate(90deg); }
+.plan-group.collapsed .tasks { display: none; }
+.plan-group.collapsed .plan-group-head { margin-bottom: 0; }
+
+/* ---------------- 今日计划：两张独立滚动的玻璃卡片（2026-10-09 重构） ----------------
+   逾期一张、今天的任务一张，各自 max-height 内部滚动，标题栏在滚动区之上（固定不动），
+   条目少时卡片自动收缩、不强行留白。滚动条是全站那套 6px 玻璃胶囊，见文件开头。 */
+
+.plan-stack { display: flex; flex-direction: column; gap: 16px; }
+/* 用 #plan-view 提高优先级：压住各皮肤里 html[data-skin="…"] .card 的 padding / margin */
+#plan-view .plan-stack > .card { margin-bottom: 0; }
+#plan-view .plan-card { padding: 0; }
+
+.plan-card { overflow: hidden; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.plan-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+
+.plan-card-head { padding: 16px 20px 10px; }
+.plan-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plan-head-row h2 { margin: 0; }
+
+.plan-card-body {
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 20px 16px;
+}
+
+.plan-empty { margin: 4px 0 8px; }
+
+/* 逾期卡片：保留原来的浅米黄底，压在这套玻璃边框里 */
+.overdue-card { background: var(--warn-bg); border-color: var(--warn-line); }
+.overdue-card .plan-card-head { border-bottom: var(--bw) solid var(--warn-line); }
+.overdue-card .list-head { margin-top: 0; }
+
+/* 窄窗口：目标名和数值各占一头，进度条换到第二行占满 */
+@media (max-width: 620px) {
+  .goal-ov-row { flex-wrap: wrap; }
+  .goal-ov-bar { flex-basis: 100%; order: 3; }
+  .goal-ov-num { margin-left: auto; }
+}
+
 /* 自动生成的任务在「今日计划」里挂的来源标签：只读标记，正文照样能改 */
 .t-src {
   flex: 0 0 auto;

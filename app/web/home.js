@@ -17,7 +17,10 @@ import {
 } from "./home-view.js";
 import { bindFresh, emptyState, priorityChip, sourceTag } from "./ui.js";
 import { icon } from "./icons.js";
-import { updateTaskStatus } from "./task-actions.js";
+import { updateTaskStatus, bumpModuleProgress } from "./task-actions.js";
+import { overviewRowsOf } from "./goal-calc.js";
+import { planTasksOf, groupPlanTasks, dailyTargetsOf } from "./task-calc.js";
+import { openDailyTargetDialog } from "./daily-target.js";
 
 let memoTimer = null;
 
@@ -31,7 +34,8 @@ export function renderHome(root) {
   const memo = root.querySelector("#memo");
   if (memo) memo.value = (store.data && store.data.memo) || "";
 
-  bindFresh(root, { change: onChange, input: onInput, click: onClick });
+  bindFresh(root, { change: onChange, input: onInput, click: onClick, keydown: onKeydown });
+  bindMorePanel(root);
 }
 
 /* ---------------- 欢迎栏 ---------------- */
@@ -135,6 +139,85 @@ function modCard(card, showSub = false) {
     </a>`;
 }
 
+/* ---------------- 目标总览（健身 / 学习 / 饮食的模块目标汇总） ----------------
+   只读卡片：现读 moduleGoals + tasks 算进度，点一行跳回对应模块页去改；
+   卡片自己不存数据、也不给编辑（数据源头始终在各模块里）。
+   完整模式直接摆出来；简洁模式塞进「其他模块」折叠里，展开才渲染（见 bindMorePanel）。 */
+
+function targetRowHTML(r) {
+  return `
+    <a class="goal-ov-row${r.off ? " off" : ""}" href="${r.route}" title="打开${esc(r.moduleName)}模块">
+      <span class="goal-ov-name">${icon(r.moduleIcon, 16)}<span title="${esc(r.title)}">${esc(r.title)}</span></span>
+      <span class="progress-track goal-ov-bar">
+        <span class="${r.level}" style="width:${r.percent}%"></span>
+      </span>
+      <span class="goal-ov-num">${r.done}/${r.total} ${esc(r.unit)}${r.overtime ? `<em class="goal-ov-over">超额</em>` : ""}</span>
+    </a>`;
+}
+
+function targetOverviewHTML(rows) {
+  const body = rows.length
+    ? `<div class="goal-ov-list">${rows.map(targetRowHTML).join("")}</div>`
+    : `<p class="goal-ov-empty">暂未设置模块目标，前往健身 / 学习 / 饮食模块添加</p>`;
+  return `
+    <section class="card goal-ov-card">
+      <div class="card-head">
+        <h2>📌 目标总览</h2>
+        <div class="card-tools"><span class="hint">${rows.length ? `共 ${rows.length} 个目标` : "暂无目标"}</span></div>
+      </div>
+      ${body}
+    </section>`;
+}
+
+/* ---------------- 各模块今日进度（首页那张带 +/− 的卡片） ----------------
+   今天这列待办按模块归堆：健身 / 学习 / 饮食 / 开发工作 / 游戏娱乐，每组一行。
+   进度是现算的（勾了几条就是几条）；「+ / −」也只是去勾 / 取消勾这一组的条目，
+   和今日计划里的分组、勾选框共用一个数据源，两边永远一致。 */
+
+function dailyGroupsOf(data, today) {
+  return groupPlanTasks(planTasksOf((data && data.tasks) || [], today), dailyTargetsOf(data)).groups;
+}
+
+function dailyCtrlHTML(g) {
+  return `
+    <span class="day-ctrl">
+      <button class="day-btn" data-act="daily-minus" data-module="${g.key}"
+        title="减一步（撤掉最后一条快速记录，或取消勾选一条完成的）" aria-label="减少一步" ${g.current > 0 ? "" : "disabled"}>${icon("minus", 14)}</button>
+      <span class="goal-ov-num${g.over ? " over" : ""}">${g.current}/${g.target} ${esc(g.unit)}${g.over ? `<em class="goal-ov-over">超额</em>` : ""}</span>
+      <button class="day-btn" data-act="daily-plus" data-module="${g.key}"
+        title="加一步（追加一条已完成的快速记录）" aria-label="增加一步">${icon("plus", 14)}</button>
+    </span>`;
+}
+
+function dailyRowHTML(g) {
+  return `
+    <div class="goal-ov-row day-row" data-route="#plan/mod-${g.key}" role="link" tabindex="0"
+      title="去今日计划看「${esc(g.name)}」今天的安排">
+      <span class="goal-ov-name">${icon(g.icon, 16)}<span>${esc(g.name)}</span></span>
+      <span class="progress-track goal-ov-bar">
+        <span class="${g.level}" style="width:${Math.min(100, g.percent)}%"></span>
+      </span>
+      ${dailyCtrlHTML(g)}
+    </div>`;
+}
+
+function dailyProgressCardHTML(groups) {
+  const body = groups.length
+    ? `<div class="goal-ov-list">${groups.map(dailyRowHTML).join("")}</div>`
+    : `<p class="goal-ov-empty">暂无今日计划，去健身 / 学习 / 饮食模块设置目标，或往今日计划里加一条。</p>`;
+  return `
+    <section class="card goal-ov-card day-card">
+      <div class="card-head">
+        <h2>📌 各模块今日进度</h2>
+        <div class="card-tools">
+          <span class="hint">${groups.length ? "点 + / − 快速记一笔，点整行去今日计划" : "暂无今日计划"}</span>
+          <button class="link" data-act="daily-config" title="设置每个模块的今日目标（类型 / 目标值 / 单位 / 步长）">${icon("settings", 14)}今日目标</button>
+        </div>
+      </div>
+      ${body}
+    </section>`;
+}
+
 /** 「其他模块」折叠面板：用原生 <details>，零 JS、键盘也能开。
  *  三个次要模块一条数据都没有时，整个面板不渲染（不留空壳）。 */
 function otherPanelHTML(cards, visible) {
@@ -142,6 +225,8 @@ function otherPanelHTML(cards, visible) {
   return `
     <details class="home-more">
       <summary>${icon("grid", 16)}其他模块（健身计划、饮食计划、游戏娱乐）</summary>
+      <div class="goal-ov-slot" data-day-ov></div>
+      <div class="goal-ov-slot" data-goal-ov></div>
       <div class="mod-grid">${cards.map((c) => modCard(c, false)).join("")}</div>
     </details>`;
 }
@@ -167,6 +252,7 @@ function fullView(data, today) {
     ${overviewStripHTML(p)}
     ${commandStripHTML()}
     ${memoCardHTML()}
+    ${dailyProgressCardHTML(dailyGroupsOf(data, today))}
     <section class="card">
       <div class="card-head">
         <h2>${icon("plan", 18)}今日待办</h2>
@@ -175,6 +261,7 @@ function fullView(data, today) {
       ${overdueTip(overdue)}
       ${taskListHTML(p)}
     </section>
+    ${targetOverviewHTML(overviewRowsOf(data, today))}
     <section class="mod-grid">${cards.highlight.map((c) => modCard(c, true)).join("")}</section>`;
 }
 
@@ -186,6 +273,8 @@ function simpleView(data, today) {
   const brief = financeBriefOf(data, today);
   const money = financeTextOf(brief);
   const cards = cardsFor("simple", data, today);
+  const goals = overviewRowsOf(data, today);
+  const daily = dailyGroupsOf(data, today);
   return `
     ${heroHTML("simple")}
     <div class="home-core">
@@ -230,7 +319,7 @@ function simpleView(data, today) {
       </aside>
     </div>
     <section class="mod-grid">${cards.highlight.map((c) => modCard(c, false)).join("")}</section>
-    ${otherPanelHTML(cards.other, otherVisibleIn(data))}
+    ${otherPanelHTML(cards.other, otherVisibleIn(data) || goals.length > 0 || daily.length > 0)}
     ${commandStripHTML()}
     ${memoCardHTML()}`;
 }
@@ -270,6 +359,26 @@ function overdueTip(items) {
 
 /* ---------------- 事件 ---------------- */
 
+/** 简洁模式下「目标总览」藏在「其他模块」折叠里：展开时才现读现画。
+ *  折叠着的时候这个槽是空的，等于这一块不渲染（首页信息压力小一点）。
+ *  <details> 的 toggle 事件不冒泡，所以直接挂在它自己身上，不走 bindFresh 那层代理。 */
+function bindMorePanel(root) {
+  const details = root.querySelector("details.home-more");
+  if (!details) return;
+  const daySlot = details.querySelector("[data-day-ov]");
+  const goalSlot = details.querySelector("[data-goal-ov]");
+  if (!daySlot && !goalSlot) return;
+  const draw = () => {
+    if (!details.open) return;
+    const today = todayStr();
+    const data = store.data || {};
+    if (daySlot) daySlot.innerHTML = dailyProgressCardHTML(dailyGroupsOf(data, today));
+    if (goalSlot) goalSlot.innerHTML = targetOverviewHTML(overviewRowsOf(data, today));
+  };
+  draw();
+  details.addEventListener("toggle", draw);
+}
+
 function onChange(e) {
   const box = e.target.closest('[data-act="toggle"]');
   if (!box) return;
@@ -284,9 +393,17 @@ function onClick(e) {
   const link = e.target.closest("a[href]");
   if (link && link.closest("[data-act]")) return;
   const btn = e.target.closest("[data-act]");
-  if (!btn) return;
+  if (!btn) {
+    // 「各模块今日进度」那一行：点空白处（不是 + / − 按钮）就跳去今日计划对应分组
+    const row = e.target.closest(".goal-ov-row[data-route]");
+    if (row) location.hash = row.dataset.route;
+    return;
+  }
   const act = btn.dataset.act;
-  if (act === "go") location.hash = btn.dataset.hash;
+  if (act === "daily-plus") bumpModuleProgress(btn.dataset.module, 1, todayStr());
+  else if (act === "daily-minus") bumpModuleProgress(btn.dataset.module, -1, todayStr());
+  else if (act === "daily-config") openDailyTargetDialog();
+  else if (act === "go") location.hash = btn.dataset.hash;
   else if (act === "home-view") setHomeView(btn.dataset.view);
   else if (act === "memo-toggle") setMemoCollapsed(!memoCollapsedOf());
   else if (act === "focus-memo") {
@@ -309,4 +426,13 @@ function onInput(e) {
     const el = document.getElementById("memo-state");
     if (el) el.textContent = "已自动保存";
   }, 800);
+}
+
+/** 「各模块今日进度」那一行用键盘也能进（Enter / 空格），和鼠标点空白处一样 */
+function onKeydown(e) {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const row = e.target.closest && e.target.closest(".goal-ov-row[data-route]");
+  if (!row || e.target !== row) return;
+  e.preventDefault();
+  location.hash = row.dataset.route;
 }

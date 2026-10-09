@@ -12,7 +12,8 @@
  * 数字和列表自然就对上了（页面同一时刻只挂一个，重画当前页面 = 全局同步）。
  */
 
-import { table, touch, todayStr } from "./store.js";
+import { store, table, touch, uid, todayStr } from "./store.js";
+import { planTasksOf, moduleKeyOf, dailyTargetsOf, DAILY_DEFAULTS } from "./task-calc.js";
 
 function findTask(taskId) {
   return table("tasks").find((t) => t && t.id === taskId) || null;
@@ -32,6 +33,74 @@ export function updateTaskStatus(taskId, done) {
   markTaskDone(task, done);
   touch(true);
   return task;
+}
+
+/**
+ * 首页 / 今日计划上那个「+ / −」快按钮。
+ *
+ * **不改数字**——进度是「这个模块今天的待办按 value 汇总」现算出来的，
+ * 所以加减只是往条目上动手（永远和复选框、和另一边页面一致，不会有第二份计数漂移）：
+ *   +  追加一条 `done=true` 的「快速记录」条目，贡献值 = 这一步的增量（数量 +1、
+ *      时长 +30 分钟…）；所以想超额也能一路加，进度条封顶绿色、文字留真实数字。
+ *   −  先撤最后一条这种「快速记录」；没有的话，把最后一条已完成的取消勾选。
+ *      减到 0 就停住，不会变负。
+ * 改完走 touch(true)：落盘 + 全局重画，首页卡片和今日计划分组两边一起变。
+ */
+export function bumpModuleProgress(moduleKey, delta, today) {
+  const day = today || todayStr();
+  const cfg = dailyTargetsOf(store.data || {})[moduleKey] || DAILY_DEFAULTS[moduleKey];
+  const step = (cfg && cfg.step) || 1;
+  const tasks = table("tasks");
+  const mine = planTasksOf(tasks, day).filter((t) => moduleKeyOf(t) === moduleKey);
+
+  if (delta > 0) {
+    const unit = cfg && cfg.targetValue > 0 ? cfg.unit : "项";
+    const row = {
+      id: uid(),
+      date: day,
+      time: "",
+      text: `快速记录 +${step}${unit}`,
+      done: true,
+      doneAt: new Date().toISOString(),
+      category: "",
+      note: "",
+      belong: "plan",
+      sourceModule: moduleKey,
+      value: step,
+      quick: true,
+      imagePaths: [],
+      createdAt: new Date().toISOString(),
+    };
+    tasks.push(row);
+    touch(true);
+    return row;
+  }
+  if (delta < 0) {
+    const quick = mine.filter((t) => t.quick);
+    if (quick.length) {
+      const last = quick[quick.length - 1];
+      const index = tasks.indexOf(last);
+      if (index >= 0) tasks.splice(index, 1);
+      touch(true);
+      return last;
+    }
+    const done = mine.filter((t) => t.done);
+    const last = done[done.length - 1];
+    if (last) {
+      markTaskDone(last, false);
+      touch(true);
+      return last;
+    }
+  }
+  return null;
+}
+
+/** 保存「今日目标」配置（类型 / 目标值 / 单位 / 步长），存进 settings.dailyTargets */
+export function saveDailyTargets(map) {
+  if (!store.data) return;
+  if (!store.data.settings) store.data.settings = {};
+  store.data.settings.dailyTargets = map;
+  touch(true);
 }
 
 /**

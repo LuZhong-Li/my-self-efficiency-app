@@ -8,6 +8,7 @@ import {
   normalizeGoal, rawGoals, allGoals, ensureBucket,
   parseRule, clauseMatches, previewDays, rulePreview, ruleSummary,
   isActiveOn, tasksForDate, planGoalTasks, progressOf, cycleText,
+  barLevelOf, overviewRowsOf,
 } from "../app/web/goal-calc.js";
 
 let pass = 0;
@@ -314,6 +315,69 @@ eq(cycleText({ cycle: "月度", startDate: "2026-10-07", endDate: "2027-01-07" }
 eq(cycleText({ cycle: "自定义起止日期", startDate: "2026-10-07", endDate: "" }),
   "自定义 · 2026-10-07 → 不限", "自定义显示成「自定义」");
 eq(cycleText({ cycle: "每日", startDate: "", endDate: "" }), "每日 · 不限时间", "没填起止就写不限时间");
+
+/* ---------------- 首页「目标总览」----------- */
+
+eq(barLevelOf(0), "blue", "0% 蓝档");
+eq(barLevelOf(79), "blue", "79% 还是蓝档");
+eq(barLevelOf(80), "gold", "80% 进黄档");
+eq(barLevelOf(99), "gold", "99% 还是黄档");
+eq(barLevelOf(100), "green", "100% 进绿档（完成）");
+eq(barLevelOf(150), "green", "超额也是绿档");
+eq(barLevelOf(NaN), "blue", "读不出数字当 0% 蓝档");
+
+const ovData = {
+  tasks: [
+    { goalId: "g-fit", date: "2026-10-05", text: "力量训练", done: true },
+    { goalId: "g-fit", date: "2026-10-06", text: "有氧", done: false },
+    { goalId: "g-st", date: "2026-10-06", text: "学习", done: true },
+    { goalId: "g-st", date: "2026-10-06", text: "学习", done: true },
+    { date: "2026-10-06", text: "手动加的普通待办", done: false },
+  ],
+  moduleGoals: {
+    fitness: [{ id: "g-fit", moduleId: "fitness", mainTarget: "每周健身 3 次", isActive: true }],
+    study: [
+      { id: "g-st", moduleId: "study", mainTarget: "每日学习 2 小时" },
+      { id: "g-st2", moduleId: "study", mainTarget: "背单词" },
+    ],
+    // 没设目标（也没有 diet 桶）的模块不该冒出来
+  },
+};
+
+const ov = overviewRowsOf(ovData, "2026-10-07");
+eq(ov.length, 3, "一条目标一行；没设目标的模块不出现");
+eq(ov[0].moduleId, "fitness", "第一条是健身");
+eq(ov[0].moduleName, "健身", "模块简称");
+eq(ov[0].moduleIcon, "fitness", "图标名跟模块 id 一致");
+eq(ov[0].title, "每周健身 3 次", "目标文字");
+eq(ov[0].percent, 50, "健身完成 1/2 → 50%");
+eq(ov[0].done, 1, "完成数");
+eq(ov[0].total, 2, "总数");
+eq(ov[0].unit, "次", "健身单位是次");
+eq(ov[0].level, "blue", "50% 蓝档");
+eq(ov[0].route, "#fitness", "点一下跳回健身页");
+eq(ov[0].off, false, "开着");
+eq(ov[0].overtime, false, "没超额");
+eq(ov[1].moduleId, "study", "第二条是学习");
+eq(ov[1].percent, 100, "学习完成 2/2 → 100%");
+eq(ov[1].level, "green", "100% 绿档");
+eq(ov[1].unit, "天", "学习单位是天");
+eq(ov[2].title, "背单词", "同一模块的第二条目标也各占一行");
+eq(ov[2].total, 0, "没生成过待办的目标 total 是 0");
+eq(ov[2].percent, 0, "total 0 时进度 0（不显示 NaN）");
+eq(ov[2].level, "blue", "0% 蓝档");
+eq(ov[2].overtime, false, "total 0 不算超额");
+
+// 关掉的目标照样列出来，只是标一下
+const ovOff = overviewRowsOf(
+  { tasks: [], moduleGoals: { diet: [{ id: "g-d", moduleId: "diet", mainTarget: "每天 8 杯水", isActive: false }] } },
+  "2026-10-07"
+);
+eq(ovOff.length, 1, "停用的目标还在总览里");
+eq(ovOff[0].off, true, "停用的目标标成 off");
+
+eq(overviewRowsOf({ moduleGoals: {} }, "2026-10-07").length, 0, "一条目标都没有就返回空数组");
+eq(overviewRowsOf({}, "2026-10-07").length, 0, "连 moduleGoals 都没有也不抛错");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

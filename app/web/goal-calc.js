@@ -387,6 +387,59 @@ export function progressOf(goal, tasks, today) {
   };
 }
 
+/**
+ * 进度条配色分档：< 80% 蓝、80% ~ 99% 黄、>= 100% 绿。
+ * 读不出数字（NaN）时当 0% 处理，免得拼 class 出来一个空的。
+ */
+export function barLevelOf(percent) {
+  const pct = Number(percent);
+  if (!Number.isFinite(pct)) return "blue";
+  if (pct >= 100) return "green";
+  if (pct >= 80) return "gold";
+  return "blue";
+}
+
+/**
+ * 首页「目标总览」卡片要的每一行：一个模块的每条目标一行，只读。
+ *
+ * 数据源头还是 moduleGoals 和 tasks —— 卡片不存任何自己的数据，读的时候现算：
+ *   - 进度 = 这条目标生成过的待办里完成了多少（和模块页那张目标卡片一个口径）；
+ *   - 没设目标的模块自然一行都不出；三个模块都没有目标就返回空数组（调用方画空状态）；
+ *   - 关掉（isActive: false）的目标照样列出来，只是标一下「已停用」。
+ *
+ * 纯函数：只吃 data、吐行模型，不碰 DOM / store。
+ * 返回的行：{ id, moduleId, moduleName, moduleIcon, title, percent, done, total,
+ *            unit, level, route, off, overtime }
+ */
+export function overviewRowsOf(data, today) {
+  const tasks = data && Array.isArray(data.tasks) ? data.tasks : [];
+  const out = [];
+  for (const mod of GOAL_MODULES) {
+    const goals = rawGoals(data, mod.id).map((raw) => normalizeGoal(raw, mod.id));
+    for (const goal of goals) {
+      const p = progressOf(goal, tasks, today);
+      out.push({
+        id: goal.id,
+        moduleId: mod.id,
+        moduleName: mod.short,   // 健身 / 学习 / 饮食
+        moduleIcon: mod.id,      // 图标名和模块 id 同名，见 icons.js
+        title: goal.mainTarget || `${mod.short}目标`,
+        percent: p.percent,
+        done: p.done,
+        total: p.total,
+        unit: p.unit,            // 健身「次」、学习 / 饮食「天」
+        level: barLevelOf(p.percent),
+        route: "#" + mod.id,     // 点一下直接跳回对应的模块页
+        off: goal.isActive === false,
+        // 进度按「目标生成的待办」算，done 不会大过 total；留着这条是为了兜住
+        // 万一以后口径变了（完成数 > 计划数），文字照样显示真实数字、不裁。
+        overtime: p.total > 0 && p.done > p.total,
+      });
+    }
+  }
+  return out;
+}
+
 /** 卡片上那行「月度 · 2026-10-07 → 2027-01-07」 */
 export function cycleText(goal) {
   const cycle = goal.cycle === "自定义起止日期" ? "自定义" : goal.cycle;

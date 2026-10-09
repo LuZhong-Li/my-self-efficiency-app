@@ -33,7 +33,7 @@ from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "小李"
-APP_VERSION = "v1.0"
+APP_VERSION = "v2.0"
 
 # HTTP 响应头只能是 latin-1，所以「给程序看的」版本号必须保持纯 ASCII。
 # 注意：不要把这个变量改成带中文/全角字符的值，否则每个请求都会 500。

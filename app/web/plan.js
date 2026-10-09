@@ -6,7 +6,7 @@
  * 摘要露在这页顶上，还能顺手把「玩游戏放松」加成一条带来源标签的待办。 */
 
 import {
-  touch, todayStr, formatDateCN, table, esc, moveToTrash,
+  store, touch, todayStr, formatDateCN, table, esc, moveToTrash,
   planShowGameOf, setPlanShowGame,
 } from "./store.js";
 import { bindFresh, pageHeader, markEnter, priorityChip, sourceTag } from "./ui.js";
@@ -17,12 +17,14 @@ import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
 import { syncGoalTasks, goalBriefHtml } from "./goals.js";
 import { recordsOn, durationText } from "./game-calc.js";
-import { planTasksOf, planStatsOf, taskOwnerOf, devProjectOf } from "./task-calc.js";
-import { updateTaskStatus, toggleTaskInTodayPlan } from "./task-actions.js";
+import { planTasksOf, planStatsOf, taskOwnerOf, devProjectOf, groupPlanTasks, dailyTargetsOf } from "./task-calc.js";
+import { updateTaskStatus, toggleTaskInTodayPlan, bumpModuleProgress } from "./task-actions.js";
+import { openDailyTargetDialog } from "./daily-target.js";
+import { barLevelOf } from "./goal-calc.js";
 
 let mode = "today";   // today = 今天的清单，month = 月历
 
-export function renderPlan(root) {
+export function renderPlan(root, sub = "") {
   const today = todayStr();
 
   root.innerHTML = `
@@ -51,6 +53,12 @@ export function renderPlan(root) {
   const body = root.querySelector("#plan-view");
   if (mode === "month") renderCalendar(body);
   else renderTodayView(body);
+
+  // 从首页「各模块今日进度」点过来时地址形如 #plan/mod-fitness：滚到那个模块分组
+  if (mode === "today" && /^mod-/.test(sub)) {
+    const target = document.getElementById(sub);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function renderTodayView(body) {
@@ -64,38 +72,49 @@ function renderTodayView(body) {
     .filter((t) => t.date && t.date < today && !t.done && !t.isArchived)
     .sort((a, b) => (a.date === b.date ? byTime(a, b) : a.date < b.date ? -1 : 1));
   const p = planStatsOf(todayTasks);
+  const { groups, loose } = groupPlanTasks(todayTasks, dailyTargetsOf(store.data));
 
   body.innerHTML = `
     ${goalBriefHtml(today)}
     ${gameBriefHtml(today)}
-    <section class="card">
-      <div class="card-head">
-        <h2>今天的任务</h2>
-        <span class="dev-stats plan-stats" title="今日计划的完成情况，从别的模块加进来的也算在内">
-          <i>未完成 ${p.open}</i>
-          <i>已完成 ${p.done}</i>
-        </span>
-        <div class="card-tools">
-          <span class="hint">${p.total ? `完成 ${p.percent}%` : "一条都还没有"}</span>
-          <button class="link" data-act="game-toggle" title="游戏娱乐里的游玩记录，要不要在今日计划露一面">${
-            planShowGameOf() ? "不显示今日游玩" : "显示今日游玩"
-          }</button>
-          <button class="btn primary small" data-act="add">${icon("plus", 14)}添加任务</button>
+    <div class="plan-stack">
+      ${overdueCardHTML(overdue)}
+      <section class="card plan-card today-card">
+        <div class="plan-card-head">
+          <div class="plan-head-row">
+            <h2>今天的任务</h2>
+            <span class="dev-stats plan-stats" title="今日计划的完成情况，从别的模块加进来的也算在内">
+              <i>未完成 ${p.open}</i>
+              <i>已完成 ${p.done}</i>
+            </span>
+            <div class="card-tools">
+              <span class="hint">${p.total ? `完成 ${p.percent}%` : "一条都还没有"}</span>
+              <button class="link" data-act="game-toggle" title="游戏娱乐里的游玩记录，要不要在今日计划露一面">${
+                planShowGameOf() ? "不显示今日游玩" : "显示今日游玩"
+              }</button>
+              <button class="link" data-act="daily-config" title="设置每个模块的今日目标（类型 / 目标值 / 单位 / 步长）">${icon("settings", 14)}今日目标</button>
+              <button class="btn primary small" data-act="add">${icon("plus", 14)}添加任务</button>
+            </div>
+          </div>
+          <div class="progress-track plan-track goal-ov-bar" title="今天完成 ${p.percent}%">
+            <span class="${barLevelOf(p.percent)}" style="width:${Math.min(100, p.percent)}%"></span>
+          </div>
         </div>
-      </div>
-      <div class="progress-track plan-track" title="今天完成 ${p.percent}%">
-        <span style="width:${p.percent}%"></span>
-      </div>
-
-      ${overdueBlock(overdue)}
-
-      ${
-        todayTasks.length
-          ? `<ul class="tasks">${todayTasks.map(row).join("")}</ul>`
-          : `<p class="empty">今天还没有任务：点右上角「添加任务」加一条，
-             或者去「开发工作」的项目里，把待办勾上「加入今日计划」。</p>`
-      }
-    </section>
+        <div class="plan-card-body">
+          ${
+            todayTasks.length
+              ? `${moduleGroupsHTML(groups)}
+                 ${
+                   loose.length
+                     ? `${groups.length ? `<div class="list-head sep"><span>自己加的</span><span class="hint">${loose.length} 条</span></div>` : ""}
+                        <ul class="tasks">${loose.map(row).join("")}</ul>`
+                     : ""
+                 }`
+              : `<p class="empty plan-empty">今日暂无任务，点右上角「添加任务」创建一条。</p>`
+          }
+        </div>
+      </section>
+    </div>
   `;
 
   bindFresh(body, { click: onClick, change: onChange });
@@ -132,15 +151,33 @@ function byTime(a, b) {
 
 /* ---------------- 画 ---------------- */
 
-function overdueBlock(items) {
-  if (!items.length) return "";
-  return `
-    <div class="overdue">
-      <div class="list-head">
-        <span>昨天及更早没做完的（${items.length} 条）</span>
-        <button class="btn small" data-act="move-all">全部挪到今天</button>
+/** 按模块分的一组今日待办：组头是「模块名 + 进度条 + 数量 + 加/减」，
+ *  下面这个模块今天的条目。加/减走同一个入口（bumpModuleProgress），
+ *  本质是勾 / 取消勾条目，所以和复选框、首页卡片三处永远一致。 */
+function moduleGroupsHTML(groups) {
+  return groups
+    .map(
+      (g) => `
+    <div class="plan-group" id="mod-${esc(g.key)}" data-group="${esc(g.key)}">
+      <div class="list-head plan-group-head">
+        <button class="plan-group-name" data-act="group-toggle" title="折叠 / 展开「${esc(g.name)}」">${icon("arrowRight", 14)}${esc(g.name)}</button>
+        <span class="progress-track goal-ov-bar plan-group-bar"><span class="${g.level}" style="width:${Math.min(100, g.percent)}%"></span></span>
+        <span class="day-ctrl">
+          <button class="day-btn" data-act="daily-minus" data-module="${esc(g.key)}" title="减一步" ${g.current > 0 ? "" : "disabled"}>${icon("minus", 14)}</button>
+          <span class="goal-ov-num${g.over ? " over" : ""}">${g.current}/${g.target} ${esc(g.unit)}${g.over ? `<em class="goal-ov-over">超额</em>` : ""}</span>
+          <button class="day-btn" data-act="daily-plus" data-module="${esc(g.key)}" title="加一步（追加一条已完成的快速记录）">${icon("plus", 14)}</button>
+        </span>
       </div>
-      <ul class="tasks">
+      <ul class="tasks">${g.tasks.map(row).join("")}</ul>
+    </div>`
+    )
+    .join("");
+}
+
+/** 卡片 A：逾期待办（独立的一张玻璃卡片，内部自己滚动，不带动下面那张） */
+function overdueCardHTML(items) {
+  const body = items.length
+    ? `<ul class="tasks">
         ${items
           .map(
             (t) => `
@@ -154,8 +191,18 @@ function overdueBlock(items) {
           </li>`
           )
           .join("")}
-      </ul>
-    </div>`;
+      </ul>`
+    : `<p class="empty plan-empty">暂无逾期任务 🎉</p>`;
+  return `
+    <section class="card plan-card overdue-card">
+      <div class="plan-card-head">
+        <div class="plan-head-row">
+          <h2>昨天及更早没做完的（${items.length} 条）</h2>
+          ${items.length ? `<button class="btn small" data-act="move-all">全部挪到今天</button>` : ""}
+        </div>
+      </div>
+      <div class="plan-card-body">${body}</div>
+    </section>`;
 }
 
 function row(t) {
@@ -197,6 +244,23 @@ async function onClick(e) {
   if (!btn) return;
   const act = btn.dataset.act;
   if (act === "toggle") return; // 勾选走 change
+  if (act === "daily-plus") {
+    bumpModuleProgress(btn.dataset.module, 1, todayStr());
+    return;
+  }
+  if (act === "daily-minus") {
+    bumpModuleProgress(btn.dataset.module, -1, todayStr());
+    return;
+  }
+  if (act === "daily-config") {
+    openDailyTargetDialog();
+    return;
+  }
+  if (act === "group-toggle") {
+    const group = btn.closest("[data-group]");
+    if (group) group.classList.toggle("collapsed");
+    return;
+  }
 
   if (act === "add") {
     openItemDialog("todayPlan", null, { date: todayStr() });

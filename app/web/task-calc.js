@@ -16,7 +16,7 @@
  * 能一条条断言，和记账、开发那几个计算模块一个路数。
  */
 
-import { sourceLabelOf } from "./goal-calc.js";
+import { sourceLabelOf, barLevelOf } from "./goal-calc.js";
 
 /** 优先级高 / 中 / 低各自对应哪个胶囊样式；没标的给空串（不画那个标签） */
 export const PRIORITY_CLASS = { 高: "pri-high", 中: "pri-mid", 低: "pri-low" };
@@ -103,4 +103,136 @@ export function planStatsOf(list) {
     untimed: items.filter((t) => t && !t.time).length,
     percent: items.length ? Math.round((done * 100) / items.length) : 0,
   };
+}
+
+/* ---------------- 按模块分组的「今日进度」（2026-10-09 加） ----------------
+   首页那张「各模块今日进度」卡片、今日计划里每组模块的进度条，用的是同一套分组：
+   把今天这列待办按所属模块归堆，每堆现算完成数 / 总数 / 百分比 / 配色档。
+   进度不另存 —— 待办勾了几条就是几条，加减按钮也只是去勾 / 取消勾条目（见
+   task-actions.js 的 bumpModuleProgress），所以两边永远不会对不上。 */
+
+/** 分组用的模块清单：顺序固定，首页卡片的行和今日计划的分组都照这个排 */
+export const PLAN_GROUPS = [
+  { key: "fitness", name: "健身", icon: "fitness" },
+  { key: "study", name: "学习", icon: "study" },
+  { key: "diet", name: "饮食", icon: "diet" },
+  { key: "dev", name: "开发工作", icon: "dev" },
+  { key: "game", name: "游戏娱乐", icon: "game" },
+];
+
+/** 这条待办算哪个模块的：开发待办看 belong（dev:项目id），其余看 sourceModule；
+ *  今日计划自己加的没有模块，返回空串（归到「其他」一列）。 */
+export function moduleKeyOf(row) {
+  if (!row || typeof row !== "object") return "";
+  if (String(row.belong || "").indexOf("dev:") === 0) return "dev";
+  const src = String(row.sourceModule || "");
+  return PLAN_GROUPS.some((g) => g.key === src) ? src : "";
+}
+
+/* ---------------- 今日目标配置：多类型（数量 / 时长）+ 超额（2026-10-09 加） ----------------
+   每个模块可以配一个「今日目标」：类型（数量 / 时长）、目标值、单位、单步增量。
+   没配（targetValue = 0）就退回老口径：目标 = 今天这组待办的值之和、单位「项」。
+   进度永远是现算的：currentValue = 已完成条目的 value 之和（不另存一份数字）。 */
+
+export const DAILY_TYPES = { count: "数量", time: "时长" };
+
+/** 每个模块的默认今日目标（没配过的模块走这套） */
+export const DAILY_DEFAULTS = {
+  fitness: { type: "count", targetValue: 0, unit: "项", step: 1 },
+  study: { type: "count", targetValue: 0, unit: "项", step: 1 },
+  diet: { type: "count", targetValue: 0, unit: "项", step: 1 },
+  dev: { type: "count", targetValue: 0, unit: "项", step: 1 },
+  game: { type: "count", targetValue: 0, unit: "项", step: 1 },
+};
+
+function normType(t) {
+  return t === "time" ? "time" : "count";
+}
+
+function posNum(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** 把 settings.dailyTargets 读成「每个模块一条」的完整配置（缺的补默认值，认不出的兜住） */
+export function dailyTargetsOf(data) {
+  const raw = (data && data.settings && data.settings.dailyTargets) || {};
+  const out = {};
+  for (const meta of PLAN_GROUPS) {
+    const d = DAILY_DEFAULTS[meta.key];
+    const r = raw[meta.key] && typeof raw[meta.key] === "object" ? raw[meta.key] : {};
+    const targetValue = Number(r.targetValue);
+    out[meta.key] = {
+      type: normType(r.type),
+      targetValue: Number.isFinite(targetValue) && targetValue > 0 ? targetValue : 0,
+      unit: String(r.unit == null ? "" : r.unit).trim() || d.unit,
+      step: posNum(r.step, d.step),
+    };
+  }
+  return out;
+}
+
+/** 一条待办对进度的贡献值：自己写了 value 就用它；没写按类型兜底
+ *  （数量 1 条、时长一个步长），这样老的待办不用改也是每条记一笔。 */
+export function valueOf(task, cfg) {
+  const v = Number(task && task.value);
+  if (Number.isFinite(v) && v > 0) return v;
+  return cfg && cfg.type === "time" ? cfg.step : 1;
+}
+
+/**
+ * 把一列待办按模块分组，并算好每组的今日进度。
+ *
+ * @param {object[]} list   今天要看的待办（一般是 planTasksOf 的结果）
+ * @param {object} targets  dailyTargetsOf(data) 的结果；可省，省了走默认
+ * @returns {object} { groups, loose }
+ *   groups 每项：{ key, name, icon, cfg, type, unit, target, current, planned,
+ *                 done, total, percent, over, level, tasks }
+ *     · current = 已完成条目的 value 之和（现算，不存）
+ *     · target  = 配了目标值就用它，没配就用这组待办的值之和
+ *     · over    = current > target（超额）；超额时进度条满格绿色 + 「超额」标记
+ *   loose 是不属于任何模块的（今日计划自己加的）。
+ *   有内容的模块，或配了目标值（哪怕今天还没条目）的模块，都会出组。
+ */
+export function groupPlanTasks(list, targets) {
+  const cfgOf = (key) => (targets && targets[key]) || DAILY_DEFAULTS[key] || DAILY_DEFAULTS.fitness;
+  const buckets = {};
+  const loose = [];
+  for (const t of list || []) {
+    if (!t) continue;
+    const key = moduleKeyOf(t);
+    if (!key) {
+      loose.push(t);
+      continue;
+    }
+    (buckets[key] = buckets[key] || []).push(t);
+  }
+  const groups = [];
+  for (const meta of PLAN_GROUPS) {
+    const tasks = buckets[meta.key] || [];
+    const cfg = cfgOf(meta.key);
+    const configured = cfg.targetValue > 0;
+    if (!tasks.length && !configured) continue;
+    const current = tasks.reduce((sum, t) => sum + (t.done ? valueOf(t, cfg) : 0), 0);
+    const planned = tasks.reduce((sum, t) => sum + valueOf(t, cfg), 0);
+    const target = configured ? cfg.targetValue : planned;
+    const percent = target > 0 ? Math.round((current * 100) / target) : 0;
+    const over = target > 0 && current > target;
+    groups.push({
+      ...meta,
+      tasks,
+      cfg,
+      type: configured ? cfg.type : "count",
+      unit: configured ? cfg.unit : "项",
+      target,
+      current,
+      planned,
+      done: tasks.filter((t) => t.done).length,
+      total: tasks.length,
+      percent,
+      over,
+      level: over ? "green" : barLevelOf(percent),
+    });
+  }
+  return { groups, loose };
 }

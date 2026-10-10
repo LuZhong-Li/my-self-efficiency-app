@@ -15,6 +15,9 @@ rem    2. 只有仓库才需要的东西 —— .git、.gitignore、.gitattribut
 rem       以及本文件自己（在那边没有意义）；
 rem    3. 演示数据工具（演示数据.cmd + tools\）—— 那是给开发版演示、截图用的，
 rem       日常在用的那份不需要它，免得误点到把自己真实数据换成演示数据。
+rem    4. 小李.ico —— 日常那份的图标用的是你自己的图（tools\图标.py
+rem       --图片 某张图 --输出 目标路径 生成），仓库里这份是默认的玻璃图标。
+rem       同步过去会把你的图标顶掉，所以这个文件也跳过。
 rem =====================================================================
 
 set "TARGET=D:\小李"
@@ -42,7 +45,7 @@ echo.
 
 robocopy "%SRCQ%" "%TARGET%" /E ^
   /XD "%SRC%数据" "%SRC%.git" "%SRC%__pycache__" "%SRC%tools" ^
-  /XF *.pyc *.log *.tmp .gitignore .gitattributes 同步到小李.cmd 演示数据.cmd ^
+  /XF *.pyc *.log *.tmp .gitignore .gitattributes 同步到小李.cmd 演示数据.cmd 小李.ico ^
   /NFL /NDL /NJH /NJS /NP
 
 if %ERRORLEVEL% GEQ 8 (

@@ -461,11 +461,42 @@ async function main() {
     /* ---- 顶栏那条提示文案 ---- */
     console.log("\n顶栏搜索框的占位提示");
     const ph = await ev("document.getElementById('search').placeholder");
-    eq(ph, "搜索待办、bug、记账、备忘、健身、饮水、目标…", "占位提示是精简过的那句");
+    eq(ph, "搜索待办、bug、记账…", "占位提示是精简过的那句");
+
+    // 「放不放得下」按真盒子里量：拿输入框自己的字体把这句话画到 canvas 上量宽度，
+    // 跟输入框去掉左右内边距之后剩下的宽度比 —— 比数汉字个数靠谱，也顺带把窄屏
+    // 那条媒体查询（max-width: 860px 时宽度掉到 200px）一起验了。
+    const fitsInBox = () =>
+      ev(`(()=>{
+        const i=document.getElementById('search');
+        const cs=getComputedStyle(i);
+        const c=document.createElement('canvas').getContext('2d');
+        c.font=cs.font||(cs.fontSize+' '+cs.fontFamily);
+        const need=c.measureText(i.placeholder).width;
+        const have=i.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
+        return { need:Math.round(need), have:Math.round(have), box:i.clientWidth };
+      })()`);
+    const wide = await fitsInBox();
     ok(
-      String(ph).length <= 24,
-      "文案短到 280px 的搜索框放得下（" + String(ph).length + " 个字）"
+      wide.need <= wide.have,
+      "宽屏放得下（要 " + wide.need + "px，框里剩 " + wide.have + "px）"
     );
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 800,
+      height: 800,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await sleep(300);
+    const narrow = await fitsInBox();
+    ok(
+      // 860px 那档媒体查询把宽度压到 200px（clientWidth 不算边框，读出来 198）
+      narrow.box < 220 && narrow.need <= narrow.have,
+      "窄屏（800px 窗口，搜索框只剩 " + narrow.box + "px）也放得下（要 " +
+        narrow.need + "px，框里剩 " + narrow.have + "px）"
+    );
+    await cdp.send("Emulation.clearDeviceMetricsOverride");
+    await sleep(200);
 
     /* ---- 这次补上的两类：模块目标、粉丝快照 ---- */
     console.log("\n模块目标（健身 / 学习）：搜得到，点回自己那个模块");

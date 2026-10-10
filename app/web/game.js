@@ -24,7 +24,10 @@ import {
 } from "./game-calc.js";
 
 let viewDate = null;                              // 游玩记录卡片在看哪一天（默认今天）
-const filter = { name: "", from: "", to: "" };    // 历史筛选（点清单里的「看记录」也会写进来）
+// 历史筛选（点清单里的「看记录」也会写进来）。autoRange 记着起止日期是哪来的：
+// 是「看记录」时按记录实际覆盖的那几天自动坐实的，还是用户自己填的 ——
+// 清空游戏名时只清前者；后者是他有心筛的，得留着（见 onChange）。
+const filter = { name: "", from: "", to: "", autoRange: false };
 const timer = { startedAt: 0, tick: null };       // 快速计时（开始那一刻的时间戳）
 const TIMER_KEY = "xiali-game-timer";             // 记在 sessionStorage 里，切到别的模块再回来还在计
 
@@ -307,6 +310,7 @@ function clearFilter() {
   filter.name = "";
   filter.from = "";
   filter.to = "";
+  filter.autoRange = false;
 }
 
 /**
@@ -323,6 +327,11 @@ function rangeShown() {
  * 只按游戏名筛（点清单里的「看记录」、或者在名字框里打字）时区间还是空的：
  * 把日期坐实成这批记录实际覆盖的那几天。结果一条不多一条不少，
  * 框里却看得见真实日期，也不会出现「框里写着今天、列表里却有上个月」这种对不上的地方。
+ *
+ * 这么坐实出来的区间算「自动的」（autoRange）：清空游戏名时要跟着一起清掉，
+ * 页面才能回到「看某一天」。用户自己填的日子在 applyDateEdit 里落 autoRange = false，
+ * 那种要留着 —— 2026-10-11 之前两种混在一起，清空名字后自动区间赖着不走，
+ * 页面就卡在筛历史里、回不到当天。
  */
 function seedRange() {
   if (!filter.name || filter.from || filter.to) return;
@@ -330,12 +339,16 @@ function seedRange() {
   if (!span.from) return;         // 一条带日期的记录都没有，就还让框跟着「正在看的那天」
   filter.from = span.from;
   filter.to = span.to;
+  filter.autoRange = true;
 }
 
 /**
  * 手动改区间：框里不留空（清空就当回它原来显示的那天），另一个还空着的框按它
  * 当时显示的日期坐实；最后兜住「开始不能晚于结束」—— 把另一端一起带过去，
  * 而不是把刚填的值换到另一个框里（那样一眼看不出自己填的跑哪去了）。
+ *
+ * 手动改过之后，这个区间就归用户了（autoRange 落回 false）：以后再清空游戏名，
+ * 它不跟着走。
  */
 function applyDateEdit(id, value) {
   const shown = rangeShown();
@@ -349,6 +362,7 @@ function applyDateEdit(id, value) {
     if (!filter.from) filter.from = shown.from;
     if (filter.from > filter.to) filter.from = filter.to;
   }
+  filter.autoRange = false;
 }
 
 /* ---------------- 快速计时 ---------------- */
@@ -586,7 +600,10 @@ function onChange(e) {
     redraw();
   } else if (el.id === "game-filter-name") {
     filter.name = el.value;
-    seedRange();
+    // 名字清空了：区间要是「看记录」自动带出来的，跟着一起清掉 —— 页面自己回到
+    // 「看某一天」，不用再点一下「清除筛选」。自己填的日期留着（上面落了 autoRange）。
+    if (!filter.name && filter.autoRange) clearFilter();
+    else seedRange();
     redraw();
   } else if (el.id === "game-filter-from" || el.id === "game-filter-to") {
     applyDateEdit(el.id, el.value);

@@ -3,7 +3,7 @@
  * 说明：这个测试不进「自检.cmd」——自检是给用户一键跑的，保持纯 Python。 */
 
 import {
-  normalizeText, buildSearchPool, searchAll, SOURCE_SPECS,
+  normalizeText, buildSearchPool, searchAll, SOURCE_SPECS, sourceRows,
 } from "../app/web/search-calc.js";
 
 let pass = 0;
@@ -36,6 +36,11 @@ const DATA = {
   ],
   mediaAccounts: [
     { id: "ma1", name: "小红书小李", platform: "小红书", intro: "学习方法和收纳", note: "" },
+    { id: "ma2", name: "B站小李", platform: "B站", intro: "做产品的过程记录", note: "周更" },
+  ],
+  mediaFollowers: [
+    { id: "mf1", accountId: "ma2", date: "2026-10-06", count: 1200 },
+    { id: "mf2", accountId: "ma1", date: "2026-10-04", count: 640 },
   ],
   projects: [
     { id: "p1", name: "房间收纳改造", status: "进行中", intro: "把阳台用起来", description: "" },
@@ -58,13 +63,29 @@ const DATA = {
   ],
   weights: [
     { id: "wt1", date: "2026-10-01", kg: 70.5, bodyFat: 18 },
+    { id: "wt2", date: "2026-10-08", kg: 63.2, bodyFat: 17.5 },
   ],
   meals: [
     { id: "m1", date: "2026-10-08", breakfast: "包子豆浆", lunch: "", dinner: "外卖 黄焖鸡", snack: "" },
   ],
   water: [
     { id: "wa1", date: "2026-10-08", cups: 6 },
+    // 另一套形状：喝水量按毫升记、带备注（ml / note 有就一起搜）
+    { id: "wa2", date: "2026-10-09", cups: 8, ml: 800, note: "早上喝水" },
   ],
+  // 模块目标按模块 id 分桶，不是数组表 —— 两条各回自己的模块页
+  moduleGoals: {
+    fitness: [
+      { id: "g-fit", moduleId: "fitness", moduleName: "健身计划", mainTarget: "3 个月减重到 65kg",
+        cycle: "月度", startDate: "2026-09-08", endDate: "2026-12-07",
+        dailyRule: "每周一三五力量训练", remark: "练完顺手记体重", isActive: true, autoTask: true },
+    ],
+    study: [
+      { id: "g-study", moduleId: "study", moduleName: "学习工作", mainTarget: "把高数上册过完",
+        cycle: "每日", startDate: "2026-09-18", endDate: "", dailyRule: "晚 7 点学两小时",
+        remark: "", isActive: true, autoTask: true },
+    ],
+  },
   games: [
     { id: "g1", name: "塞尔达传说：王国之泪", platform: "Switch", status: "在玩", progress: "主线第三章" },
   ],
@@ -96,15 +117,10 @@ eq(normalizeText(2550), "2550", "数字也能比");
 
 console.log("buildSearchPool：每个模块的表都进池子");
 const pool = buildSearchPool(DATA);
-const expectedCount = SOURCE_SPECS.reduce((n, spec) => {
-  const parts = spec.table.split(".");
-  let holder = DATA;
-  for (const p of parts) holder = holder ? holder[p] : null;
-  return n + (Array.isArray(holder) ? holder.length : 0);
-}, 0);
+const expectedCount = SOURCE_SPECS.reduce((n, spec) => n + sourceRows(DATA, spec).length, 0);
 eq(pool.length, expectedCount, "池子条数 = 各表条数之和（一条不落、也不重复）");
 for (const spec of SOURCE_SPECS) {
-  ok(pool.some((it) => it.module === spec.module && it.label === spec.label),
+  ok(pool.some((it) => it.label === spec.label),
     `模块「${spec.label}」在池子里`);
 }
 ok(pool.every((it) => it.hash && it.label && it.hay), "每条都带跳转地址、标签和可搜文本");
@@ -129,6 +145,46 @@ ok(textsOf("洛必达").includes("洛必达法则还挺好使"), "学习心得�
 ok(textsOf("黄焖鸡").includes("外卖 黄焖鸡"), "饮食记录搜得到");
 ok(textsOf("花呗").includes("花呗"), "债务搜得到");
 ok(textsOf("查无此词").length === 0, "查无此词就返回空，不硬凑");
+
+console.log("饮水记录：杯数、毫升数、备注都搜得到");
+ok(textsOf("6 杯").includes("6 杯"), "按杯数搜得到");
+ok(textsOf("800").includes("800 ml"), "按毫升数搜得到（ml 形状的数据）");
+ok(textsOf("早上喝水").includes("早上喝水"), "按备注搜得到");
+
+console.log("模块目标：标题、数值、描述都搜得到，点结果回它自己那个模块");
+ok(textsOf("减重").includes("3 个月减重到 65kg"), "健身目标（核心目标）搜得到");
+ok(textsOf("65").includes("3 个月减重到 65kg"), "目标里的数值搜得到");
+ok(searchAll(DATA, "力量").some((h) => h.label === "目标"), "自动任务规则（描述）搜得到");
+ok(searchAll(DATA, "65").some((h) => h.label === "目标" && h.hash === "fitness"),
+  "健身目标跳健身页（#fitness）");
+ok(searchAll(DATA, "高数上册").some((h) => h.label === "目标" && h.hash === "study"),
+  "学习目标跳学习页（#study）");
+
+console.log("粉丝快照：粉丝数、平台、账号名都搜得到");
+ok(textsOf("1200").includes("1200 粉"), "按粉丝数搜得到");
+ok(searchAll(DATA, "B站").some((h) => h.label === "粉丝"),
+  "按平台搜得到（平台得回账号表里取）");
+ok(searchAll(DATA, "小红书").some((h) => h.label === "粉丝"), "另一个账号的快照也在池子里");
+{
+  const hit = searchAll(DATA, "1200").find((h) => h.label === "粉丝");
+  eq(hit.text, "1200 粉", "命中粉丝数时正文就是那句话");
+  ok(hit.module === "media" && hit.hash === "media", "点结果回自媒体页");
+}
+
+console.log("体重记录：kg 数值能搜（原来只能搜日期）");
+ok(textsOf("63.2").includes("63.2 kg"), "按体重数值搜得到");
+ok(textsOf("17.5").includes("17.5% 体脂"), "体脂数值照样搜得到");
+ok(searchAll(DATA, "2026-10-08").some((h) => h.label === "体重"), "按日期搜得到（老行为没动）");
+
+console.log("模块目标的桶形状放宽：单条、整体数组、认不出的模块 id");
+{
+  const one = buildSearchPool({ moduleGoals: { fitness: { moduleId: "fitness", mainTarget: "单条也认" } } });
+  ok(one.some((it) => it.hay.includes("单条也认")), "一个模块直接摆一个对象也进池子");
+  const arr = buildSearchPool({ moduleGoals: [{ moduleId: "study", mainTarget: "整体写成数组也认" }] });
+  ok(arr.some((it) => it.hay.includes("整体写成数组也认")), "moduleGoals 整个是数组也进池子");
+  const weird = buildSearchPool({ moduleGoals: { x: [{ moduleId: "没见过的模块", mainTarget: "认不出的模块" }] } });
+  ok(weird.some((it) => it.hash === "home"), "认不出的 moduleId 落回首页，不给个死地址");
+}
 
 console.log("按模块名 / 别称也能带出记录");
 ok(searchAll(DATA, "健身").length > 0, "搜「健身」带出健身模块的记录");

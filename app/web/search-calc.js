@@ -10,6 +10,8 @@
  * 输入、下拉面板和跳转在 search.js。
  */
 
+import { MODULES } from "./modules.js";
+
 /** 把文本统一成「好比对」的样子：小写、换行和连续空格压成单个空格、掐掉首尾空白 */
 export function normalizeText(value) {
   if (value === undefined || value === null) return "";
@@ -34,16 +36,57 @@ function numText(value, suffix) {
   return `${value}${suffix}`;
 }
 
+/** 九个模块的 id 清单（跟侧边导航、首页卡片同一份，见 modules.js） */
+const MODULE_IDS = MODULES.map((m) => m.id);
+
+/**
+ * 模块目标按模块 id 分桶存在 data.moduleGoals 里（fitness / study / diet 各一个
+ * 数组），摊平成「一行一个目标」好进搜索池。整个写成数组、或一个模块直接摆一个
+ * 对象也认（和 goal-calc.js 的读法一致）。
+ */
+function goalsOf(data) {
+  const box = data && data.moduleGoals;
+  if (!box || typeof box !== "object") return [];
+  const buckets = Array.isArray(box) ? [box] : Object.values(box);
+  const out = [];
+  for (const bucket of buckets) {
+    for (const row of Array.isArray(bucket) ? bucket : [bucket]) {
+      if (row && typeof row === "object") out.push(row);
+    }
+  }
+  return out;
+}
+
+/** 目标点回它自己那个模块；moduleId 认不出来（老数据 / 手改过的）就回首页 */
+function goalModule(row) {
+  const id = clean(row && row.moduleId);
+  return MODULE_IDS.includes(id) ? id : "home";
+}
+
+/** 粉丝快照只存 accountId，账号本身要回 mediaAccounts 里找 */
+function accountOf(row, data) {
+  const id = clean(row && row.accountId);
+  if (!id) return null;
+  return readTable(data, "mediaAccounts").find((a) => a && clean(a.id) === id) || null;
+}
+
+/** 快照上取账号的一个字段（名字 / 平台）；账号没了就给空串 */
+function accountField(row, data, key) {
+  const a = accountOf(row, data);
+  return a ? clean(a[key]) : "";
+}
+
 /**
  * 每个模块查哪张表、哪几段文本。
  *   table  —— 表名，支持 "finance.transactions" 这种带点的路径
- *   module —— 点结果时跳到哪个模块（地址 #<module>）
+ *   rows   —— 表不是数组时用它摊平（模块目标按模块 id 分桶，见 goalsOf）
+ *   module —— 点结果时跳到哪个模块（地址 #<module>）；写成函数就一行一个模块
  *   hash   —— 少数子页有自己地址的（债务在 #finance/debt），单列
  *   label  —— 结果卡片上那枚标签（短，别撑爆那枚小胶囊）
  *   alias  —— 只进匹配、不上屏的同义词：搜「bug」「健身」「记账」也能带出记录
  *   title  —— 卡片正文默认显示哪段（可以是键名，也可以是一个取值函数）
- *   fields —— 参与匹配的所有文本（键名或取值函数）
- * 数组存在的表都在这儿列全了；回收站、粉丝快照这类不单独搜。
+ *   fields —— 参与匹配的所有文本（键名，或 (row, data) => 文本 的取值函数）
+ * 数组存在的表都在这儿列全了；回收站不单独搜（归档靠面板底部那个勾选框）。
  */
 export const SOURCE_SPECS = [
   { table: "tasks", module: "plan", label: "待办", title: "text",
@@ -75,13 +118,32 @@ export const SOURCE_SPECS = [
     fields: ["moves", "note", "date"] },
   { table: "weights", module: "fitness", label: "体重", title: "date",
     alias: "健身",
-    fields: ["date", (r) => numText(r.kg, " kg"), (r) => numText(r.bodyFat, "% 体脂")] },
+    // kg / bodyFat 是数据里真有的列；note 是备用形状，有就一起搜，没有就是空串
+    fields: ["date", "note", (r) => numText(r.kg, " kg"), (r) => numText(r.bodyFat, "% 体脂")] },
   { table: "meals", module: "diet", label: "饮食", title: "date",
     alias: "吃饭 三餐",
     fields: ["breakfast", "lunch", "dinner", "snack", "date"] },
   { table: "water", module: "diet", label: "饮水", title: "date",
     alias: "喝水 饮食",
-    fields: ["date", (r) => numText(r.cups, " 杯")] },
+    // cups 是数据里真有的列；ml / time / note 是备用形状（老数据或导入的数据）
+    fields: ["date", "time", "note", (r) => numText(r.cups, " 杯"), (r) => numText(r.ml, " ml")] },
+  // 模块目标（健身 / 学习 / 饮食）不是「一张数组表」，是按模块 id 分成的桶，
+  // 所以用 rows 自己摊平；每条跳回它自己那个模块（健身目标回健身页）。
+  { rows: goalsOf, module: goalModule, title: "mainTarget",
+    label: "目标", alias: "模块目标 健身目标 学习目标 饮食目标",
+    fields: ["mainTarget", "dailyRule", "remark", "moduleName", "cycle", "startDate", "endDate"] },
+  // 粉丝快照自己只存 accountId，账号名 / 平台要回账号表里找 —— 搜「B站」也能
+  // 带出那天的快照。点结果回自媒体页（快照没有自己的子地址）。
+  { table: "mediaFollowers", module: "media", label: "粉丝",
+    alias: "自媒体 粉丝快照 涨粉",
+    title: (r, data) => {
+      const a = accountOf(r, data);
+      const who = a ? a.name || a.platform || "" : "";
+      return [who, numText(r.count, " 粉"), r.date].filter(Boolean).join(" · ");
+    },
+    fields: ["date", (r) => numText(r.count, " 粉"),
+             (r, data) => accountField(r, data, "name"),
+             (r, data) => accountField(r, data, "platform")] },
   { table: "games", module: "game", label: "游戏", title: "name",
     alias: "游戏娱乐",
     fields: ["name", "platform", "status", "progress"] },
@@ -100,10 +162,23 @@ export const SOURCE_SPECS = [
     fields: ["name", "creditor", "note", "dueDate", (r) => yuanText(r.totalCents)] },
 ];
 
-/** 取一段文本：键名就直接读，函数就调用；空值一律给空串 */
-function textOf(field, row) {
-  if (typeof field === "function") return clean(field(row));
-  return clean(row[field]);
+/**
+ * 取一个值：键名就直接读，函数就调用 —— 函数能拿到 (row, data)，所以
+ * 粉丝快照这种要回别的表里取字段的也能写。空值一律给空串。
+ */
+function valueOf(field, row, data) {
+  if (typeof field === "function") return clean(field(row, data));
+  return clean(row ? row[field] : "");
+}
+
+/** 取一段文本：就是 valueOf，单独一个名字读起来顺一点 */
+function textOf(field, row, data) {
+  return valueOf(field, row, data);
+}
+
+/** module / hash 这类：写成字符串就是固定值，写成函数就按行算 */
+function fixedOrFn(value, row, data) {
+  return typeof value === "function" ? clean(value(row, data)) : clean(value);
 }
 
 function clean(value) {
@@ -125,22 +200,32 @@ function readTable(data, key) {
 }
 
 /**
+ * 一条 spec 摊出哪几行：数组表直接按路径读，不是数组的（模块目标）走 spec.rows。
+ * 导出给单测用，好在「池子条数 = 各表条数之和」那条断言里算出一份期望值。
+ */
+export function sourceRows(data, spec) {
+  const rows = typeof spec.rows === "function" ? spec.rows(data) : readTable(data, spec.table);
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
  * 把所有模块的记录摊成一张只读的搜索池。每条带上来源模块、跳转地址、显示文本，
  * 以及一段拼好的 haystack。不改动传进来的数据。
  */
 export function buildSearchPool(data) {
   const pool = [];
   for (const spec of SOURCE_SPECS) {
-    for (const row of readTable(data, spec.table)) {
+    for (const row of sourceRows(data, spec)) {
       if (!row || typeof row !== "object") continue;
-      const title = textOf(spec.title, row) || textOf(spec.fields[0], row);
+      const title = textOf(spec.title, row, data) || textOf(spec.fields[0], row, data);
       const fields = spec.fields
-        .map((f) => textOf(f, row))
+        .map((f) => textOf(f, row, data))
         .filter(Boolean)
         .map((raw) => ({ raw, norm: normalizeText(raw) }));
+      const module = fixedOrFn(spec.module, row, data);
       pool.push({
-        module: spec.module,
-        hash: spec.hash || spec.module,
+        module,
+        hash: fixedOrFn(spec.hash, row, data) || module,
         label: spec.label,
         archived: row.isArchived === true,
         title,

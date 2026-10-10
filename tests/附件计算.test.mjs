@@ -5,6 +5,7 @@
 import {
   IMAGE_TYPES, MAX_UPLOAD_BYTES, MAX_PICK_BYTES, RECOMPRESS_BYTES, JPEG_QUALITY,
   COMPRESS_PRESETS, DEFAULT_ATTACH_SETTINGS, ATTACH_MODULES,
+  MODULE_LABEL,
   normalizeAttachSettings, presetLabel,
   extForMime, extOfName, checkImageFile, rowPaths,
   clipboardImages, clipboardHasText,
@@ -12,6 +13,7 @@ import {
   attachmentPath, parseAttachmentPath, isValidAttachmentPath, fileNameOf,
   viewerStep, humanSize,
 } from "../app/web/attachment-calc.js";
+import fs from "node:fs";
 
 let pass = 0;
 let fail = 0;
@@ -47,6 +49,10 @@ function eqDeep(actual, expected, label) {
   }
 }
 
+function ok(cond, label) {
+  eq(Boolean(cond), true, label);
+}
+
 /* ---------------- 设置项 ---------------- */
 
 eqDeep(normalizeAttachSettings(null), DEFAULT_ATTACH_SETTINGS, "没设置过 → 默认（不删文件、压到 1920）");
@@ -71,6 +77,27 @@ eq(presetLabel(0), "原图，不压缩", "0 的档位文字");
 eq(presetLabel(1234), COMPRESS_PRESETS[0].label, "认不出的档位按默认那一档显示");
 eq(COMPRESS_PRESETS.length, 3, "一共三档：1080P / 2K / 原图");
 eq(ATTACH_MODULES.includes("finance") && ATTACH_MODULES.includes("buglog"), true, "记账和 bug 登记都在白名单里");
+
+/* ---------------- 设置页那段说明：12 个目录一个都不能漏 ----------------
+   目录一共 12 个，设置页原来只写了 finance / buglog 两个（2026-10-11 之前），
+   看说明的人会以为只有记账和 bug 登记能存图。文案补起来容易，难的是下次加模块时
+   别忘了它 —— 所以这里直接拿设置页的原文比 ATTACH_MODULES / MODULE_LABEL：
+   少写一个就红，不用靠人记。 */
+const settingsSrc = fs.readFileSync(new URL("../app/web/settings.js", import.meta.url), "utf8");
+const hintFrom = settingsSrc.indexOf("<h2>图片附件</h2>");
+const hintTo = settingsSrc.indexOf("</p>", hintFrom);
+const hint = hintFrom >= 0 && hintTo > hintFrom ? settingsSrc.slice(hintFrom, hintTo) : "";
+ok(hint.includes("图片按模块"), "设置页里找得到「图片附件」那段说明");
+eq(
+  ATTACH_MODULES.filter((m) => !hint.includes(m)).join("/") || "一个不缺",
+  "一个不缺",
+  "12 个目录名都写在说明里"
+);
+eq(
+  ATTACH_MODULES.filter((m) => !hint.includes(MODULE_LABEL[m])).join("/") || "一个不缺",
+  "一个不缺",
+  "每个目录配的中文名也写在说明里"
+);
 
 /* ---------------- 挑文件 ---------------- */
 

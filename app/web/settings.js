@@ -131,9 +131,12 @@ export async function renderSettings(el) {
     <section class="card">
       <h2>图片附件</h2>
       <p class="hint">
-        记账、bug 登记里的图片单独存在 <code>数据\\attachments\\</code> 下面，主数据文件里只记住路径——
+        各个模块的图片都单独存在 <code>数据\\attachments\\</code> 下面，主数据文件里只记住路径——
         几张截图不会把 <code>数据.json</code> 撑大，备份时把整个 <code>数据</code> 文件夹复制走就行。
-        图片按模块分格放：<code>finance</code> 是记账，<code>buglog</code> 是 bug 登记。
+        图片按模块分格放，一共 12 个目录：<code>finance</code>=记账、<code>buglog</code>=bug 登记、
+        <code>progress</code>=项目进展、<code>today_plan</code>=今日计划、<code>dev_project</code>=开发项目、
+        <code>dev_todo</code>=开发待办、<code>study_record</code>=学习记录、<code>study_item</code>=学习对象、
+        <code>fitness</code>=训练打卡、<code>game</code>=游戏、<code>game_record</code>=游玩记录、<code>note</code>=笔记。
       </p>
       <dl class="facts" id="attach-facts"></dl>
 

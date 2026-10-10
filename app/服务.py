@@ -373,6 +373,17 @@ def migrate(data: dict) -> dict:
     """老版本里这块叫「咨询工作」（clients / consults），现在叫「学习工作」
     （subjects / studies）。老键还在、新键还没有时搬一次，搬完把老键删掉；
     字段名不对应的部分按意思就近映射，宁可留着也别丢。"""
+    # 多窗口防覆盖那两道闸全靠顶层这两个字段：
+    #   version —— 数据格式版本，保存接口拿它认「这是不是本程序的数据」；
+    #   rev     —— 修订号，页面读的时候是多少、写回来就必须是多少，对不上就说明
+    #              另一个窗口先改过了，这一次写入要拒掉（不覆盖别人的改动）。
+    # 手写的、或者拿一份老备份直接盖回 数据.json 的，可能两个都没有。这里补齐：
+    # rev 尤其不能空着 —— 页面读不到数字就带不回修订号，那道校验会被悄悄绕过，
+    # 于是又回到「后保存的把先保存的覆盖掉」那个丢数据的 bug。
+    if "version" not in data:
+        data["version"] = 1
+    if not isinstance(data.get("rev"), int):
+        data["rev"] = 0
     if "clients" in data and "subjects" not in data:
         data["subjects"] = [
             {

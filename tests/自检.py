@@ -557,6 +557,28 @@ def main() -> int:
         check("清空前会自动留一份快照",
               (data_dir / "备份" / cleared["snapshot"]).exists(), cleared.get("snapshot", ""))
 
+        # 磁盘上那份「少了版本字段」的老数据（手写、或者拿老备份直接盖回来的）：
+        # 读出来必须自动补齐，否则页面读不到修订号，防覆盖那道闸就被悄悄绕过了。
+        old_file = data_dir / "数据.json"
+        old_file.write_text(json.dumps(
+            {"version": 1, "memo": "没有修订号的老文件", "tasks": [], "settings": {}},
+            ensure_ascii=False), encoding="utf-8")
+        no_rev = call(port, "/api/data")[1]
+        check("老数据没有 rev 时读出来自动补一个数字（不然防覆盖的闸会被绕过）",
+              isinstance(no_rev.get("rev"), int), str(no_rev.get("rev")))
+        status, saved_no_rev = call(port, "/api/data", "POST", no_rev)
+        check("补齐修订号之后照样能保存",
+              status == 200 and saved_no_rev.get("ok"), str(saved_no_rev)[:80])
+
+        old_file.write_text(json.dumps({"memo": "连 version 都没有的老文件"},
+                                       ensure_ascii=False), encoding="utf-8")
+        no_ver = call(port, "/api/data")[1]
+        check("连 version 都没有的老文件读出来也补成 1",
+              no_ver.get("version") == 1, str(no_ver.get("version")))
+        status, saved_no_ver = call(port, "/api/data", "POST", no_ver)
+        check("补上 version 之后能正常存回去",
+              status == 200 and saved_no_ver.get("ok"), str(saved_no_ver)[:80])
+
         # 运行日志
         log_file = data_dir / "日志" / "运行.log"
         check("运行日志有内容", log_file.exists() and log_file.stat().st_size > 0)

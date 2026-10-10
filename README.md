@@ -157,6 +157,7 @@ tests/目标计算.test.mjs 模块目标纯逻辑的单元测试（同样用 Nod
 tests/表单计算.test.mjs 弹窗字段表的单元测试（同样用 Node 跑）
 tests/游戏计算.test.mjs 游戏娱乐纯逻辑的单元测试（同样用 Node 跑）
 tests/待办联动.test.mjs 待办跨模块联动的单元测试（同样用 Node 跑）
+tests/冲突保护.test.mjs 多窗口冲突保护的集成测试：另一个窗口先保存过时，本窗口的改动不能丢（同样用 Node 跑）
 tools/演示数据.py      上面那个「演示数据」的本体
 docs/                 需求清单、设计文档、截图
 ```

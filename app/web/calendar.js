@@ -12,16 +12,16 @@
  * calendarAction(e)；它告诉你「这次点击归我管吗、选中日要不要变」。
  */
 
-import { touch, uid, table, esc, todayStr, dateStr, moveToTrash } from "./store.js";
-import { bindFresh, emptyState, options, priorityChip, sourceTag } from "./ui.js";
+import { touch, table, esc, todayStr, dateStr, moveToTrash } from "./store.js";
+import { bindFresh, emptyState, priorityChip, sourceTag } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { durationText } from "./game-calc.js";
 import { taskOwnerOf, devProjectOf } from "./task-calc.js";
 import { updateTaskStatus } from "./task-actions.js";
+import { openItemDialog } from "./item-dialog.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
-const CATEGORIES = ["工作", "生活", "运动", "其他"];
 
 // 小圆点的种类，顺序就是图例顺序
 const ALL_KINDS = [
@@ -215,19 +215,16 @@ export function renderCalendar(el) {
     <section class="card">
       <div class="card-head">
         <h2>${esc(dayLabel(selected))}</h2>
-        <span class="hint">${esc(dayCountText(selected))}</span>
+        <div class="card-tools">
+          <span class="hint">${esc(dayCountText(selected))}</span>
+          <button class="btn primary small" data-act="cal-add">${icon("plus", 14)}添加任务</button>
+        </div>
       </div>
       ${dayDetail(selected)}
-      <form class="add-form" id="cal-add" autocomplete="off">
-        <input name="text" class="grow" maxlength="200" required placeholder="给这一天加一条任务…">
-        <input name="time" type="time" title="时间点（可不填）">
-        <select name="category" title="分类">${options(CATEGORIES)}</select>
-        <button class="btn primary" type="submit">${icon("plus", 16)}加任务</button>
-      </form>
     </section>
   `;
 
-  bindFresh(el, { click: onClick, submit: onSubmit, change: onChange });
+  bindFresh(el, { click: onClick, change: onChange });
 }
 
 function redraw() {
@@ -409,7 +406,7 @@ function dayDetail(date) {
 
   return parts.length
     ? parts.join("")
-    : emptyState("这一天还没有记录", "下面可以直接加一条任务。", "", "plan");
+    : emptyState("这一天还没有记录", "点右上角「添加任务」给这一天记一条。", "", "plan");
 }
 
 /* ---------------- 事件 ---------------- */
@@ -425,6 +422,13 @@ async function onClick(e) {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
   const act = btn.dataset.act;
+
+  // 月历上「添加任务」和今日计划页共用同一个弹窗：能填时间、分类、优先级、
+  // 备注和图片，不再是底下那条只有三个框的简易表单。
+  if (act === "cal-add") {
+    openItemDialog("todayPlan", null, { date: selected });
+    return;
+  }
 
   if (act === "cal-del") {
     const li = btn.closest("[data-id]");
@@ -446,27 +450,6 @@ async function onClick(e) {
     touch(true);
     toast("已移入回收站");
   }
-}
-
-function onSubmit(e) {
-  if (e.target.id !== "cal-add") return;
-  e.preventDefault();
-  const form = e.target;
-  const text = form.text.value.trim();
-  if (!text) return;
-  table("tasks").push({
-    id: uid(),
-    date: selected,
-    text,
-    time: form.time.value || "",
-    category: form.category.value,
-    done: false,
-    note: "",
-    belong: "plan",
-    createdAt: new Date().toISOString(),
-  });
-  touch(true);
-  toast(`已加到 ${selected}`);
 }
 
 function onChange(e) {

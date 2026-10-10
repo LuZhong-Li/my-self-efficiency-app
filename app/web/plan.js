@@ -17,7 +17,9 @@ import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
 import { syncGoalTasks, goalBriefHtml } from "./goals.js";
 import { recordsOn, durationText } from "./game-calc.js";
-import { planTasksOf, planStatsOf, taskOwnerOf, devProjectOf, groupPlanTasks, dailyTargetsOf } from "./task-calc.js";
+import {
+  planTasksOf, planStatsOf, overdueTasksOf, taskOwnerOf, devProjectOf, groupPlanTasks, dailyTargetsOf,
+} from "./task-calc.js";
 import { updateTaskStatus, toggleTaskInTodayPlan, bumpModuleProgress } from "./task-actions.js";
 import { openDailyTargetDialog } from "./daily-target.js";
 import { barLevelOf } from "./goal-calc.js";
@@ -68,9 +70,7 @@ function renderTodayView(body) {
   const all = table("tasks");
   // 「今天的任务」= 日期是今天的 + 别的模块「加入今日计划」的（见 task-calc.js）
   const todayTasks = planTasksOf(all, today);
-  const overdue = all
-    .filter((t) => t.date && t.date < today && !t.done && !t.isArchived)
-    .sort((a, b) => (a.date === b.date ? byTime(a, b) : a.date < b.date ? -1 : 1));
+  const overdue = overdueTasksOf(all, today);
   const p = planStatsOf(todayTasks);
   const { groups, loose } = groupPlanTasks(todayTasks, dailyTargetsOf(store.data));
 
@@ -137,16 +137,6 @@ function gameBriefHtml(today) {
       <button class="link" data-act="game-add-task">加一条「玩游戏放松」</button>
       <a class="link" href="#game">去游戏娱乐 →</a>
     </div>`;
-}
-
-/* ---------------- 排序与统计 ---------------- */
-
-function byTime(a, b) {
-  // 没填时间的排在填了时间的后面
-  if (!a.time && !b.time) return 0;
-  if (!a.time) return 1;
-  if (!b.time) return -1;
-  return a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
 }
 
 /* ---------------- 画 ---------------- */
@@ -288,15 +278,12 @@ async function onClick(e) {
   }
 
   if (act === "move-all") {
+    // 挪的就是逾期卡上那几条（同一份筛选：归档的和做完的都不算），
+    // 不再自己另写一遍条件，免得哪天两边走岔把归档的也改了
     const today = todayStr();
-    let n = 0;
-    for (const t of table("tasks")) {
-      if (t.date && t.date < today && !t.done) {
-        t.date = today;
-        n++;
-      }
-    }
-    if (n) touch(true);
+    const overdue = overdueTasksOf(table("tasks"), today);
+    for (const t of overdue) t.date = today;
+    if (overdue.length) touch(true);
     return;
   }
 
@@ -312,6 +299,7 @@ async function onClick(e) {
     toggleTaskInTodayPlan(task.id, false);
     toast("已移出今日计划，任务还在开发工作里");
   } else if (act === "move") {
+    if (task.isArchived) return toast("这条已经归档了，先恢复再挪", "err");
     task.date = todayStr();
     touch(true);
   } else if (act === "delete") {

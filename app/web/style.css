@@ -212,14 +212,29 @@ body {
 
 .sr-item:hover { background: var(--hover); }
 .sr-tag {
-  flex: 0 0 56px;
+  flex: 0 0 auto;
+  min-width: 56px;
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--chip);
   color: var(--chip-ink);
   font-size: 12px;
   text-align: center;
+  white-space: nowrap;
 }
+
+/* 每枚标签按来源模块着色，一眼分清「待办 / 问题 / 记账 / 健身…」。
+   色值沿用月历图例那套分类色（.mk-*），不额外引一套新配色；
+   实底 + 白字，深浅两色下都不用再单独调。 */
+.sr-item[data-module="plan"] .sr-tag { background: #3b66d9; color: #fff; }
+.sr-item[data-module="media"] .sr-tag { background: #0ea5e9; color: #fff; }
+.sr-item[data-module="dev"] .sr-tag { background: #f97316; color: #fff; }
+.sr-item[data-module="study"] .sr-tag { background: #8b5cf6; color: #fff; }
+.sr-item[data-module="diet"] .sr-tag { background: #f39c12; color: #2b1d00; }
+.sr-item[data-module="fitness"] .sr-tag { background: #27ae60; color: #fff; }
+.sr-item[data-module="game"] .sr-tag { background: #ec4899; color: #fff; }
+.sr-item[data-module="finance"] .sr-tag { background: #14b8a6; color: #04211d; }
+
 .sr-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-none { padding: 12px 8px; color: var(--muted); font-size: 13px; }
 

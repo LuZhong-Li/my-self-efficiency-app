@@ -92,6 +92,18 @@ export function planTasksOf(tasks, today) {
   return (tasks || []).filter((t) => inTodayPlan(t, today)).sort(sortPlanTasks);
 }
 
+/**
+ * 「昨天及更早没做完的」那一列（今日计划顶上的逾期卡）。
+ * 归档的不算 —— 收起来的东西不该再冒出来，也不该被「全部挪到今天」顺手带走。
+ * 逾期卡和「全部挪到今天」都用这一份：两处要是各写各的，哪天就会走岔
+ * （2026-10-10 修的就是这个：卡上筛掉了归档的，「全部挪到今天」却把归档的也改了日期）。
+ */
+export function overdueTasksOf(tasks, today) {
+  return (tasks || [])
+    .filter((t) => t && t.date && t.date < today && !t.done && !taskArchived(t))
+    .sort((a, b) => (a.date === b.date ? byTime(a, b) : a.date < b.date ? -1 : 1));
+}
+
 /** 顶部那几个数：未完成 / 已完成 / 待安排（今天没填时间点的）/ 完成百分比 */
 export function planStatsOf(list) {
   const items = list || [];

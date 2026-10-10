@@ -1,74 +1,41 @@
 /* 全局搜索：在已经读进来的数据里找，点结果跳到对应模块。
- * 纯粹前端过滤，不新增接口、不新增数据。 */
+ * 纯粹前端过滤，不新增接口、不新增数据。
+ *
+ * 「能搜哪些表、哪些字段」在 search-calc.js（纯逻辑、能单测）；这里只管
+ * 输入框、下拉面板和跳转。备忘和每周训练安排不是「一行一条」的表，单独补。 */
 
-import { store, esc, table } from "./store.js";
+import { store, esc } from "./store.js";
+import { searchAll, normalizeText } from "./search-calc.js";
 
-const SOURCES = [
-  { table: "tasks", module: "plan", label: "任务", fields: ["text", "note"], archivable: true },
-  { table: "contents", module: "media", label: "自媒体", fields: ["title", "platform", "note"] },
-  { table: "mediaAccounts", module: "media", label: "自媒体账号",
-    fields: ["name", "platform", "intro", "note"] },
-  { table: "projects", module: "dev", label: "项目", fields: ["name", "intro", "description"] },
-  { table: "issues", module: "dev", label: "问题", fields: ["title", "desc", "module"], archivable: true },
-  { table: "progress", module: "dev", label: "进展", fields: ["text"] },
-  { table: "subjects", module: "study", label: "学习对象", fields: ["name", "source", "note"] },
-  { table: "studies", module: "study", label: "学习", fields: ["content", "takeaway"] },
-  { table: "workoutLogs", module: "fitness", label: "打卡", fields: ["moves", "note"] },
-  { table: "weights", module: "fitness", label: "体重", fields: ["date"] },
-  { table: "meals", module: "diet", label: "饮食", fields: ["breakfast", "lunch", "dinner", "snack"] },
-  { table: "games", module: "game", label: "游戏", fields: ["name", "platform", "progress"] },
-  { table: "gameRecords", module: "game", label: "游玩记录",
-    fields: ["gameName", "remark", "playDate"] },
-  { table: "finance.transactions", module: "finance", label: "账目", fields: ["note", "category"] },
-  { table: "debt.items", module: "finance", hash: "finance/debt", label: "债务",
-    fields: ["name", "creditor", "note"] },
-];
-
-const MAX = 12;
+const MAX = 20;                 // 面板里最多摆这么多条
+const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 // 全局搜索默认不看归档条目（归档了就是不希望它再冒出来）；
 // 面板底部那个勾选框打开才连归档一起搜。只活在这次会话里。
 let includeArchived = false;
 
-function searchAll(query) {
-  const needle = query.trim().toLowerCase();
-  if (!needle || !store.data) return [];
+/** 备忘、每周训练安排这两处不是「一行一条」的表，单独拎出来匹配 */
+function extraHits(kw) {
   const out = [];
-  for (const src of SOURCES) {
-    const rows = table(src.table); // table() 认得 "finance.transactions" 这种带点的路径
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows) {
-      if (src.archivable && !includeArchived && row.isArchived === true) continue;
-      const hit = src.fields.find((f) =>
-        String(row[f] === undefined || row[f] === null ? "" : row[f])
-          .toLowerCase()
-          .includes(needle)
-      );
-      if (hit) {
-        out.push({
-          module: src.module,
-          hash: src.hash,
-          label: src.label,
-          text: String(row[hit] || row.date || ""),
-        });
-      }
-      if (out.length >= MAX) return out;
-    }
-  }
-
-  // 两个不是「列表」的数据也不能漏：随手备忘、每周训练安排
-  const memo = String(store.data.memo || "");
-  if (memo.toLowerCase().includes(needle)) {
+  const memo = String((store.data && store.data.memo) || "");
+  if (memo && normalizeText(memo).includes(kw)) {
     out.push({ module: "home", label: "备忘", text: memo.split("\n")[0].slice(0, 40) });
   }
-  const plan = store.data.workoutPlan || {};
-  for (const day of ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]) {
+  const plan = (store.data && store.data.workoutPlan) || {};
+  for (const day of WEEKDAYS) {
     const v = String(plan[day] || "");
-    if (v && v.toLowerCase().includes(needle)) {
+    if (v && normalizeText(v).includes(kw)) {
       out.push({ module: "fitness", label: "安排", text: `${day} ${v}` });
     }
   }
   return out;
+}
+
+/** 搜一次：所有模块的结果 + 备忘 / 安排，按匹配度排好，再截到面板长度 */
+function find(query) {
+  const kw = normalizeText(query);
+  if (!kw || !store.data) return [];
+  return searchAll(store.data, query, includeArchived).concat(extraHits(kw)).slice(0, MAX);
 }
 
 /** 把命中的关键词裹一层 <mark>，其余部分照旧转义 */
@@ -121,7 +88,7 @@ export function initSearch() {
       close();
       return;
     }
-    panel.innerHTML = panelHtml(searchAll(query), query);
+    panel.innerHTML = panelHtml(find(query), query);
     panel.hidden = false;
   }
 

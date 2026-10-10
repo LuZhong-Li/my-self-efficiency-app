@@ -579,9 +579,11 @@ function openTxDialog(tx) {
           if (!ok) return;
           moveToTrash("finance.transactions", tx, tx.note || tx.category);
           touch(true);
+          dlg.close();
           toast("已移入回收站");
         })();
-        // 返回 false：确认框已经接管了这里，外层别再关一次（否则确认框一闪就没）
+        // 返回 false：确认框叠在「记一笔」上面（见 dialog.js 的弹窗栈），
+        // 等用户选完；选「取消」就留在弹窗里接着改，选「删除」上面自己 close()。
         return false;
       }
       if (act === "save") {

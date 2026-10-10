@@ -5,6 +5,7 @@
 import {
   PRIORITY_CLASS, priorityClass, taskArchived, taskOwnerOf, devProjectOf,
   inTodayPlan, taskSourceLabel, sortPlanTasks, planTasksOf, planStatsOf,
+  overdueTasksOf,
   PLAN_GROUPS, moduleKeyOf, groupPlanTasks,
   DAILY_DEFAULTS, dailyTargetsOf, valueOf,
 } from "../app/web/task-calc.js";
@@ -113,6 +114,22 @@ eqDeep(planStatsOf(mine), { total: 3, done: 1, open: 2, untimed: 1, percent: 33 
   "顶部那几个数：未完成 2 / 已完成 1 / 待安排 1 / 33%");
 eqDeep(planStatsOf([]), { total: 0, done: 0, open: 0, untimed: 0, percent: 0 },
   "一条都没有时是 0，不会算出 NaN");
+
+console.log("\n【逾期那一列：归档的不算，也不该被「全部挪到今天」带走】");
+const overdueInput = [
+  { id: "o1", belong: "plan", date: "2026-10-05", time: "09:00", done: false },
+  { id: "o2", belong: "plan", date: "2026-10-06", time: "", done: false },
+  { id: "o3", belong: "plan", date: "2026-10-04", time: "08:00", done: false, isArchived: true },
+  { id: "o4", belong: "plan", date: "2026-10-07", time: "", done: true },
+  { id: "o5", belong: "plan", date: TODAY, time: "", done: false },
+];
+const overdue = overdueTasksOf(overdueInput, TODAY);
+eqDeep(overdue.map((t) => t.id), ["o1", "o2"],
+  "只留「过去 + 没做完 + 没归档」，按日期早晚排");
+eq(overdueTasksOf(overdueInput, TODAY).some((t) => t.isArchived), false,
+  "归档的旧待办不在逾期列里（以前「全部挪到今天」会把它一起改到今天）");
+eq(overdueTasksOf([], TODAY).length, 0, "一条都没有时不抛错");
+eq(overdueTasksOf(null, TODAY).length, 0, "传 null 也不抛错");
 
 console.log("\n【按模块分组（各模块今日进度）】");
 eq(moduleKeyOf({ belong: "goal", sourceModule: "fitness" }), "fitness", "目标生成的算健身");

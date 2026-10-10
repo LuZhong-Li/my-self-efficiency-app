@@ -164,10 +164,11 @@ export function openDebtDialog(item) {
           if (!ok) return;
           moveToTrash("debt.items", item, item.name);
           touch(true);
+          dlg.close();
           toast("已移入回收站");
         })();
-        // 返回 false：别让外层再关一次——askConfirm 已经把表单弹窗换成了确认框，
-        // 外层要是接着调 close()，会把刚弹出来的确认框一起关掉（一闪就没）。
+        // 返回 false：确认框现在叠在表单弹窗上面（见 dialog.js 的弹窗栈），
+        // 得等用户选完。选「取消」就留在弹窗里接着改；选「删除」上面自己 close()。
         return false;
       }
       if (act !== "save") return true;

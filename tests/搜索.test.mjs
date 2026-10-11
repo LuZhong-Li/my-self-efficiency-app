@@ -4,6 +4,7 @@
 
 import {
   normalizeText, buildSearchPool, searchAll, SOURCE_SPECS, sourceRows,
+  allTags, searchByTag,
 } from "../app/web/search-calc.js";
 
 let pass = 0;
@@ -223,6 +224,59 @@ console.log("不提前截断：排在最后一张表的记录也得能搜到");
   eq(hits.length, 17, "17 条命中一条不落（不截断）");
   ok(hits.some((h) => h.label === "债务"), "最后一张表的命中还在（修的就是这个）");
 }
+
+/* ---------------- 标签（2026-10-11 加的） ----------------
+   标签是记录上的一个字符串数组；「全站有哪些标签」「点了某个标签捞哪几条」
+   都在这儿算，界面那边只负责画。 */
+
+const TAGGED = {
+  tasks: [
+    { id: "tg1", text: "把标签做出来", tags: ["工作", "本周"], belong: "plan" },
+    { id: "tg2", text: "买菜", tags: ["生活"], belong: "plan" },
+    { id: "tg3", text: "老记录没标签", belong: "plan" },
+    { id: "tg4", text: "归档的旧事", tags: ["工作"], belong: "plan", isArchived: true },
+  ],
+  contents: [{ id: "tc1", title: "标签那期视频", tags: ["工作"], status: "想法" }],
+  projects: [{ id: "tp1", name: "标签系统那个项目", tags: ["工作"] }],
+  finance: {
+    transactions: [
+      { id: "tf1", note: "买标签纸", amountCents: 199, date: "2026-10-11", tags: ["生活"] },
+    ],
+  },
+};
+
+const tagList = allTags(TAGGED);
+eq(tagList[0].name, "工作", "用得最多的标签排最前");
+eq(tagList.find((t) => t.name === "工作").count, 3,
+  "跨模块一起数：待办 + 作品 + 项目（归档那条不算）");
+eq(tagList.find((t) => t.name === "生活").count, 2, "生活 2 次：待办 1 条 + 账目 1 条");
+eq(tagList.length, 3, "一共三个标签：工作、生活、本周（没多出别的）");
+eq(allTags({}).length, 0, "空数据没有标签，也不抛错");
+eq(allTags(TAGGED).every((t) => t.count > 0), true, "计数都是正数");
+
+const byTag = searchByTag(TAGGED, "工作");
+eq(byTag.length, 3, "按标签捞到三条（没归档的）");
+eq(byTag.some((h) => h.module === "plan" && h.text === "工作"), true,
+  "待办那条：正文给的是标签本身，点下去就跳今日计划");
+eq(byTag.some((h) => h.module === "media"), true, "跨模块：自媒体作品那条也在");
+eq(searchByTag(TAGGED, "工作", true).length, 4, "勾上「包含归档记录」，归档那条才算进来");
+eq(searchByTag(TAGGED, " 工作 ").length, 3, "前后带空格也认");
+eq(searchByTag(TAGGED, "工作", true).some((h) => h.hash === "plan"), true,
+  "结果里带着跳转地址（searchAll 那一套形状）");
+eq(searchByTag(TAGGED, "没这个标签").length, 0, "没有的标签返回空");
+eq(searchByTag(TAGGED, "").length, 0, "空标签返回空，不把整站捞出来");
+eq(searchByTag(TAGGED, "工作", false, "视频").length, 1,
+  "标签 + 关键词：只在贴了「工作」的里面再筛「视频」，只剩作品那条");
+eq(searchByTag(TAGGED, "工作", false, "买菜").length, 0,
+  "关键词筛没了就是空的（不会退回「只看标签」）");
+eq(searchByTag(TAGGED, "工作", false, "  ").length, 3, "关键词只有空白等于没筛");
+
+/* 标签进了匹配池：敲标签名 = 搜得到（和备注、分类一个待遇） */
+eq(searchAll(TAGGED, "工作").length, 3, "敲「工作」搜得到贴了它的记录（归档那条不算）");
+eq(searchAll(TAGGED, "工作").every((h) => h.text === "工作"), true,
+  "命中标签时，卡片正文给的就是那个标签（不是整条记录的标题）");
+eq(searchAll(TAGGED, "本周").length, 1, "只贴了一条记录的标签也搜得到");
+eq(searchAll(TAGGED, "买菜").length, 1, "老行为没动：正文照样搜得到");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

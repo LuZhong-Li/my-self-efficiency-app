@@ -11,6 +11,7 @@
  */
 
 import { MODULES } from "./modules.js";
+import { normalizeTags } from "./tag-calc.js";
 
 /** 把文本统一成「好比对」的样子：小写、换行和连续空格压成单个空格、掐掉首尾空白 */
 export function normalizeText(value) {
@@ -222,12 +223,17 @@ export function buildSearchPool(data) {
         .map((f) => textOf(f, row, data))
         .filter(Boolean)
         .map((raw) => ({ raw, norm: normalizeText(raw) }));
+      // 标签也进匹配池：搜「工作」能把贴了它的记录捞出来，和备注、分类一个待遇。
+      // 塞进 fields 而不是只拼进 haystack，是为了让结果卡片显示命中的那个标签。
+      const tags = normalizeTags(row.tags);
+      for (const name of tags) fields.push({ raw: name, norm: normalizeText(name) });
       const module = fixedOrFn(spec.module, row, data);
       pool.push({
         module,
         hash: fixedOrFn(spec.hash, row, data) || module,
         label: spec.label,
         archived: row.isArchived === true,
+        tags,                                   // 按标签筛（searchByTag）要用
         title,
         titleNorm: normalizeText(title),
         fields,
@@ -267,5 +273,54 @@ export function searchAll(data, query, includeArchived = false) {
     });
   }
   hits.sort((a, b) => b.score - a.score);
+  return hits;
+}
+
+/**
+ * 全站有哪些标签、各用了多少次。
+ * 只数没归档的 —— 和搜索池一个口径（归档了就是不希望它再冒出来），
+ * 这样点一个标签至少能捞到一条，不会点出一片空。
+ * 排序：用得多的在前，一样多按名字。标签不落盘，每次现算。
+ */
+export function allTags(data) {
+  const count = new Map();
+  const spelling = new Map();
+  for (const item of buildSearchPool(data)) {
+    if (item.archived) continue;
+    for (const name of item.tags) {
+      const key = name.toLowerCase();
+      count.set(key, (count.get(key) || 0) + 1);
+      if (!spelling.has(key)) spelling.set(key, name);
+    }
+  }
+  return [...count.entries()]
+    .map(([key, n]) => ({ name: spelling.get(key), count: n }))
+    .sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : 1));
+}
+
+/**
+ * 按标签捞记录：结果形状和 searchAll 一模一样（module / hash / label / text），
+ * 所以搜索面板那套「画卡片、点一下跳模块」的代码一行都不用改。
+ * 正文给的是记录里那个写法，不是用户敲的那份（大小写要跟记录一致）。
+ *
+ * @param {object} data 完整的 data 对象
+ * @param {string} tag 标签
+ * @param {boolean} includeArchived 归档条目要不要一起捞，默认不捞
+ * @param {string} query 可选：在这批里再筛一道关键词（面板上「标签 + 关键词」叠加）
+ */
+export function searchByTag(data, tag, includeArchived = false, query = "") {
+  const want = normalizeText(tag);
+  if (!want) return [];
+  const kw = normalizeText(query);
+  const hits = [];
+  for (const item of buildSearchPool(data)) {
+    if (item.archived && !includeArchived) continue;
+    const hit = item.tags.find((name) => normalizeText(name) === want);
+    if (!hit) continue;
+    // 关键词是在「贴了这个标签的这批」里再筛一道（不是二选一），所以面板上
+    // 「标签 + 关键词」叠加时，看到的永远是这个标签里的命中。
+    if (kw && !item.hay.includes(kw)) continue;
+    hits.push({ module: item.module, hash: item.hash, label: item.label, text: hit });
+  }
   return hits;
 }

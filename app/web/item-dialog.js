@@ -10,8 +10,10 @@
  * 图片点「保存」才真的写进 数据\attachments\<模块>\，点「取消」一个字节都不留。
  */
 
-import { touch, uid, table, nowText, todayStr, moveToTrash } from "./store.js";
+import { touch, uid, table, nowText, todayStr, moveToTrash, store, esc } from "./store.js";
 import { openDialog, askConfirm, toast } from "./dialog.js";
+import { allTags } from "./search-calc.js";
+import { normalizeTags, tagColor, tagInputError, TAG_LIMIT } from "./tag-calc.js";
 import {
   createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
   purgeRowAttachments, rowPaths,
@@ -79,6 +81,11 @@ export function openItemDialog(type, row, options = {}) {
     pid: options.pid || "",
     ...(options.ctx || {}),
   };
+  // 标签的候选：全站已经出现过的标签，打开弹窗时现算（不落盘）。
+  // 有它才能「打个字就把以前用过的标签补出来」，不用记着自己起过什么名。
+  if (spec.fields.some((f) => f.kind === "tags")) {
+    ctx.tagOptions = allTags(store.data).map((t) => t.name);
+  }
   // 从「某一天」点进来的（今日计划、学习记录、训练打卡、游玩记录），那一天的日期要预填上。
   // 字段名默认叫 date，游玩记录那边叫 playDate，所以让字段表自己声明（spec.dateField）。
   const seed = { ...options.defaults };
@@ -182,6 +189,7 @@ export function openItemDialog(type, row, options = {}) {
 
   if (attach) mountAttach(dlg.el.querySelector("#item-attach"), attach);
   bindConditionalFields(dlg.el, spec);
+  bindTagPreview(dlg.el, spec);
   bindEnterToSave(dlg);
   const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
@@ -205,6 +213,34 @@ function bindConditionalFields(el, spec) {
     };
     src.addEventListener("change", sync);
     sync();
+  }
+}
+
+/**
+ * 标签输入框下面那行实时预览：边打边看「现在收成了哪几个标签」，
+ * 顺手把「超量 / 单个太长」当场说出来（保存时 validate 还会再拦一道）。
+ * 只改这一小块，不重画弹窗 —— 重画会把已经填了一半的内容弄丢。
+ */
+function bindTagPreview(el, spec) {
+  for (const field of spec.fields.filter((f) => f.kind === "tags")) {
+    const input = el.querySelector("#item-" + field.name);
+    const box = el.querySelector(`[data-tags-preview="${field.name}"]`);
+    if (!input || !box) continue;
+    const sync = () => {
+      const list = normalizeTags(input.value);
+      const err = tagInputError(input.value);
+      box.classList.toggle("over", Boolean(err));
+      box.innerHTML =
+        (list.length
+          ? list
+              .map((name) =>
+                `<span class="chip tag-chip" data-c="${tagColor(name)}">${esc(name)}</span>`)
+              .join("")
+          : `<span class="dlg-tags-hint">逗号分开，最多 ${TAG_LIMIT} 个</span>`) +
+        (err ? `<span class="dlg-tags-err">${esc(err)}</span>` : "");
+    };
+    input.addEventListener("input", sync);
+    sync();          // 编辑老记录时进来就先把已有的标签画出来
   }
 }
 

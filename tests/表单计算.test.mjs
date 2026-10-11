@@ -464,5 +464,13 @@ const cleared = { id: "t2", text: "老记录", tags: ["旧的"] };
 applyValues("todayPlan", cleared, { ...tagForm, tags: "" });
 eqDeep(cleared.tags, [], "标签框清空 = 字段清成空数组（不是留着旧值）");
 
+const tagHtml = formHtml("todayPlan", { tags: "工作" }, { tagOptions: ["工作", "本周"] });
+ok(tagHtml.indexOf('id="item-tags"') >= 0, "弹窗里画出了标签输入框");
+ok(tagHtml.indexOf('list="item-tags-list"') >= 0, "输入框挂着候选列表（打一个字就有得补）");
+ok(tagHtml.indexOf('<option value="本周">') >= 0, "候选里是全站已经出现过的标签");
+ok(formHtml("todayPlan", {}, {}).indexOf('id="item-tags"') >= 0,
+  "一个候选都没有时，输入框照样在（不该整块消失）");
+ok(tagHtml.indexOf('data-tags-preview="tags"') >= 0, "输入框下面留着那行实时预览的位置");
+
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

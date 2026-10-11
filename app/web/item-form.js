@@ -445,6 +445,23 @@ function fieldHtml(field, values, ctx) {
       `><datalist id="${listId}">${opts}</datalist>`
     );
   }
+  // 标签：一行文本 + 候选（全站已经出现过的标签，来自 ctx.tagOptions）。
+  // 候选在弹窗打开时现算（见 item-dialog.js），不落盘、不新建标签表。
+  // 下面那行预览由 item-dialog.js 的 bindTagPreview 实时填。
+  if (field.kind === "tags") {
+    const listId = `${id}-list`;
+    const opts = (ctx.tagOptions || [])
+      .map((name) => `<option value="${esc(name)}"></option>`)
+      .join("");
+    return wrap(
+      label +
+      `<input id="${id}" type="text" list="${listId}" maxlength="${field.maxlength || 200}"` +
+      ` value="${esc(value)}"` +
+      (field.placeholder ? ` placeholder="${esc(field.placeholder)}"` : "") +
+      `><datalist id="${listId}">${opts}</datalist>` +
+      `<div class="dlg-tags-preview" data-tags-preview="${esc(field.name)}"></div>`
+    );
+  }
   const attrs = [];
   if (field.kind === "number") {
     attrs.push('type="number"', `min="${field.min == null ? 0 : field.min}"`);

@@ -537,6 +537,20 @@ def migrate(data: dict) -> dict:
             row.setdefault(key, "")
         if not isinstance(row.get("imagePaths"), list):
             row["imagePaths"] = []
+    # 标签（2026-10-11 新增）：记录上多一个 tags 字符串数组。
+    # 只补缺的：没这个字段、或者被手改成了别的形状，读出来给一个空数组；
+    # 已经是数组的原样留着（不清洗、不排序、不去重 —— 那是前端 tag-calc.js 的事）。
+    for key in ("tasks", "contents", "mediaAccounts", "projects", "issues", "progress",
+                "subjects", "studies", "workoutLogs", "weights", "meals", "water",
+                "games", "gameRecords"):
+        for row in data.get(key) or []:
+            if isinstance(row, dict) and not isinstance(row.get("tags"), list):
+                row["tags"] = []
+    for holder, key in ((data.get("finance") or {}, "transactions"),
+                        (data.get("debt") or {}, "items")):
+        for row in holder.get(key) or []:
+            if isinstance(row, dict) and not isinstance(row.get("tags"), list):
+                row["tags"] = []
     # 附件相关的设置项也是后加的，老数据补齐（缺了才补，有了不动）
     settings = data.setdefault("settings", {})
     attach = settings.get("attachments")

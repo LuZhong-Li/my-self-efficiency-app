@@ -355,7 +355,7 @@ def main() -> int:
         cur = call(port, "/api/data")[1]
         cur["tasks"] = [{"id": "t-selftest", "date": "2026-10-07", "text": "老任务",
                          "time": "", "category": "工作", "done": False, "note": "",
-                         "belong": "plan"}]
+                         "belong": "plan", "tags": ["保留我"]}]
         cur["studies"] = [{"id": "st-selftest", "subjectId": "s", "date": "2026-10-07",
                            "minutes": 30, "content": "老学习", "takeaway": "", "reviewed": False}]
         cur["subjects"] = [{"id": "s", "name": "老对象", "kind": "书", "source": "", "note": ""}]
@@ -369,6 +369,17 @@ def main() -> int:
             for key in ("tasks", "studies", "subjects", "workoutLogs", "games")
         )
         check("老的任务 / 学习 / 对象 / 打卡 / 游戏读出来都带上 imagePaths: []", fresh_ok)
+        # 标签（2026-10-11 新增）：没写过的读出来补一个空数组，页面那边就不用处处判空；
+        # 自己写过的原样留着 —— 迁移只补缺的，不清洗、不排序、不去重。
+        tags_filled = all(
+            back2[key][0].get("tags") == []
+            for key in ("studies", "subjects", "workoutLogs", "games")
+        )
+        check("老的学习 / 对象 / 打卡 / 游戏读出来都带上 tags: []", tags_filled,
+              str({k: back2[k][0].get("tags") for k in ("studies", "subjects", "workoutLogs", "games")}))
+        check("老任务自己写过的标签一个字节都没动",
+              back2["tasks"][0].get("tags") == ["保留我"],
+              str(back2["tasks"][0].get("tags")))
         check("老任务读出来带上 priority: 空（开发待办才有优先级）",
               back2["tasks"][0].get("priority") == "")
         # 跨模块联动那个「加入今日计划」开关也是后加的，老任务补 False

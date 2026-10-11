@@ -781,6 +781,38 @@ html[data-skin="glass"] .arch-drawer {
   white-space: nowrap;
 }
 
+/* 标签胶囊：颜色只有 8 档，按名字哈希取（app/web/tag-calc.js 的 tagColor）。
+   色值沿用全站那套分类色；深浅两色都走 color-mix，不用给每套皮肤各写一遍。 */
+.chip.tag-chip {
+  background: color-mix(in srgb, var(--tag) 16%, transparent);
+  color: color-mix(in srgb, var(--tag) 82%, var(--ink));
+}
+.chip.tag-chip[data-c="1"] { --tag: #3b66d9; }
+.chip.tag-chip[data-c="2"] { --tag: #27ae60; }
+.chip.tag-chip[data-c="3"] { --tag: #f39c12; }
+.chip.tag-chip[data-c="4"] { --tag: #8b5cf6; }
+.chip.tag-chip[data-c="5"] { --tag: #0ea5e9; }
+.chip.tag-chip[data-c="6"] { --tag: #f97316; }
+.chip.tag-chip[data-c="7"] { --tag: #14b8a6; }
+.chip.tag-chip[data-c="8"] { --tag: #ec4899; }
+.chip.tag-chip.tag-more {
+  background: var(--chip);
+  color: var(--chip-ink);
+}
+
+/* 弹窗里标签框下面那行：实时预览 + 当场提示 */
+.dlg-tags-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  min-height: 20px;
+}
+.dlg-tags-preview.over .tag-chip { opacity: 0.6; }
+.dlg-tags-hint { color: var(--muted); font-size: 12px; }
+.dlg-tags-err { color: var(--err); font-size: 12px; }
+
 /* ---------------- 项目卡片 ---------------- */
 
 .proj-grid {

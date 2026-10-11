@@ -11,7 +11,7 @@
  */
 
 import { touch, table, esc, todayStr, shiftDate, moveToTrash } from "./store.js";
-import { sectionHead, emptyState, chip, bindFresh, pageHeader } from "./ui.js";
+import { sectionHead, emptyState, chip, bindFresh, pageHeader, tagChips } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { imgBadge } from "./attachment.js";
@@ -138,6 +138,7 @@ function recordRow(r, withDate) {
       ${chip(durationText(r.durationMin))}
       ${withDate ? `<span class="i-meta">${esc(r.playDate || "")}</span>` : ""}
       ${imgBadge(r.imagePaths, "图")}
+      ${tagChips(r)}
       <span class="i-note">${esc(r.remark || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="gr-edit">编辑</button>
@@ -260,6 +261,7 @@ function row(g, records) {
       }</span>
       <span class="i-meta">${esc(source)}</span>
       ${target ? `<span class="i-meta">目标 ${esc(target)} 小时/月</span>` : ""}
+      ${tagChips(g)}
       <span class="i-note">${esc(g.progress || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="gm-history" data-name="${esc(g.name)}">看记录</button>

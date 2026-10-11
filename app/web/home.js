@@ -15,7 +15,7 @@ import {
   HOME_TASK_LIMIT, progressOf, overdueTasks, cardsFor, otherVisibleIn,
   financeBriefOf, financeTextOf,
 } from "./home-view.js";
-import { bindFresh, emptyState, priorityChip, sourceTag } from "./ui.js";
+import { bindFresh, emptyState, priorityChip, sourceTag, tagChips } from "./ui.js";
 import { icon } from "./icons.js";
 import { updateTaskStatus, bumpModuleProgress } from "./task-actions.js";
 import { overviewRowsOf } from "./goal-calc.js";
@@ -344,6 +344,7 @@ function row(t) {
       </label>
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
+      ${tagChips(t)}
       ${sourceTag(t)}
       ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}
       <span class="t-time">${t.time ? esc(t.time) : ""}</span>

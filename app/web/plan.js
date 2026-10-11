@@ -9,7 +9,7 @@ import {
   store, touch, todayStr, formatDateCN, table, esc, moveToTrash,
   planShowGameOf, setPlanShowGame,
 } from "./store.js";
-import { bindFresh, pageHeader, markEnter, priorityChip, sourceTag } from "./ui.js";
+import { bindFresh, pageHeader, markEnter, priorityChip, sourceTag, tagChips } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { renderCalendar } from "./calendar.js";
 import { icon } from "./icons.js";
@@ -207,6 +207,7 @@ function row(t) {
       <span class="t-time">${t.time ? esc(t.time) : "—"}</span>
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
+      ${tagChips(t)}
       ${imgBadge(t.imagePaths, "图")}
       ${sourceTag(t)}
       ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}

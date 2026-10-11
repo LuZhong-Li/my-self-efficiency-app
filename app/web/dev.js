@@ -4,7 +4,8 @@ import {
   touch, uid, table, esc, todayStr, nowText, moveToTrash,
   autoArchiveTodoOf, autoArchiveIssueOf,
 } from "./store.js";
-import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip } from "./ui.js";
+import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip,
+  tagChips } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
 import { inTodayPlan } from "./task-calc.js";
@@ -376,6 +377,7 @@ function todoRow(t) {
       </label>
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
+      ${tagChips(t)}
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>
       <label class="plan-pick" title="加入今日计划：勾上之后，这条也出现在今日计划和首页总览，两边状态同步">

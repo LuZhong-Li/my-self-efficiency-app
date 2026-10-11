@@ -4,6 +4,7 @@ import { esc } from "./store.js";
 import { icon } from "./icons.js";
 import { moduleOf } from "./modules.js";
 import { priorityClass, taskSourceLabel, taskOwnerOf } from "./task-calc.js";
+import { tagsOfRow, tagColor, visibleTags } from "./tag-calc.js";
 
 /** 一段小标题 + 右侧说明，用来分隔同一张卡片里的几个区块 */
 export function sectionHead(title, count, extra = "") {
@@ -38,6 +39,25 @@ export function sourceTag(task) {
     ? "这条待办挂在开发工作的项目上：状态和正文两边同步，删除要回项目里删"
     : "这条是从别的模块加进来的，正文照样能改";
   return `<span class="t-src${dev ? " neutral" : ""}" title="${esc(tip)}">${esc(text)}</span>`;
+}
+
+/**
+ * 标签胶囊：一条记录贴的标签画成小胶囊，最多画 max 个，剩下的收成 +N
+ * （鼠标移上去 title 里能看到全部）。没标签就返回空串，不占位。
+ * 颜色由名字哈希取（tag-calc.js 的 tagColor），不落盘、不用配。
+ */
+export function tagChips(row, max = 3) {
+  const tags = tagsOfRow(row);
+  if (!tags.length) return "";
+  const { shown, rest } = visibleTags(tags, max);
+  return (
+    shown
+      .map((name) => `<span class="chip tag-chip" data-c="${tagColor(name)}">${esc(name)}</span>`)
+      .join("") +
+    (rest > 0
+      ? `<span class="chip tag-chip tag-more" title="${esc(tags.join("、"))}">+${rest}</span>`
+      : "")
+  );
 }
 
 /** 把 <select> 的选项拼出来 */

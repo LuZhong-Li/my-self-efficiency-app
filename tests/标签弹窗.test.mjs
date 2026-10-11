@@ -410,6 +410,48 @@ async function main() {
     ok(Boolean(saved), "数据文件里新增了这条任务");
     eq(J(saved && saved.tags), J(["工作", "本周"]), "存的是数组，不是「工作, 本周」这一串文本");
 
+    /* ---- 列表行上画出胶囊 ---- */
+    console.log("\n列表行上：胶囊画出来了");
+    ok(
+      await waitFor('!!document.querySelector(".tasks .chip.tag-chip")', 5000),
+      "任务行上出现了标签胶囊"
+    );
+    // 按行取：夹具那条任务也贴了「工作」，整页取会把它的也算进来
+    const newRowChips = await ev(`(()=>{
+      const row=[...document.querySelectorAll('.tasks li')].find(li=>li.textContent.includes('带标签的新任务'));
+      return row ? [...row.querySelectorAll('.chip.tag-chip')].map(c=>c.textContent.trim()).join("/") : null;
+    })()`);
+    eq(newRowChips, "工作/本周", "这一行画的是这两个标签");
+    ok(
+      await ev('[...document.querySelectorAll(".tasks .chip.tag-chip")].every(c=>Number(c.dataset.c)>=1)'),
+      "每枚胶囊都带着颜色档位（CSS 靠它取色）"
+    );
+
+    /* ---- 贴得多：前三个画出来，剩下的收成 +N ---- */
+    console.log("\n贴五个标签：行上只画三个，剩下两个收成 +2");
+    await ev('document.querySelector(\'[data-act="add"]\').click()');
+    ok(await waitFor("!!document.getElementById('item-tags')", 5000), "又开了一个新增弹窗");
+    await typeTags("一,二,三,四,五");
+    await ev("(()=>{const i=document.getElementById('item-text');i.value='标签很多的任务';" +
+      "i.dispatchEvent(new Event('input',{bubbles:true}));return true;})()");
+    await clickDialog("save");
+    await sleep(400);
+    const manyChips = await ev(`(()=>{
+      const row=[...document.querySelectorAll('.tasks li')].find(li=>li.textContent.includes('标签很多的任务'));
+      if(!row) return null;
+      const chips=[...row.querySelectorAll('.chip.tag-chip')];
+      return {
+        texts: chips.map(c=>c.textContent.trim()),
+        more: chips.some(c=>c.classList.contains('tag-more')),
+        moreText: (chips.find(c=>c.classList.contains('tag-more'))||{}).textContent || "",
+        moreTitle: (chips.find(c=>c.classList.contains('tag-more'))||{}).title || "",
+      };
+    })()`);
+    ok(Boolean(manyChips), "找得到那条贴了五个标签的任务");
+    eq(manyChips && manyChips.texts.join("/"), "一/二/三/+2", "只画前三个，剩下两个收成 +2");
+    ok(manyChips && manyChips.moreTitle.includes("四") && manyChips.moreTitle.includes("五"),
+      "鼠标移上去的提示里有没画出来的那两个（" + (manyChips && manyChips.moreTitle) + "）");
+
     /* ---- 再打开编辑：回填 + 预览 ---- */
     console.log("\n再打开编辑：回填成一行文本，预览也画出来");
     const opened = await ev(`(()=>{

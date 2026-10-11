@@ -219,7 +219,9 @@ async function typeQuery(q) {
     "(()=>{const i=document.getElementById('search');i.focus();" +
       "i.value='';i.dispatchEvent(new Event('input',{bubbles:true}));return true;})()"
   );
-  await waitFor("document.getElementById('search-panel').hidden === true", 4000);
+  // 等上一次的结果收干净（不是等面板整个收起来）：空输入现在会把标签行摆出来，
+  // 面板不再是「一清空就 hidden」，所以这里看的是「结果条数归零」。
+  await waitFor("document.querySelectorAll('#search-panel .sr-item').length === 0", 4000);
   if (q) {
     await cdp.send("Input.insertText", { text: q });
     // 敲完等防抖那一拍过去、面板重画完，再读
@@ -308,7 +310,7 @@ async function main() {
         {
           id: "t-搜索", text: "把搜索做全", note: "搜得到每一类才算数", time: "",
           category: "工作", priority: "中", date: today, belong: "plan", done: false,
-          createdAt: d.toISOString(),
+          tags: ["工作", "本周"], createdAt: d.toISOString(),
         },
         {
           id: "t-搜索-归档", text: "去年就归档的旧事", note: "", time: "",
@@ -353,6 +355,7 @@ async function main() {
           {
             id: "tx-搜索", type: "expense", amountCents: 220000, date: today,
             category: "餐饮", accountId: "acc-搜索", note: "午饭 黄焖鸡", createdAt: "",
+            tags: ["工作"],
           },
         ],
       },
@@ -559,6 +562,50 @@ async function main() {
     await ev("document.getElementById('search-archived').click()");
     await sleep(400);
     eq((await panelNow()).none, "没找到「去年就归档」", "取消勾选又收回去了（勾选框真的在生效）");
+
+    console.log("\n标签：搜一下就有、点一个只列带它的记录、点结果照样跳模块");
+    await typeQuery("工作");
+    const tagRow = await ev(`(()=>{
+      const box=document.querySelector('#search-panel .sr-tags');
+      if(!box) return null;
+      return [...box.querySelectorAll('[data-tag]')].map(b=>({ tag:b.dataset.tag, title:b.title }));
+    })()`);
+    ok(Array.isArray(tagRow) && tagRow.some((t) => t.tag === "工作"), "面板里列出了「工作」这个标签");
+    ok(
+      Array.isArray(tagRow) && tagRow.some((t) => t.tag === "工作" && t.title.includes("2")),
+      "标签上写着它有几条（工作 2 条：待办 1 + 账目 1）"
+    );
+    const clickedTag = await ev(`(()=>{
+      const b=document.querySelector('#search-panel [data-tag="工作"]');
+      if(!b) return false;
+      b.click();
+      return true;
+    })()`);
+    ok(clickedTag, "点得动那个标签");
+    await sleep(250);
+    p = await panelNow();
+    ok(hasHit(p, "待办", "工作"), "标签筛里带出贴了它的待办");
+    ok(hasHit(p, "账目", "工作"), "跨模块：贴了同一个标签的账目也在");
+    ok(!hasHit(p, "体重"), "没贴这个标签的记录不混进来");
+    jump = await clickHit("账目");
+    ok(jump.clicked && jump.hash === "#finance", "点标签筛出来的账目 → 跳记账");
+
+    console.log("\n空着输入框也能点到标签（想找标签不用先想关键词）");
+    await typeQuery("");
+    // 清空输入框之后要等那 200ms 的防抖过去，面板才会按「空框」重画
+    await waitFor("!!document.querySelector('#search-panel .sr-tags')", 4000);
+    const tagOnly = await ev(`(()=>{
+      const panel=document.getElementById('search-panel');
+      const box=panel.querySelector('.sr-tags');
+      return {
+        hidden: panel.hidden,
+        tags: box ? [...box.querySelectorAll('[data-tag]')].map(b=>b.dataset.tag) : [],
+        items: panel.querySelectorAll('.sr-item').length,
+      };
+    })()`);
+    eq(tagOnly.hidden, false, "空框聚焦时面板是开着的（不然看不见标签）");
+    ok(tagOnly.tags.includes("工作"), "空框时那行标签照样在");
+    eq(tagOnly.items, 0, "空框时不摆结果（只摆标签，不瞎列一堆）");
 
     console.log("\n点结果之后：面板收起、输入框清空；查无此词的说法");
     await hits("减重");

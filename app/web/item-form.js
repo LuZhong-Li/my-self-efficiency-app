@@ -11,6 +11,7 @@
 import { rowPaths } from "./attachment-calc.js";
 import { GOAL_CYCLES } from "./goal-calc.js";
 import { DURATION_UNITS, toMinutes, shownDuration, linkGameId } from "./game-calc.js";
+import { normalizeTags, tagInputError, tagsText } from "./tag-calc.js";
 
 /* 这里自带一个转义：store.js 里那个 esc 是给浏览器用的（那个文件会碰 window），
    纯模块 import 不了它。实现故意和 store.js 里那份保持一致。 */
@@ -69,6 +70,8 @@ export const FORMS = {
         maxlength: 2000, placeholder: "目标、规划、怎么算做完（可不填）" },
       { name: "expectEndDate", label: "预计结束日期", kind: "date",
         placeholder: "打算什么时候收尾（可不填）" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
     ],
     label: (row) => row.name || "（没写名字）",
     extraNote: "条待办 / 问题 / 进展",   // 删除确认里那句「它的 N … 也一起进回收站」
@@ -97,6 +100,8 @@ export const FORMS = {
         half: true, default: "工作" },
       { name: "priority", label: "优先级", kind: "select", list: PRIORITIES,
         blank: "不标", default: "" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "备注（可不填）" },
     ],
@@ -126,6 +131,8 @@ export const FORMS = {
         placeholder: "这个项目要做什么…" },
       { name: "priority", label: "优先级", kind: "select", list: PRIORITIES,
         half: true, blank: "不标", default: "" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "备注（可不填）" },
     ],
@@ -156,6 +163,8 @@ export const FORMS = {
         half: true },
       { name: "minutes", label: "时长（分钟）", kind: "number", min: 0, step: 5,
         placeholder: "比如 45" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "content", label: "学了什么", kind: "text", maxlength: 120,
         placeholder: "今天学了什么…" },
       { name: "takeaway", label: "心得 / 疑问", kind: "textarea", rows: 4,
@@ -189,6 +198,8 @@ export const FORMS = {
         half: true, default: "书" },
       { name: "source", label: "作者 / 平台", kind: "text", maxlength: 60,
         half: true, placeholder: "中信出版 / B 站…" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "为什么想学、打算怎么学（可不填）" },
     ],
@@ -209,6 +220,8 @@ export const FORMS = {
       { name: "date", label: "打卡日期", kind: "date", required: true, half: true },
       { name: "moves", label: "训练内容", kind: "textarea", rows: 4, maxlength: 600,
         required: true, placeholder: "深蹲 3×12 / 硬拉 3×8，或者跑步 5 km" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "今天感觉怎么样（可不填）" },
     ],
@@ -233,6 +246,8 @@ export const FORMS = {
         half: true, placeholder: "比如 10（可不填）" },
       { name: "finishDate", label: "通关日期", kind: "date", half: true,
         showWhen: { field: "status", equals: "已通关" } },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       // 2026-10-07 起累计时长改成从「游玩记录」自动算，这一格只留给老数据；
       // 不用再手填，填 0 就等于把以前手记的那笔清掉。
       { name: "hours", label: "原有手填时长（小时）", kind: "number", min: 0, step: 1,
@@ -267,6 +282,8 @@ export const FORMS = {
       { name: "durationUnit", label: "时长单位", kind: "select", list: DURATION_UNITS,
         half: true, default: "分钟",
         fromRow: (row) => shownDuration(row && row.durationMin).unit },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "remark", label: "备注", kind: "textarea", rows: 4, maxlength: 600,
         placeholder: "对局感受、打到哪一关、和谁一起玩（可不填）" },
     ],
@@ -304,6 +321,8 @@ export const FORMS = {
       { name: "mainTarget", label: "核心目标", kind: "textarea", rows: 3, maxlength: 400,
         required: true, placeholder: "比如：3 个月减重 8kg，每周力量 3 次、有氧 2 次" },
       { name: "cycle", label: "目标周期", kind: "select", list: GOAL_CYCLES, default: "每日" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：工作、本周" },
       { name: "startDate", label: "开始日期", kind: "date", half: true },
       { name: "endDate", label: "结束日期", kind: "date", half: true },
       { name: "dailyRule", label: "自动任务规则", kind: "textarea", rows: 3, maxlength: 400,
@@ -488,6 +507,11 @@ export function valuesOf(type, row, extra = {}) {
       continue;
     }
     const v = src[field.name];
+    // 标签：记录里是数组，框里是「工作、本周」这种一行文本
+    if (field.kind === "tags") {
+      out[field.name] = tagsText(v);
+      continue;
+    }
     if (v === undefined || v === null || v === "") continue;
     // 数字字段是 0（时长、小时数没填）就当没填，框里留空让占位提示露出来
     if (field.kind === "number" && Number(v) === 0) continue;
@@ -514,6 +538,11 @@ export function validate(type, values) {
     if (field.required && !String(values[field.name] || "").trim()) {
       return { ok: false, error: `「${field.label}」不能是空的` };
     }
+    // 标签的上限（个数 / 单字长度）只有 tag-calc.js 一份定义，这里只负责报错
+    if (field.kind === "tags") {
+      const tagErr = tagInputError(values[field.name]);
+      if (tagErr) return { ok: false, error: `「${field.label}」${tagErr}` };
+    }
   }
   if (spec.requireAny) {
     const filled = spec.requireAny.some((name) => String(values[name] || "").trim());
@@ -528,7 +557,8 @@ export function applyValues(type, row, values, ctx = {}) {
   for (const field of spec.fields) {
     if (field.kind === "static") continue;   // 只读字段不回写，免得把它冲成空
     const raw = String(values[field.name] ?? "").trim();
-    if (field.kind === "switch") row[field.name] = Boolean(raw) && raw !== "off";
+    if (field.kind === "tags") row[field.name] = normalizeTags(raw);
+    else if (field.kind === "switch") row[field.name] = Boolean(raw) && raw !== "off";
     else row[field.name] = field.kind === "number" ? Number(raw) || 0 : raw;
   }
   // 写回之后再整理一次（游玩记录把「数字 + 单位」拧成分钟，就是这一步干的）

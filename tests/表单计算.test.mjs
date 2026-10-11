@@ -137,7 +137,8 @@ ok(projHtml.includes("<textarea"), "详细描述是多行");
 /* ---------------- 项目的初始值 / 校验 / 新增 ---------------- */
 
 eqDeep(defaultsOf("devProject"),
-  { name: "", status: "进行中", startDate: "", intro: "", description: "", expectEndDate: "" },
+  { name: "", status: "进行中", startDate: "", intro: "", description: "", expectEndDate: "",
+    tags: "" },
   "新增项目的默认值（状态默认进行中，其它空着）");
 eq(valuesOf("devProject", { name: "木头", status: "废弃", description: "先放着" }).status, "废弃",
   "编辑时状态回填");
@@ -148,14 +149,15 @@ eq(validate("devProject", { name: "小李" }).ok, true, "只填名字也能存�
 /* ---------------- 初始值 ---------------- */
 
 eqDeep(defaultsOf("game"),
-  { name: "", platform: "PC", status: "想玩", targetHours: "", finishDate: "", hours: "", progress: "" },
+  { name: "", platform: "PC", status: "想玩", targetHours: "", finishDate: "",
+    tags: "", hours: "", progress: "" },
   "新增游戏时的默认值");
 eq(defaultsOf("studyItem").kind, "书", "新增学习对象默认类型是书");
 eq(defaultsOf("devTodo").priority, "", "新增待办默认不标优先级");
 
 eqDeep(valuesOf("game", { name: "只狼", status: "已通关" }),
   { name: "只狼", platform: "PC", status: "已通关", targetHours: "", finishDate: "",
-    hours: "", progress: "" },
+    tags: "", hours: "", progress: "" },
   "编辑时：记录里有的用记录的，没有的用默认值");
 eq(valuesOf("game", { hours: 0 }).hours, "", "时长 0 当成没填，框里留空");
 eq(valuesOf("game", { hours: 42 }).hours, "42", "时长有值就带出来");
@@ -165,7 +167,7 @@ eq(valuesOf("fitness", null, { date: "2026-10-01" }).date, "2026-10-01", "extra 
 
 const bag = { text: "  写方案  ", minutes: "", category: "生活" };
 eqDeep(readValues("todayPlan", (name) => bag[name]),
-  { text: "  写方案  ", time: "", category: "生活", priority: "", note: "" },
+  { text: "  写方案  ", time: "", category: "生活", priority: "", tags: "", note: "" },
   "读表单：没填的字段回空串，不去动两头的空格（校验和写回各管各的）");
 
 /* ---------------- 校验 ---------------- */
@@ -207,7 +209,7 @@ eqDeep(todo, {
   id: "id-1", date: "", time: "", category: "工作", done: false, note: "",
   priority: "高", belong: "dev:demo-p1", createdAt: "2026-10-07T10:00:00.000Z",
   isTodayPlan: false,
-  text: "把月历氛围底调淡", imagePaths: [],
+  text: "把月历氛围底调淡", tags: [], imagePaths: [],
 }, "新增一条开发待办：空壳 + 表单值 + imagePaths: []");
 
 const plan = newRow("todayPlan", { text: "写方案", time: "09:00", category: "工作", note: "" }, ctx);
@@ -236,7 +238,7 @@ const proj = newRow("devProject",
 eqDeep(proj, {
   id: "id-1", name: "小李", status: "进行中", intro: "本机小工具",
   description: "把十个模块串起来", startDate: "2026-10-03", expectEndDate: "2026-12-31",
-  imagePaths: [],
+  tags: [], imagePaths: [],
 }, "新增项目：空壳 + 七个字段 + 空图片数组");
 
 /* ---------------- 删除计划 ---------------- */
@@ -308,8 +310,8 @@ eq(goalSpec.titleNew, "设置模块目标", "新增标题");
 eq(goalSpec.titleEdit, "修改模块目标", "编辑标题");
 
 const goalFields = goalSpec.fields.map((f) => f.name);
-eqDeep(goalFields, ["moduleName", "mainTarget", "cycle", "startDate", "endDate",
-  "dailyRule", "remark", "isActive", "autoTask"], "目标的九个字段，按顺序");
+eqDeep(goalFields, ["moduleName", "mainTarget", "cycle", "tags", "startDate", "endDate",
+  "dailyRule", "remark", "isActive", "autoTask"], "目标的十个字段，按顺序（标签插在周期后面）");
 eq(formOf("moduleGoal").fields.find((f) => f.name === "moduleName").kind, "static",
   "「所属模块」是只读的一行");
 eq(formOf("moduleGoal").fields.find((f) => f.name === "isActive").kind, "switch",
@@ -365,8 +367,8 @@ ok(goalTrash.note.includes("待办会留"), "提示里说清「已生成的待�
 eq(formOf("gamePlayRecord").table, "gameRecords", "游玩记录存 gameRecords 表");
 eq(formOf("gamePlayRecord").upload, "game_record", "游玩记录的图片单独一格");
 eqDeep(formOf("gamePlayRecord").fields.map((f) => f.name),
-  ["gameName", "playDate", "duration", "durationUnit", "remark"],
-  "游玩记录五个字段：游戏名 / 日期 / 时长 / 单位 / 备注");
+  ["gameName", "playDate", "duration", "durationUnit", "tags", "remark"],
+  "游玩记录六个字段：游戏名 / 日期 / 时长 / 单位 / 标签 / 备注");
 eq(formOf("gamePlayRecord").fields[0].kind, "combo",
   "游戏名是「下拉 + 手打」两用（清单里有就选，没有就自己打）");
 eq(formOf("gamePlayRecord").fields[0].required, true, "游戏名必填");
@@ -415,7 +417,7 @@ const playNew = newRow("gamePlayRecord",
   { uid: () => "id-9", nowIso: () => "2026-10-06T20:00:00.000Z", date: "2026-10-07" });
 eqDeep(playNew, {
   id: "id-9", gameId: "", gameName: "只狼", playDate: "2026-10-06", durationMin: 90,
-  remark: "", createAt: "2026-10-06T20:00:00.000Z", imagePaths: [],
+  remark: "", createAt: "2026-10-06T20:00:00.000Z", tags: [], imagePaths: [],
 }, "新增游玩记录：空壳 + 表单值（时长拧成分钟）+ 空图片数组");
 
 const playTrash = trashPlan("gamePlayRecord", { id: "r1", gameName: "只狼", playDate: "2026-10-07" });
@@ -429,6 +431,38 @@ applyValues("game", gRow, { name: "只狼", platform: "PC", status: "已通关",
   targetHours: "10", finishDate: "2026-09-20", hours: "", progress: "" });
 eq(gRow.targetHours, 10, "每月目标写成数字");
 eq(gRow.finishDate, "2026-09-20", "通关日期原样写回");
+
+/* ---------------- 标签字段（2026-10-11 加的） ----------------
+   表单里它是「一行文本」，记录里它是数组：进和出都在这儿转换，
+   页面那边不许自己拆字符串。 */
+
+for (const type of ITEM_TYPES) {
+  const field = formOf(type).fields.find((f) => f.kind === "tags");
+  ok(Boolean(field), `${type} 挂了标签字段`);
+  eq(field && field.name, "tags", `${type} 的标签字段名就叫 tags`);
+}
+
+const tagForm = { ...defaultsOf("todayPlan"), text: "写标签系统", tags: "工作, 本周、工作" };
+const tagRow = newRow("todayPlan", tagForm,
+  { uid: () => "t-tags", nowIso: () => "2026-10-11T10:00:00.000Z", date: "2026-10-11" });
+eqDeep(tagRow.tags, ["工作", "本周"], "记录里存的是干净数组（重复的、混着写分隔符都收拾好）");
+eq(tagRow.text, "写标签系统", "别的字段照旧（标签没把表单读坏）");
+
+eq(valuesOf("todayPlan", { id: "t1", text: "x", tags: ["工作", "本周"] }, {}).tags, "工作、本周",
+  "编辑时回填成一行文本");
+eq(valuesOf("todayPlan", { id: "t1", text: "x" }, {}).tags, "", "老记录没标签 → 空框");
+
+eq(validate("todayPlan", { ...tagForm, tags: "一,二,三,四,五,六,七,八,九" }).ok, false,
+  "9 个标签过不了校验");
+eq(validate("todayPlan", { ...tagForm, tags: "一,二,三,四,五,六,七,八" }).ok, true,
+  "8 个刚好放行");
+eq(validate("todayPlan", { ...tagForm, tags: "长".repeat(25) }).error.indexOf("24") >= 0, true,
+  "单个标签太长时，提示里带上限（人看得见该改多少）");
+eq(validate("todayPlan", { ...tagForm, tags: "工作" }).ok, true, "正常标签放行");
+
+const cleared = { id: "t2", text: "老记录", tags: ["旧的"] };
+applyValues("todayPlan", cleared, { ...tagForm, tags: "" });
+eqDeep(cleared.tags, [], "标签框清空 = 字段清成空数组（不是留着旧值）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

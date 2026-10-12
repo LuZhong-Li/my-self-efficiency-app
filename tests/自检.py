@@ -244,6 +244,11 @@ def main() -> int:
             "note": "自检", "createdAt": "2026-10-07 12:30",
         }]
         cur["finance"]["budget"]["monthlyTotalCents"] = 200000
+        cur["finance"]["transfers"] = [{
+            "id": "tf-selftest", "amountCents": 50000, "date": "2026-10-07",
+            "fromAccountId": "acc-a", "toAccountId": "acc-b", "note": "自检转账",
+            "imagePaths": [],
+        }]
         call(port, "/api/data", "POST", cur)
 
         status, exp2 = call(port, "/api/export", "POST", {})
@@ -254,6 +259,30 @@ def main() -> int:
         check("导出导入往返带着记账数据",
               back2["finance"]["transactions"][0]["amountCents"] == 2550
               and back2["finance"]["budget"]["monthlyTotalCents"] == 200000)
+        check("导出导入往返带着转账",
+              back2["finance"]["transfers"][0]["amountCents"] == 50000
+              and back2["finance"]["transfers"][0]["toAccountId"] == "acc-b",
+              str(back2["finance"].get("transfers")))
+
+        # 转账（2026-10-12 新增）：老数据没有这个键（或者某一行缺字段），读出来补齐，
+        # 已有的值一个都不动。
+        cur = call(port, "/api/data")[1]
+        cur["finance"].pop("transfers", None)
+        call(port, "/api/data", "POST", cur)
+        back3 = call(port, "/api/data")[1]
+        check("老数据没有 transfers 读出来补成空表",
+              back3["finance"].get("transfers") == [],
+              str(back3["finance"].get("transfers")))
+
+        cur = call(port, "/api/data")[1]
+        cur["finance"]["transfers"] = [{"id": "tf-old", "amountCents": 100}]
+        call(port, "/api/data", "POST", cur)
+        old_tf = call(port, "/api/data")[1]["finance"]["transfers"][0]
+        check("老转账缺的字段读出来补齐（日期 / 两个账户 / 备注 / 图片）",
+              old_tf.get("date") == "" and old_tf.get("fromAccountId") == ""
+              and old_tf.get("toAccountId") == "" and old_tf.get("note") == ""
+              and old_tf.get("imagePaths") == [] and old_tf.get("amountCents") == 100,
+              str(old_tf))
 
         # 债务：导出导入也要带着走
         cur = call(port, "/api/data")[1]

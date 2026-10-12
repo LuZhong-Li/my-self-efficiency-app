@@ -417,6 +417,28 @@ def migrate(data: dict) -> dict:
         for key, value in default_finance().items():
             if key not in data["finance"]:
                 data["finance"][key] = value
+    # 转账（2026-10-12 新增）：两个账户之间挪钱，单独一张 finance.transfers。
+    # 键本身上面那段「缺键就补骨架」已经兜住了；这里管两件事：
+    # ① 键在但不是数组（手改过）→ 给一个空数组；② 数组里每行缺的字段补齐，
+    # 已有值一个都不动（金额取绝对值再取整，防手滑写成负数或带小数）。
+    transfers = (data.get("finance") or {}).get("transfers")
+    if not isinstance(transfers, list):
+        transfers = []
+    fixed_transfers = []
+    for row in transfers:
+        if not isinstance(row, dict):
+            continue
+        row.setdefault("id", "tf-" + uuid.uuid4().hex[:8])
+        try:
+            row["amountCents"] = abs(int(row.get("amountCents") or 0))
+        except (TypeError, ValueError):
+            row["amountCents"] = 0
+        for key in ("date", "fromAccountId", "toAccountId", "note", "createdAt"):
+            row.setdefault(key, "")
+        if not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
+        fixed_transfers.append(row)
+    data["finance"]["transfers"] = fixed_transfers
     if not isinstance(data.get("debt"), dict) or not isinstance(data["debt"].get("items"), list):
         data["debt"] = default_debt()
     # 两个债务分类也要给老数据补上（缺了才加，有了不动）

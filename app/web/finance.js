@@ -15,6 +15,7 @@ import {
   monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
   accountBalanceCents, balanceTotals, categoryBudgetStates, validateAccountInput,
   ensureCategories, dayCategories, filterByCategory,
+  normalizeTransfer, transfersOfAccount, validateTransferInput,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -484,30 +485,57 @@ function openAccountDialog(account) {
   return dlg;
 }
 
-/** 弹窗里的表单。类型切换、分类格子都是按钮 —— 用 data-act 由弹窗自己
- *  的 click 处理，不经过 bindFresh（弹窗挂在 body 上，不在 #view 里）。 */
-function txFormHtml(v, type, f) {
-  const cats = (f.categories || {})[type] || [];
+/** 弹窗里共用的那一截：三个类型页签 + 金额 + 日期（账户那一格两种形态各画各的）。
+ *  类型切换、分类格子都是按钮 —— 用 data-act 由弹窗自己的 click 处理，
+ *  不经过 bindFresh（弹窗挂在 body 上，不在 #view 里）。 */
+function txHeadHtml(v, type, accountCell) {
   return `
     <div class="fin-tabs">
       <button type="button" class="fin-tab${type === "expense" ? " active" : ""}" data-act="tx-type" data-type="expense">支出</button>
       <button type="button" class="fin-tab${type === "income" ? " active" : ""}" data-act="tx-type" data-type="income">收入</button>
+      <button type="button" class="fin-tab${type === "transfer" ? " active" : ""}" data-act="tx-type" data-type="transfer">转账</button>
     </div>
     <label class="fin-label" for="tx-amount">金额</label>
     <div class="fin-amount-input"><i>¥</i>
       <input id="tx-amount" type="text" inputmode="decimal" maxlength="12" placeholder="0.00" value="${esc(v.amount)}">
     </div>
+    <p class="fin-err" id="tx-amount-err" hidden></p>
     <div class="fin-two">
       <div>
         <label class="fin-label" for="tx-date">日期</label>
         <input id="tx-date" type="date" value="${esc(v.date)}">
+        <p class="fin-err" id="tx-date-err" hidden></p>
       </div>
-      <div>
-        <label class="fin-label" for="tx-account">账户</label>
-        <select id="tx-account">${accountOptionsHtml(v.accountId)}</select>
-      </div>
-    </div>
-    <p class="fin-help">账户之间转钱暂时不能记，只能手动记一笔「A 账户支出」+ 一笔「B 账户收入」。</p>
+      <div>${accountCell}</div>
+    </div>`;
+}
+
+/** 转账：钱从哪个账户到哪个账户，没有分类那一块（它不是花销） */
+function txTransferFormHtml(v) {
+  const fromCell = `
+    <label class="fin-label" for="tx-from">从</label>
+    <select id="tx-from">${accountOptionsHtml(v.fromAccountId)}</select>
+    <p class="fin-err" id="tx-from-err" hidden></p>`;
+  return `${txHeadHtml(v, "transfer", fromCell)}
+    <label class="fin-label" for="tx-to">到</label>
+    <select id="tx-to">${accountOptionsHtml(v.toAccountId)}</select>
+    <p class="fin-err" id="tx-to-err" hidden></p>
+    <p class="fin-help">钱只在这两个账户之间挪：不算支出、不算收入，也不进预算和月历。
+      手续费这类真花掉的钱，单独记一笔支出就行。</p>
+    <label class="fin-label" for="tx-note">备注</label>
+    <textarea id="tx-note" rows="3" maxlength="200"
+      placeholder="比如：还信用卡">${esc(v.note)}</textarea>
+    <div class="attach-host" id="tx-attach"></div>`;
+}
+
+/** 弹窗里的表单：转账走自己那一套，收支还是原来那一套 */
+function txFormHtml(v, type, f) {
+  if (type === "transfer") return txTransferFormHtml(v);
+  const cats = (f.categories || {})[type] || [];
+  const accountCell = `
+    <label class="fin-label" for="tx-account">账户</label>
+    <select id="tx-account">${accountOptionsHtml(v.accountId)}</select>`;
+  return `${txHeadHtml(v, type, accountCell)}
     <label class="fin-label">分类</label>
     <div class="fin-cats">
       ${cats
@@ -527,29 +555,52 @@ function txFormHtml(v, type, f) {
     <div class="attach-host" id="tx-attach"></div>`;
 }
 
-/** 打开「记一笔 / 改一笔」。传 tx 就是改，不传就是新增。 */
-function openTxDialog(tx) {
+/**
+ * 打开「记一笔 / 改一笔」。传 tx 就是改，不传就是新增。
+ * 第二参数可选：{ type: "transfer" } 表示打开就停在「转账」页签
+ * （账户卡片上那个按钮用的）；编辑一条转账时不用传 —— 它带着 fromAccountId，
+ * 弹窗自己认得出。
+ */
+function openTxDialog(tx, options = {}) {
   const editing = Boolean(tx);
+  // 编辑时认得出这条是转账还是账目：转账带 fromAccountId / toAccountId，账目带 category
+  const isTransfer = Boolean(tx && (tx.fromAccountId || tx.toAccountId));
   const f = financeOf();
-  const type0 = editing ? tx.type : "expense";
+  const accounts = accountsOf();
+  let type = editing
+    ? (isTransfer ? "transfer" : tx.type)
+    : (options.type === "transfer" ? "transfer" : "expense");
   const v = editing
-    ? {
-        amount: centsToYuan(tx.amountCents), date: tx.date, category: tx.category,
-        accountId: tx.accountId || "", note: tx.note || "",
-      }
-    : {
-        amount: "", date: selected, category: "其他",
-        accountId: (accountsOf()[0] || {}).id || "", note: "",
-      };
-
-  let type = type0;
+    ? (isTransfer
+        ? {
+            amount: centsToYuan(tx.amountCents), date: tx.date,
+            fromAccountId: tx.fromAccountId || "", toAccountId: tx.toAccountId || "",
+            note: tx.note || "",
+          }
+        : {
+            amount: centsToYuan(tx.amountCents), date: tx.date, category: tx.category,
+            accountId: tx.accountId || "", note: tx.note || "",
+          })
+    : (type === "transfer"
+        ? {
+            amount: "", date: selected,
+            fromAccountId: (accounts[0] || {}).id || "",
+            toAccountId: (accounts[1] || {}).id || "",
+            note: "",
+          }
+        : {
+            amount: "", date: selected, category: "其他",
+            accountId: (accounts[0] || {}).id || "", note: "",
+          });
   // 这条账目原来带着的图片路径（保存时用它算「哪几张被移除了」）
   const beforePaths = editing ? rowPaths(tx) : [];
   // 图片备注：已存下的路径 + 刚挑进来还没写盘的，都攒在这一个 state 里。
   // 点「取消」时一个字节都没落盘，不会留下没人认领的图片（见 attachment.js）。
   const attach = createAttach({ module: "finance", paths: beforePaths });
   const dlg = openDialog({
-    title: editing ? "改一笔" : "记一笔",
+    title: editing
+      ? (isTransfer ? "改这条转账" : "改一笔")
+      : (type === "transfer" ? "转账" : "记一笔"),
     bodyHtml: txFormHtml(v, type, f),
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
@@ -569,15 +620,19 @@ function openTxDialog(tx) {
       // 这里只会收到 save / cancel / delete 三个。
       if (act === "cancel") return true;
       if (act === "delete") {
+        const tf = isTransfer;
         (async () => {
           const ok = await askConfirm({
-            title: "删除这一笔？",
-            message: `${tx.note || tx.category}\n\n会放进回收站。`,
+            title: tf ? "删除这条转账？" : "删除这一笔？",
+            message: tf
+              ? `${tx.note || "这条转账"}\n\n账户余额会跟着回到原样，会放进回收站。`
+              : `${tx.note || tx.category}\n\n会放进回收站。`,
             confirmLabel: "删除",
             danger: true,
           });
           if (!ok) return;
-          moveToTrash("finance.transactions", tx, tx.note || tx.category);
+          if (tf) moveToTrash("finance.transfers", tx, tx.note || "转账");
+          else moveToTrash("finance.transactions", tx, tx.note || tx.category);
           touch(true);
           dlg.close();
           toast("已移入回收站");
@@ -590,6 +645,65 @@ function openTxDialog(tx) {
         // 保存要走两步（先写图片、再存 JSON），是异步的，所以这里一律
         // 先返回 false 把弹窗留住，做完再自己关——中途出错就停在原地接着改。
         (async () => {
+          // 转账：四个字段一起校验（金额 / 日期 / 从 / 到），错误写在各自框下面，
+          // 保存写进 finance.transfers（不是 transactions —— 收支统计才不会看见它）
+          if (type === "transfer") {
+            const form = {
+              amount: dlg.el.querySelector("#tx-amount").value,
+              date: dlg.el.querySelector("#tx-date").value || selected,
+              fromAccountId: dlg.el.querySelector("#tx-from").value,
+              toAccountId: dlg.el.querySelector("#tx-to").value,
+              accounts: accountsOf(),
+            };
+            const check = validateTransferInput(form);
+            const show = (sel, msg) => {
+              const box = dlg.el.querySelector(sel);
+              if (!box) return;
+              box.textContent = msg;
+              box.hidden = !msg;
+            };
+            show("#tx-amount-err", check.amountErr || check.hint);
+            show("#tx-date-err", check.dateErr);
+            show("#tx-from-err", check.fromErr);
+            show("#tx-to-err", check.toErr);
+            if (!check.ok) {
+              toast(check.hint || "转账还差点东西", "err");
+              return;
+            }
+            let uploaded = [];
+            try {
+              // 先写图片再动 JSON，和记一笔同一个顺序（反了会留下指着不存在文件的路径）
+              uploaded = await uploadPending(attach);
+            } catch (err) {
+              toast("图片没存下：" + err.message, "err");
+              return;
+            }
+            commitUploads(attach, uploaded);
+            const imagePaths = attach.paths.slice();
+            const note = dlg.el.querySelector("#tx-note").value.trim();
+            if (editing) {
+              Object.assign(tx, {
+                amountCents: check.amountCents, date: form.date,
+                fromAccountId: form.fromAccountId, toAccountId: form.toAccountId,
+                note, imagePaths,
+              });
+            } else {
+              table("finance.transfers").push({
+                id: uid(), amountCents: check.amountCents, date: form.date,
+                fromAccountId: form.fromAccountId, toAccountId: form.toAccountId,
+                note, imagePaths, createdAt: nowText(),
+              });
+            }
+            selected = form.date;  // 记完停在那一天，方便核对
+            dayCat = "";
+            showMonth(monthKey(form.date));
+            touch(true);
+            dlg.close();
+            toast(`已转账 ${fmtMoney(check.amountCents)}`);
+            const removed = beforePaths.filter((p) => !imagePaths.includes(p));
+            if (removed.length) purgeRowAttachments({ imagePaths: removed });
+            return;
+          }
           const next = read();
           const cents = yuanToCents(next.amount);
           if (cents === null) {
@@ -642,15 +756,30 @@ function openTxDialog(tx) {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     if (btn.dataset.act === "tx-type") {
+      const pick = (sel) => {
+        const el = dlg.el.querySelector(sel);
+        return el ? el.value : "";
+      };
       const before = {
-        amount: dlg.el.querySelector("#tx-amount").value,
-        date: dlg.el.querySelector("#tx-date").value,
-        note: dlg.el.querySelector("#tx-note").value,
-        accountId: dlg.el.querySelector("#tx-account").value,
+        amount: pick("#tx-amount"),
+        date: pick("#tx-date"),
+        note: pick("#tx-note"),
+        // 「从 / 到」在转账页签里有、在收支页签里没有（反之亦然）：
+        // 当前页签上取不到就留着上一次的值，切走再切回来才不会丢
+        accountId: pick("#tx-account") || v.accountId || "",
+        fromAccountId: pick("#tx-from") || v.fromAccountId || "",
+        toAccountId: pick("#tx-to") || v.toAccountId || "",
       };
       type = btn.dataset.type;
       const cats = (f.categories || {})[type] || [];
       v.category = cats.includes(v.category) ? v.category : "其他";
+      // 第一次切到转账页签时给一对默认的「从 / 到」（前两个账户），
+      // 不然两个下拉都停在同一个账户上、一进来就报「不能是同一个账户」
+      if (type === "transfer" && !before.fromAccountId) {
+        const list = accountsOf();
+        before.fromAccountId = (list[0] || {}).id || "";
+        before.toAccountId = (list[1] || {}).id || "";
+      }
       dlg.el.querySelector(".dlg-form").innerHTML = txFormHtml(
         { ...before, category: v.category }, type, f
       );
@@ -761,8 +890,30 @@ function onClick(e) {
   const li = btn.closest("[data-id]");
   const id = li ? li.dataset.id : "";
 
-  if (act === "add") {
-    openTxDialog(null);
+  if (act === "add" || act === "tf-add") {
+    // 「记一笔」默认停在支出；账户卡片上那个「转账」按钮直接停在转账页签
+    openTxDialog(null, { type: act === "tf-add" ? "transfer" : "expense" });
+    return;
+  }
+  if (act === "tf-edit" || act === "tf-del") {
+    const tf = table("finance.transfers").find((t) => t.id === id);
+    if (!tf) return;
+    if (act === "tf-edit") {
+      openTxDialog(tf);
+      return;
+    }
+    (async () => {
+      const ok = await askConfirm({
+        title: "删除这条转账？",
+        message: `${tf.note || "这条转账"}\n\n账户余额会跟着回到原样，会放进回收站。`,
+        confirmLabel: "删除",
+        danger: true,
+      });
+      if (!ok) return;
+      moveToTrash("finance.transfers", tf, tf.note || "转账");
+      touch(true);
+      toast("已移入回收站");
+    })();
     return;
   }
   if (act === "tx-edit" || act === "tx-del") {

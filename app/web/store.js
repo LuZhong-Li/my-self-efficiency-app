@@ -380,6 +380,7 @@ export const TRASH_TABLE_LABEL = {
   water: "饮水记录",
   games: "游戏",
   "finance.transactions": "账目",
+  "finance.transfers": "转账",
   "finance.accounts": "账户",
   "debt.items": "债务",
   gameRecords: "游玩记录",

@@ -101,6 +101,11 @@ const DATA = {
     accounts: [
       { id: "a1", name: "微信", initialBalanceCents: 0 },
     ],
+    // 转账也要在样例里有一条：上面那条「每个来源在池子里」的断言会挨个 spec 查
+    transfers: [
+      { id: "tf-search", amountCents: 50000, date: "2026-10-06",
+        fromAccountId: "a1", toAccountId: "a1", note: "样例转账" },
+    ],
   },
   debt: {
     items: [
@@ -277,6 +282,31 @@ eq(searchAll(TAGGED, "工作").every((h) => h.text === "工作"), true,
   "命中标签时，卡片正文给的就是那个标签（不是整条记录的标题）");
 eq(searchAll(TAGGED, "本周").length, 1, "只贴了一条记录的标签也搜得到");
 eq(searchAll(TAGGED, "买菜").length, 1, "老行为没动：正文照样搜得到");
+
+/* ---------------- 转账（2026-10-12 加的） ----------------
+   转账只存账户 id，账户名要回 finance.accounts 里现取 ——
+   和粉丝快照回账号表取名字一个做法。 */
+
+const TF_DATA = {
+  finance: {
+    accounts: [{ id: "a1", name: "微信" }, { id: "a2", name: "招行卡" }],
+    transfers: [
+      { id: "tf1", amountCents: 100000, date: "2026-10-12", fromAccountId: "a1",
+        toAccountId: "a2", note: "还信用卡" },
+      { id: "tf2", amountCents: 20000, date: "2026-10-12", fromAccountId: "a2",
+        toAccountId: "a1", note: "" },
+    ],
+  },
+};
+
+eq(searchAll(TF_DATA, "还信用卡").length, 1, "按备注搜得到转账");
+eq(searchAll(TF_DATA, "还信用卡")[0].label, "转账", "卡片上的标签是「转账」");
+eq(searchAll(TF_DATA, "还信用卡")[0].hash, "finance", "点结果回记账页");
+eq(searchAll(TF_DATA, "招行").filter((h) => h.label === "转账").length, 2,
+  "按账户名搜得到那两条转账（账户那一行本身也会中，所以只数「转账」标签的）");
+eq(searchAll(TF_DATA, "1000").length, 1, "按金额搜得到（1000.00 那条）");
+eq(searchAll(TF_DATA, "转账").length, 2, "搜模块别称「转账」把两条都带出来");
+eq(searchAll(TF_DATA, "招行卡 → 微信").length, 1, "没写备注的那条，正文给的是「A → B」（方向照记录）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

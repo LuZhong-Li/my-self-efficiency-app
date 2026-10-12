@@ -77,6 +77,14 @@ function accountField(row, data, key) {
   return a ? clean(a[key]) : "";
 }
 
+/** 转账存的是 fromAccountId / toAccountId，账户名要回 finance.accounts 里找 */
+function financeAccountName(row, data, key) {
+  const id = clean(row && row[key]);
+  if (!id) return "";
+  const a = readTable(data, "finance.accounts").find((x) => x && clean(x.id) === id) || null;
+  return a ? clean(a.name) : "";
+}
+
 /**
  * 每个模块查哪张表、哪几段文本。
  *   table  —— 表名，支持 "finance.transactions" 这种带点的路径
@@ -158,6 +166,13 @@ export const SOURCE_SPECS = [
   { table: "finance.accounts", module: "finance", label: "账户", title: "name",
     alias: "记账 余额",
     fields: ["name", (r) => yuanText(r.initialBalanceCents)] },
+  { table: "finance.transfers", module: "finance", label: "转账",
+    alias: "记账 转钱 转账",
+    title: (r, data) => r.note ||
+      `${financeAccountName(r, data, "fromAccountId")} → ${financeAccountName(r, data, "toAccountId")}`,
+    fields: ["note", "date", (r) => yuanText(r.amountCents),
+             (r, data) => financeAccountName(r, data, "fromAccountId"),
+             (r, data) => financeAccountName(r, data, "toAccountId")] },
   { table: "debt.items", module: "finance", hash: "finance/debt", label: "债务", title: "name",
     alias: "记账 欠款 借款 还款",
     fields: ["name", "creditor", "note", "dueDate", (r) => yuanText(r.totalCents)] },

@@ -7,7 +7,7 @@
  */
 
 import { SUMMARY_MODULES, HOME_HIGHLIGHT_MODULES, HOME_OTHER_MODULES, moduleOf } from "./modules.js";
-import { dayTotals, monthTotals } from "./finance-calc.js";
+import { dayTotals, monthTotals, budgetState, budgetNotice } from "./finance-calc.js";
 import { fmtMoney } from "./money.js";
 import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
 import { fmtCount, growthText, overviewOf, isArchived, isPublished, weekRangeOf } from "./media-calc.js";
@@ -110,7 +110,21 @@ export function debtWarningOf(data, today) {
   };
 }
 
-/** 财务摘要：今日支出 / 本月结余 + 一条债务预警（没有就是 null） */
+/**
+ * 预算提醒（首页用）：本月支出对着这个月的总预算算，没设预算 / 还没到 80% 就是 null。
+ * 那句话本身来自 finance-calc 的 budgetNotice —— 和记账页那两处同一个来源，
+ * 这里只补上「本月预算」这四个字，好和旁边的债务预警分得开。
+ */
+export function budgetWarningOf(data, today) {
+  const f = (data && data.finance) || {};
+  const budgetCents = (f.budget && f.budget.monthlyTotalCents) || 0;
+  const used = monthTotals(rows(data, "finance.transactions"), today.slice(0, 7)).expenseCents;
+  const notice = budgetNotice(budgetState(used, budgetCents));
+  if (!notice) return null;
+  return { ...notice, text: `本月预算${notice.long}`, tip: "点一下回记账页看预算" };
+}
+
+/** 财务摘要：今日支出 / 本月结余 + 一条债务预警 + 一条预算提醒（没有就是 null） */
 export function financeBriefOf(data, today) {
   const txs = rows(data, "finance.transactions");
   const day = dayTotals(txs, today);
@@ -121,6 +135,7 @@ export function financeBriefOf(data, today) {
     expense: fmtMoney(day.expenseCents),
     balance: fmtMoney(month.balanceCents),
     debt: debtWarningOf(data, today),
+    budget: budgetWarningOf(data, today),
   };
 }
 
@@ -186,10 +201,12 @@ export function summaryOf(id, data, today) {
     const day = dayTotals(txs, today);
     const totals = monthTotals(txs, today.slice(0, 7));
     const debt = debtWarningOf(data, today);
+    const budget = budgetWarningOf(data, today);
     return {
       main: `今日支出 ${fmtMoney(day.expenseCents)}`,
       sub: txs.length ? `本月结余 ${fmtMoney(totals.balanceCents)}` : "还没有记账",
-      extra: debt ? debt.text : "",
+      // 这一行只摆得下一句：预算快到 / 超了比债务预警更要紧（债务预警在财务摘要那张卡片上照旧能看到）
+      extra: budget ? budget.text : debt ? debt.text : "",
     };
   }
   if (id === "fitness") {

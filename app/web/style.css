@@ -2373,6 +2373,16 @@ html[data-skin="glass"] .mk-finance { background: #e08a70; }
 .fin-budget-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .fin-budget-num { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .fin-budget-num.over { color: var(--err); font-weight: 600; white-space: nowrap; }
+/* 预算提醒那一句：80% 起黄、超了红（和进度条一个档位） */
+.fin-budget-alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.fin-budget-alert.lv-warn { color: var(--warn); }
+.fin-budget-alert.lv-over { color: var(--err); font-weight: 600; }
 .fin-budget .progress-track > span.lv-ok { background: var(--accent); }
 .fin-budget .progress-track > span.lv-warn { background: var(--warn); }
 .fin-budget .progress-track > span.lv-over { background: var(--err); }
@@ -2445,6 +2455,7 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
 .fin-catbudget-used { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fin-catbudget-used i { font-style: normal; }
 .fin-catbudget-used i.over { color: var(--err); font-weight: 600; }
+.fin-catbudget-used i.warn { color: var(--warn); font-weight: 600; }
 .fin-catbudget-bar { grid-column: 1 / -1; height: 6px; }
 .fin-catbudget .add-form { margin-top: 4px; }
 

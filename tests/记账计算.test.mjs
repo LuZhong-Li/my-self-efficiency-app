@@ -11,6 +11,7 @@ import {
   ensureCategories, dayCategories, filterByCategory, DEFAULT_CATEGORIES,
   normalizeTransfer, transfersOfAccount, validateTransferInput,
   csvCell, financeRows, financeCsv, CSV_HEAD,
+  budgetNotice,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -385,6 +386,26 @@ const CSV_NOTE = financeCsv(financeRows(
 ));
 eq(CSV_NOTE.indexOf('"买了 ""A, B"" 两样\n第二行"') >= 0, true,
   "备注里的引号、逗号、换行都照顾到了");
+
+/* ---------------- 预算提醒（2026-10-13 加的） ----------------
+   档位本来就有（budgetState 的 ok / warn / over），这一版补的是「用一句话说出来」：
+   80% 起提醒、正好用满和超支各说各的，文案里带真实数字。 */
+
+eq(budgetNotice(budgetState(1000, 10000)), null, "用了 10%：不提醒");
+eq(budgetNotice(budgetState(7999, 10000)), null, "79.99%：也还不提醒");
+eq(budgetNotice(budgetState(8000, 10000)).level, "warn", "到 80%：该说一句了");
+eq(budgetNotice(budgetState(8000, 10000)).long, "已用 80%，快到预算了", "文案带真实百分比");
+eq(budgetNotice(budgetState(8500, 10000)).short, "已用 85%", "短文案给列表行用");
+eq(budgetNotice(budgetState(9999, 10000)).level, "warn", "99.99% 还是「快到了」");
+eq(budgetNotice(budgetState(10000, 10000)).short, "已用完",
+  "正好用满：不是「快到了」，也还没超（预算就是上限）");
+eq(budgetNotice(budgetState(10000, 10000)).overCents, 0, "用满时超额是 0");
+eq(budgetNotice(budgetState(10500, 10000)).level, "over", "过了 100% 就是超支档");
+eq(budgetNotice(budgetState(10500, 10000)).long, "已超 ¥5.00", "超支文案写清超了多少");
+eq(budgetNotice(budgetState(10500, 10000)).short, "超 ¥5.00", "短文案同一个数");
+eq(budgetNotice(budgetState(10500, 10000)).pct, 105, "百分比照实给（画条时自己封顶）");
+eq(budgetNotice(budgetState(5000, 0)), null, "没设预算：没什么好提醒的");
+eq(budgetNotice(null), null, "什么都没传也不炸");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

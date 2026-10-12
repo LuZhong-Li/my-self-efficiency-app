@@ -3,7 +3,7 @@
  * 哪天算超支），单独放一个文件就能用 Node 一条条断言，不用开浏览器。
  */
 
-import { yuanToCents, yuanToCentsNonNeg, centsToYuan } from "./money.js";
+import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney } from "./money.js";
 
 /** "2026-10-07" → "2026-10" */
 export function monthKey(date) {
@@ -79,6 +79,37 @@ export function budgetState(usedCents, budgetCents) {
   const ratio = used / budget;
   const level = ratio > 1 ? "over" : ratio >= 0.8 ? "warn" : "ok";
   return { usedCents: used, budgetCents: budget, ratio, level };
+}
+
+/**
+ * 预算提醒那句话：用了不到 80% 就不提醒（返回 null），80% 起黄、过了 100% 红。
+ * 档位本身是 budgetState 给的，这里只管「说出来」——
+ * 文案里带真实数字（多少百分比 / 超了多少），颜色和放哪儿由调用方决定。
+ * 三个地方共用它：记账页概览的总预算、分类预算每一行、首页的财务摘要。
+ *
+ * 返回 { level, pct, overCents, short, long }：short 给列表行，long 给能摆下整句的地方。
+ */
+export function budgetNotice(state) {
+  const st = state || {};
+  if (st.level !== "warn" && st.level !== "over") return null;
+  const pct = Math.round((Number(st.ratio) || 0) * 100);
+  const overCents = Math.max(0, (Number(st.usedCents) || 0) - (Number(st.budgetCents) || 0));
+  if (st.level === "over") {
+    return {
+      level: "over", pct, overCents,
+      short: `超 ${fmtMoney(overCents)}`,
+      long: `已超 ${fmtMoney(overCents)}`,
+    };
+  }
+  // 正好用满（100%）既不能说「快到了」（已经用光了），也还没超 —— 单独一句话
+  if (pct >= 100) {
+    return { level: "warn", pct, overCents: 0, short: "已用完", long: "已经用完了，后面花的都算超" };
+  }
+  return {
+    level: "warn", pct, overCents: 0,
+    short: `已用 ${pct}%`,
+    long: `已用 ${pct}%，快到预算了`,
+  };
 }
 
 /** 分类预算：每设了预算的分类一行，给出这个月用它多少、到哪一档。

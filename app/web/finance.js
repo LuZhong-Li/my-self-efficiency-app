@@ -17,6 +17,7 @@ import {
   ensureCategories, dayCategories, filterByCategory,
   normalizeTransfer, transfersOfAccount, validateTransferInput,
   financeRows, financeCsv,
+  budgetNotice,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -116,9 +117,10 @@ function categoryBudgetBlock(txs) {
 
 function catBudgetRow(r) {
   const pct = Math.round(Math.min(1, r.ratio) * 100);
-  const tail = r.level === "over"
-    ? `<i class="over">超 ${fmtMoney(r.usedCents - r.budgetCents)}</i>`
-    : `${pct}%`;
+  // 提醒那句话只有一处定义（finance-calc 的 budgetNotice）：够 80% 才说，
+  // 说的时候带上百分比 / 超了多少；没到就只写个百分比
+  const notice = budgetNotice(r);
+  const tail = notice ? `<i class="${notice.level}">${notice.short}</i>` : `${pct}%`;
   return `
     <li class="fin-catbudget-item">
       <span class="fin-catbudget-name">${catIcon("expense", r.category)} ${esc(r.category)}</span>
@@ -146,6 +148,7 @@ function budgetBlock(st) {
   }
   const pct = Math.round(Math.min(1, st.ratio) * 100);
   const overText = st.level === "over" ? `已超支 ${fmtMoney(st.usedCents - st.budgetCents)}` : `${pct}%`;
+  const notice = budgetNotice(st);
   return `
     <div class="fin-budget">
       ${head}
@@ -154,6 +157,11 @@ function budgetBlock(st) {
         <span class="fin-budget-num${st.level === "over" ? " over" : ""}">${overText}</span>
       </div>
       <p class="hint">已用 ${fmtMoney(st.usedCents)} / ${fmtMoney(st.budgetCents)}</p>
+      ${
+        notice
+          ? `<p class="fin-budget-alert lv-${notice.level}">${icon("warning", 14)}${esc(notice.long)}</p>`
+          : ""
+      }
     </div>`;
 }
 

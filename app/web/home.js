@@ -310,6 +310,12 @@ function simpleView(data, today) {
           }
         </div>
         ${
+          brief.budget
+            ? `<a class="home-alert${brief.budget.level === "over" ? " overdue" : ""}" href="#finance"
+                 title="${esc(brief.budget.tip)}">${icon("warning", 14)}${esc(brief.budget.text)}</a>`
+            : ""
+        }
+        ${
           brief.debt
             ? `<a class="home-alert${brief.debt.level === "overdue" ? " overdue" : ""}" href="#finance/debt"
                  title="${esc(brief.debt.tip)}">${icon("warning", 14)}${esc(brief.debt.text)}

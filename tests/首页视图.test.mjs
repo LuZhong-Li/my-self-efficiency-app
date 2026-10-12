@@ -6,6 +6,7 @@ import {
   normalizeHomeView, normalizeMemoCollapsed, rows, weekStartOf, todayTasks, overdueTasks, HOME_TASK_LIMIT,
   progressOf, summaryOf, cardOf, cardsFor, hasData, otherVisibleIn,
   debtWarningOf, financeBriefOf, financeTextOf,
+  budgetWarningOf,
 } from "../app/web/home-view.js";
 import { SUMMARY_MODULES } from "../app/web/modules.js";
 
@@ -232,6 +233,28 @@ eq(emptyText.balanceText, "", "没有账目时不显示本月结余");
 eq(financeTextOf(brief).expenseText, "¥168.80", "有支出就显示金额");
 eq(financeTextOf(brief).expenseMuted, false, "有支出就不浅灰");
 eq(financeTextOf(brief).balanceText, "¥7,572.50", "有账目就显示本月结余");
+
+console.log("home-view.js：预算提醒（本月支出对着月度总预算算）");
+// DATA 这个月支出 427.50（168.80 + 258.70），下面拿不同的预算比一比
+const withBudget = (cents) => ({
+  ...DATA,
+  finance: { ...DATA.finance, budget: { monthlyTotalCents: cents, categoryCents: {} } },
+});
+eq(brief.budget, null, "没设预算 → 首页不显示那一行");
+eq(budgetWarningOf(withBudget(0), TODAY), null, "预算填 0 也当没设");
+eq(budgetWarningOf(withBudget(100000), TODAY), null, "才用了 43%，不提醒");
+eq(budgetWarningOf(withBudget(50000), TODAY).level, "warn", "用到 86% → 提醒档");
+eq(budgetWarningOf(withBudget(50000), TODAY).text, "本月预算已用 86%，快到预算了", "首页那句带上「本月预算」");
+eq(budgetWarningOf(withBudget(50000), TODAY).tip, "点一下回记账页看预算", "点它有提示");
+eq(budgetWarningOf(withBudget(42750), TODAY).short, "已用完", "正好用满另说一句");
+eq(budgetWarningOf(withBudget(40000), TODAY).level, "over", "花到 107% → 超支档");
+eq(budgetWarningOf(withBudget(40000), TODAY).text, "本月预算已超 ¥27.50", "超支文案写清超了多少");
+eq(financeBriefOf(withBudget(50000), TODAY).budget.level, "warn", "财务摘要里也带上了它");
+
+eq(summaryOf("finance", withBudget(50000), TODAY).extra, "本月预算已用 86%，快到预算了",
+  "记账卡片那一行：快到预算时先说预算");
+eq(summaryOf("finance", withBudget(100000), TODAY).extra, "已逾期：欠朋友 ¥200.00",
+  "没到 80% 时，那一行还是债务预警（老行为没动）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

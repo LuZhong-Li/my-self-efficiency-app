@@ -5,7 +5,7 @@
  * 计算全在 money.js 和 finance-calc.js 里，这个文件只管画和接事件。
  */
 
-import { store, table, todayStr, nowText, uid, touch, esc, moveToTrash } from "./store.js";
+import { store, table, todayStr, nowText, uid, touch, esc, moveToTrash, downloadText } from "./store.js";
 import { pageHeader, bindFresh, emptyState, options } from "./ui.js";
 import { icon } from "./icons.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
@@ -16,6 +16,7 @@ import {
   accountBalanceCents, balanceTotals, categoryBudgetStates, validateAccountInput,
   ensureCategories, dayCategories, filterByCategory,
   normalizeTransfer, transfersOfAccount, validateTransferInput,
+  financeRows, financeCsv,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -852,6 +853,48 @@ function openTxDialog(tx, options = {}) {
   return dlg;
 }
 
+/**
+ * 「导出 CSV」：先问一句导哪些（全部 / 这个月），再由浏览器下载。
+ * 一行一条记录：账目和转账都在一份里，金额一律正数，方向看「类型」那一列 ——
+ * 这样 Excel 里按类型一筛就是一张表，不用猜正负号什么意思。
+ */
+function openCsvDialog() {
+  const month = currentMonth();
+  const all = financeRows(table("finance.transactions"), table("finance.transfers"), {
+    accounts: accountsOf(),
+  });
+  const inMonth = all.filter((r) => r[0].startsWith(month)).length;
+  openDialog({
+    title: "导出 CSV",
+    bodyHtml: `
+      <p class="fin-help">账目和转账都在一份里，金额一律正数，方向看「类型」那一列
+        （支出 / 收入 / 转账）；账户名按现在的名字写，Excel 里一看就懂。</p>
+      <p class="fin-help">文件由浏览器直接下载，落在你的「下载」文件夹；
+        开头带了 UTF-8 BOM，Excel 打开中文不会乱码。</p>
+      <p class="fin-help">一共 ${all.length} 条；${esc(monthCN(month))} ${inMonth} 条。</p>`,
+    buttons: [
+      { id: "csv-month", label: "导出这个月" },
+      { id: "csv-all", label: "导出全部", kind: "primary" },
+      { id: "cancel", label: "取消" },
+    ],
+    onAction: (act) => {
+      if (act === "cancel") return true;
+      const scope = act === "csv-month" ? month : "";
+      const rows = financeRows(table("finance.transactions"), table("finance.transfers"), {
+        accounts: accountsOf(),
+        month: scope,
+      });
+      downloadText(
+        `记账-${todayStr()}-${scope || "全部"}.csv`,
+        financeCsv(rows),
+        "text/csv;charset=utf-8"
+      );
+      toast(`已导出 ${rows.length} 条（看看浏览器的下载）`);
+      return true;
+    },
+  });
+}
+
 export function renderFinance(root, sub = "") {
   const onDebt = sub === "debt";
   if (!selected) selected = todayStr();
@@ -868,7 +911,8 @@ export function renderFinance(root, sub = "") {
       "finance",
       onDebt
         ? `<button class="btn primary" data-act="debt-add">${icon("plus", 16)}加一笔债务</button>`
-        : `<button class="btn primary" data-act="add">${icon("plus", 16)}记一笔</button>`
+        : `<button class="btn" data-act="csv" title="导成 CSV，拿去 Excel 看">导出 CSV</button>
+           <button class="btn primary" data-act="add">${icon("plus", 16)}记一笔</button>`
     )}
     <div class="fin-subtabs">
       <a class="fin-subtab${onDebt ? "" : " active"}" href="#finance">${icon("list", 16)}账目记录</a>
@@ -937,6 +981,10 @@ function onClick(e) {
   if (act === "add" || act === "tf-add") {
     // 「记一笔」默认停在支出；账户卡片上那个「转账」按钮直接停在转账页签
     openTxDialog(null, { type: act === "tf-add" ? "transfer" : "expense" });
+    return;
+  }
+  if (act === "csv") {
+    openCsvDialog();
     return;
   }
   if (act === "tf-edit" || act === "tf-del") {

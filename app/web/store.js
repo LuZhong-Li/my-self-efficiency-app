@@ -210,21 +210,25 @@ export function reopenConflict() {
   if (store.conflict) emitConflict({ kind: "conflict", rev: store.conflictRev });
 }
 
-/** 把本窗口内存里这一份导出成 JSON 下载下来（冲突时留个备份，方便手动合并） */
-export function downloadCurrentData() {
-  if (!store.data) return;
-  const stamp = nowText().replace(/[: ]/g, "-");
-  const blob = new Blob([JSON.stringify(store.data, null, 2)], {
-    type: "application/json",
-  });
+/** 把一段文本当文件下载下来（CSV、JSON 都走这一个）。
+ *  用 Blob + 一个临时 <a download>：本地小服务没有下载接口，浏览器自己就办了。 */
+export function downloadText(filename, text, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "小李-本窗口改动-" + stamp + ".json";
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** 把本窗口内存里这一份导出成 JSON 下载下来（冲突时留个备份，方便手动合并） */
+export function downloadCurrentData() {
+  if (!store.data) return;
+  const stamp = nowText().replace(/[: ]/g, "-");
+  downloadText("小李-本窗口改动-" + stamp + ".json", JSON.stringify(store.data, null, 2), "application/json");
 }
 
 window.addEventListener("beforeunload", (e) => {

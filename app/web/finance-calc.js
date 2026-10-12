@@ -3,7 +3,7 @@
  * 哪天算超支），单独放一个文件就能用 Node 一条条断言，不用开浏览器。
  */
 
-import { yuanToCents, yuanToCentsNonNeg } from "./money.js";
+import { yuanToCents, yuanToCentsNonNeg, centsToYuan } from "./money.js";
 
 /** "2026-10-07" → "2026-10" */
 export function monthKey(date) {
@@ -333,4 +333,89 @@ export function validateTransferInput({ amount, date, fromAccountId, toAccountId
   else if (to === from) out.toErr = "「从」和「到」不能是同一个账户";
   out.ok = !out.amountErr && !out.dateErr && !out.fromErr && !out.toErr;
   return out;
+}
+
+/* ---------------- CSV 导出（2026-10-13 加的） ----------------
+   一行一条记录，账目和转账都在一份里：金额一律正数，方向看「类型」那一列，
+   这样 Excel 里按「类型」一筛就是一张表，不用猜正负号是什么意思。
+   这里只管把表格拼成文本 —— 真正下载交给浏览器（store.js 的 downloadText）。 */
+
+/** 表头七列：转账多的那两列（分类 / 到账账户）账目留空 */
+export const CSV_HEAD = ["日期", "类型", "分类", "金额", "账户", "到账账户", "备注"];
+
+/** CSV 里一个格子：带逗号 / 引号 / 换行的裹进引号，里面的引号翻倍 */
+export function csvCell(value) {
+  const text = value === undefined || value === null ? "" : String(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+
+/** 账户 id → 名字；不在列表里（删了的）写「（账户已删）」，不写一个认不出的 id */
+function csvAccountName(accounts, id) {
+  const key = String(id == null ? "" : id).trim();
+  if (!key) return "";
+  const hit = (accounts || []).find((a) => a && String(a.id) === key);
+  return hit ? String(hit.name || "") : "（账户已删）";
+}
+
+/**
+ * 账目 + 转账摊成「一行一条」的表格（还没拼成文本，方便单测）。
+ * 排序：先按日期，同一天按记录顺序（createdAt）。
+ *
+ * @param {object[]} txs 账目
+ * @param {object[]} transfers 转账
+ * @param {{accounts?: object[], month?: string}} options
+ *        month 传 "2026-10" 就只导这个月；不传就是全部
+ */
+export function financeRows(txs, transfers, options = {}) {
+  const accounts = options.accounts || [];
+  const month = String(options.month || "").trim();
+  const keep = (date) => !month || String(date || "").startsWith(month);
+  const rows = [];
+  for (const t of txs || []) {
+    if (!t || typeof t !== "object") continue;
+    if (!keep(t.date)) continue;
+    rows.push({
+      date: String(t.date || ""),
+      createdAt: String(t.createdAt || ""),
+      row: [
+        String(t.date || ""),
+        t.type === "income" ? "收入" : "支出",
+        String(t.category || ""),
+        centsToYuan(t.amountCents),
+        csvAccountName(accounts, t.accountId),
+        "",
+        String(t.note == null ? "" : t.note),
+      ],
+    });
+  }
+  for (const raw of transfers || []) {
+    const t = normalizeTransfer(raw);
+    if (!keep(t.date)) continue;
+    rows.push({
+      date: t.date,
+      createdAt: t.createdAt,
+      row: [
+        t.date,
+        "转账",
+        "",
+        centsToYuan(t.amountCents),
+        csvAccountName(accounts, t.fromAccountId),
+        csvAccountName(accounts, t.toAccountId),
+        t.note,
+      ],
+    });
+  }
+  rows.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.createdAt === b.createdAt) return 0;
+    return a.createdAt < b.createdAt ? -1 : 1;
+  });
+  return rows.map((r) => r.row);
+}
+
+/** 表格 → CSV 文本：开头带 UTF-8 BOM（Excel 打开中文才不乱码），行尾用 \r\n */
+export function financeCsv(rows) {
+  const lines = [CSV_HEAD].concat(rows || []);
+  return "\ufeff" + lines.map((r) => (r || []).map(csvCell).join(",")).join("\r\n") + "\r\n";
 }

@@ -10,6 +10,7 @@ import {
   categoryBudgetStates, validateAccountInput,
   ensureCategories, dayCategories, filterByCategory, DEFAULT_CATEGORIES,
   normalizeTransfer, transfersOfAccount, validateTransferInput,
+  csvCell, financeRows, financeCsv, CSV_HEAD,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -315,6 +316,75 @@ const FEW = validateTransferInput({ amount: "100", date: "2026-10-12", fromAccou
 eq(FEW.ok, false, "只有一个账户时存不了");
 eq(FEW.hint.indexOf("第二个账户") >= 0, true, "并且明说「先加第二个账户」");
 eq(FEW.amountErr, "", "账户不够时不去挑金额的毛病（先说清最要紧的那件事）");
+
+/* ---------------- CSV 导出（2026-10-13 加的） ----------------
+   一行一条记录，账目和转账都在一份里：金额一律正数，方向看「类型」那一列。
+   分隔符是逗号，所以备注里的逗号 / 引号 / 换行都得裹起来 —— 备注是能换行写的。 */
+
+eq(csvCell("普通"), "普通", "普通文字原样");
+eq(csvCell("有,逗号"), '"有,逗号"', "带逗号的裹引号");
+eq(csvCell('有"引号'), '"有""引号"', "引号翻倍再裹");
+eq(csvCell("两\n行"), '"两\n行"', "换行（备注能换行）也裹起来");
+eq(csvCell(""), "", "空串还是空串");
+eq(csvCell(null), "", "null 当空");
+eq(csvCell(2550), "2550", "数字转成文本");
+
+eqDeep(CSV_HEAD, ["日期", "类型", "分类", "金额", "账户", "到账账户", "备注"],
+  "表头七列（转账多的那两列账目留空）");
+
+const ACCS = [{ id: "a1", name: "微信" }, { id: "a2", name: "招行卡" }];
+const EXP = [
+  { id: "e1", type: "expense", amountCents: 2550, date: "2026-10-05", category: "餐饮",
+    accountId: "a1", note: "午饭 黄焖鸡", createdAt: "2026-10-05 12:30" },
+  { id: "e2", type: "income", amountCents: 200000, date: "2026-10-01", category: "工资",
+    accountId: "a2", note: "", createdAt: "2026-10-01 09:00" },
+  { id: "e3", type: "expense", amountCents: 100, date: "2026-09-30", category: "其他",
+    accountId: "", note: "", createdAt: "2026-09-30 08:00" },
+];
+const TFS2 = [
+  { id: "tf1", amountCents: 25000, date: "2026-10-12", fromAccountId: "a1", toAccountId: "a2",
+    note: "还信用卡", createdAt: "2026-10-12 10:00" },
+];
+
+const ROWS = financeRows(EXP, TFS2, { accounts: ACCS });
+eq(ROWS.length, 4, "三笔账 + 一条转账 = 四行数据");
+eqDeep(ROWS[0], ["2026-09-30", "支出", "其他", "1.00", "", "", ""], "日期最早的排最前；账户空着就留空");
+eqDeep(ROWS[1], ["2026-10-01", "收入", "工资", "2000.00", "招行卡", "", ""], "收入：账户那一列写账户名");
+eqDeep(ROWS[2], ["2026-10-05", "支出", "餐饮", "25.50", "微信", "", "午饭 黄焖鸡"],
+  "支出：金额是正数，方向看类型列");
+eqDeep(ROWS[3], ["2026-10-12", "转账", "", "250.00", "微信", "招行卡", "还信用卡"],
+  "转账：分类留空，「账户」是转出、「到账账户」是转入");
+
+const ROWS_OLD = financeRows(
+  [{ id: "e4", type: "expense", amountCents: 100, date: "2026-10-01", category: "其他",
+     accountId: "删掉的", note: "" }],
+  [], { accounts: ACCS }
+);
+eq(ROWS_OLD[0][4], "（账户已删）", "账户不在列表里就写「（账户已删）」，不写一个认不出的 id");
+
+const MONTH = financeRows(EXP, TFS2, { accounts: ACCS, month: "2026-10" });
+eq(MONTH.length, 3, "只看这个月：9 月那笔不在里面");
+eq(MONTH.every((r) => r[0].startsWith("2026-10")), true, "剩下的都是 10 月的");
+eq(financeRows(EXP, TFS2, { accounts: ACCS, month: "2026-08" }).length, 0, "没有的月份就是空的");
+eq(financeRows(EXP, TFS2, {}).length, 4, "不传账户也能导（账户名留空，不抛错）");
+eq(financeRows(null, null, { accounts: ACCS }).length, 0, "没有数据就是没有行");
+
+const CSV = financeCsv(financeRows(EXP, TFS2, { accounts: ACCS }));
+eq(CSV.charCodeAt(0), 0xfeff, "开头是 BOM（不然 Excel 打开中文乱码）");
+eq(CSV.slice(1).split("\r\n")[0], CSV_HEAD.join(","), "第一行是表头");
+eq(CSV.slice(1).split("\r\n").length, 6, "表头 + 四行 + 末尾那个换行；行尾用 \\r\\n");
+eq(CSV.indexOf(",25.50,") >= 0, true, "金额是两位小数的元，不带货币符号");
+eq(CSV.indexOf("¥") >= 0, false, "货币符号不进 CSV（要不 Excel 认成文本）");
+eq(CSV.indexOf("微信,招行卡") >= 0, true, "转账那行：转出、转入两列挨着");
+eq(financeCsv([]), "\ufeff" + CSV_HEAD.join(",") + "\r\n", "一条数据都没有时只剩表头");
+
+const CSV_NOTE = financeCsv(financeRows(
+  [{ id: "e5", type: "expense", amountCents: 100, date: "2026-10-01", category: "其他",
+     accountId: "", note: '买了 "A, B" 两样\n第二行', createdAt: "" }],
+  [], { accounts: ACCS }
+));
+eq(CSV_NOTE.indexOf('"买了 ""A, B"" 两样\n第二行"') >= 0, true,
+  "备注里的引号、逗号、换行都照顾到了");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

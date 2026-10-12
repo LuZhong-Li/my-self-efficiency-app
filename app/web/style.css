@@ -2458,6 +2458,19 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
 /* 收入一行淡绿底、支出一行淡红底（压得很淡，十二条也不会变成彩虹） */
 .fin-row.is-expense { background: rgba(231, 76, 60, 0.05); }
 .fin-row.is-income { background: rgba(39, 174, 96, 0.06); }
+/* 转账：既不红也不绿 —— 它是「搬东西」，不是花销。
+   底色比收支还淡，一眼能和上下那些收支行分开。 */
+.fin-row.is-transfer { background: var(--hover); }
+.fin-row.is-transfer .fin-cat { color: var(--muted); }
+.fin-amount.transfer { color: var(--muted); font-weight: 500; }
+
+/* 当日明细里「转账」那一小块的小标题 */
+.fin-sub {
+  padding: 8px 8px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
 html[data-theme="dark"] .fin-row.is-expense { background: rgba(248, 113, 113, 0.08); }
 html[data-theme="dark"] .fin-row.is-income { background: rgba(52, 211, 153, 0.08); }
 /* 编辑 / 删除按钮：hover 从下划线换成一块玻璃高亮 */

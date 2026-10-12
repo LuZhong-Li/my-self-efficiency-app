@@ -261,7 +261,12 @@ function ringCard(txs) {
  *  不用再一天天翻。只列这天真有的分类；选中的分类不在这一天，就按「全部」显示。 */
 function dayCard(txs) {
   const all = txs.filter((t) => t.date === selected).sort(byCreatedAt);
-  if (!all.length) {
+  // 当天转的账：中性的一小块，单独列在收支下面（它不进上面那两个合计）
+  const tfs = table("finance.transfers")
+    .map(normalizeTransfer)
+    .filter((t) => t.date === selected)
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  if (!all.length && !tfs.length) {
     return `
       <div class="card-head"><h2>当日明细</h2><span class="hint">${esc(dayLabel(selected))}</span></div>
       ${emptyState("这天还没记账", "右上角「记一笔」记上第一笔。", "", "money")}`;
@@ -286,12 +291,44 @@ function dayCard(txs) {
         <span class="hint">${esc(dayLabel(selected))}</span>
       </div>
     </div>
-    <div class="fin-day-sum">
-      <span class="fin-amount expense">-${fmtMoney(totals.expenseCents)}</span>
-      <span class="fin-amount income">+${fmtMoney(totals.incomeCents)}</span>
-      ${cat ? `<span class="hint">${esc(cat)} · ${list.length} 笔</span>` : ""}
-    </div>
-    <ul class="items">${list.map(txRow).join("")}</ul>`;
+    ${
+      all.length
+        ? `<div class="fin-day-sum">
+             <span class="fin-amount expense">-${fmtMoney(totals.expenseCents)}</span>
+             <span class="fin-amount income">+${fmtMoney(totals.incomeCents)}</span>
+             ${cat ? `<span class="hint">${esc(cat)} · ${list.length} 笔</span>` : ""}
+           </div>`
+        : ""
+    }
+    <ul class="items">${list.map(txRow).join("")}</ul>
+    ${
+      tfs.length
+        ? `<div class="fin-sub">转账</div><ul class="items">${tfs.map(tfRow).join("")}</ul>`
+        : ""
+    }`;
+}
+
+/** 转账那一行：中性的「搬东西」，不带 + / −，也不进上下两个合计 */
+function tfRow(t) {
+  const nameOf = (id) => {
+    const a = accountsOf().find((x) => x.id === id);
+    return a ? a.name : "（账户已删）";
+  };
+  const arrow = `${nameOf(t.fromAccountId)} → ${nameOf(t.toAccountId)}`;
+  return `
+    <li class="item fin-row is-transfer" data-id="${esc(t.id)}">
+      <span class="fin-cat">↩</span>
+      <span class="fin-main">
+        <span class="i-title">${esc(t.note || arrow)}</span>
+        ${thumbsHtml(rowPaths(t))}
+      </span>
+      <span class="i-meta">${esc(arrow)}</span>
+      <span class="fin-amount transfer">${fmtMoney(t.amountCents)}</span>
+      <span class="i-actions">
+        <button class="link" data-act="tf-edit">编辑</button>
+        <button class="link danger" data-act="tf-del">删除</button>
+      </span>
+    </li>`;
 }
 
 function txRow(t) {
@@ -319,9 +356,9 @@ function txRow(t) {
 
 /** 右栏第三张：账户列表。余额是实时算出来的（期初 + 该账户的收支），
  *  不存字段——账目是唯一的可信来源。 */
-function accountsCard(txs) {
+function accountsCard(txs, tfs) {
   const list = accountsOf();
-  const bt = balanceTotals(list, txs);
+  const bt = balanceTotals(list, txs, tfs);
   // 删账户时整条记录连同 row 一起挪进了回收站，所以名字和期初都还在，
   // 能在这里把它们单独收成一组「已归档账户」。
   const archived = (store.data.trash || []).filter((e) => e.table === "finance.accounts" && e.row);
@@ -330,12 +367,13 @@ function accountsCard(txs) {
       <h2>账户</h2>
       <div class="card-tools">
         <span class="hint">共 ${list.length} 个</span>
+        <button class="btn small" data-act="tf-add" title="两个账户之间挪钱：不算收支，只动两边余额">转账</button>
         <button class="btn primary small" data-act="acc-add">${icon("plus", 14)}添加账户</button>
       </div>
     </div>
     ${
       list.length
-        ? `<ul class="items">${list.map((a) => accountRow(a, txs)).join("")}</ul>`
+        ? `<ul class="items">${list.map((a) => accountRow(a, txs, tfs)).join("")}</ul>`
         : emptyState("还没有账户", "加一个之后，记一笔时就能选它了。", "", "money")
     }
     ${
@@ -347,7 +385,7 @@ function accountsCard(txs) {
                  .map(
                    (e) => `<li class="item fin-acc fin-acc-archived">
                      <span class="fin-acc-name">${esc(e.row.name || e.label || "（没写名字）")}</span>
-                     <span class="fin-acc-sub">余额 ${fmtMoney(accountBalanceCents(e.row, txs))}
+                    <span class="fin-acc-sub">余额 ${fmtMoney(accountBalanceCents(e.row, txs, tfs))}
                        · ${txs.filter((t) => t.accountId === e.row.id).length} 笔账
                        · ${esc(e.deletedAt || "")} 删除</span>
                    </li>`
@@ -360,15 +398,20 @@ function accountsCard(txs) {
     }`;
 }
 
-function accountRow(a, txs) {
+function accountRow(a, txs, tfs) {
   const mine = txs.filter((t) => t.accountId === a.id);
-  const balance = accountBalanceCents(a, txs);
+  const balance = accountBalanceCents(a, txs, tfs);
+  const moved = transfersOfAccount(tfs, a.id);
   return `
     <li class="item fin-acc" data-id="${esc(a.id)}">
       <span class="fin-acc-name">${esc(a.name)}</span>
       <span class="fin-acc-sub">
         <span class="fin-amount ${balance < 0 ? "warn" : ""}">余额 ${fmtMoney(balance)}</span>
-        · 共 ${mine.length} 笔账
+        · 共 ${mine.length} 笔账${
+          moved.netCents
+            ? ` · 转入转出 ${moved.netCents > 0 ? "+" : "−"}${fmtMoney(Math.abs(moved.netCents))}`
+            : ""
+        }
       </span>
       <span class="i-actions">
         <button class="link" data-act="acc-edit">编辑</button>
@@ -817,6 +860,7 @@ export function renderFinance(root, sub = "") {
   // 静默落盘：只是把数据补全，不必为一个键把整页重画一遍。
   if (ensureCategories(financeOf())) touch(true, true);
   const txs = table("finance.transactions");
+  const tfs = table("finance.transfers");
   const unsettled = splitBySettled(table("debt.items"), todayStr()).open.length;
 
   root.innerHTML = `
@@ -843,7 +887,7 @@ export function renderFinance(root, sub = "") {
              <div class="fin-side">
                <section class="card" id="fin-overview">${overviewCard(txs)}</section>
                <section class="card" id="fin-day">${dayCard(txs)}</section>
-               <section class="card" id="fin-accounts">${accountsCard(txs)}</section>
+               <section class="card" id="fin-accounts">${accountsCard(txs, tfs)}</section>
              </div>
            </div>`
     }

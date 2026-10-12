@@ -57,13 +57,13 @@ function calendarCard(txs) {
 }
 
 /** 右栏第一张：本月支出 / 收入 / 结余 + 月度总预算进度条。 */
-function overviewCard(txs) {
+function overviewCard(txs, tfs) {
   const month = currentMonth();
   const totals = monthTotals(txs, month);
   const st = budgetState(totals.expenseCents, budgetOf().monthlyTotalCents);
   const balanceTone = totals.balanceCents < 0 ? "expense" : "income";
   const accounts = accountsOf();
-  const bt = balanceTotals(accounts, txs);
+  const bt = balanceTotals(accounts, txs, tfs);
   return `
     <div class="card-head">
       <h2>本月概览</h2>
@@ -885,7 +885,7 @@ export function renderFinance(root, sub = "") {
                <section class="card" id="fin-ring">${ringCard(txs)}</section>
              </div>
              <div class="fin-side">
-               <section class="card" id="fin-overview">${overviewCard(txs)}</section>
+                <section class="card" id="fin-overview">${overviewCard(txs, tfs)}</section>
                <section class="card" id="fin-day">${dayCard(txs)}</section>
                <section class="card" id="fin-accounts">${accountsCard(txs, tfs)}</section>
              </div>

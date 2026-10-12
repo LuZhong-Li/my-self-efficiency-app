@@ -3,7 +3,7 @@
  * 哪天算超支），单独放一个文件就能用 Node 一条条断言，不用开浏览器。
  */
 
-import { yuanToCentsNonNeg } from "./money.js";
+import { yuanToCents, yuanToCentsNonNeg } from "./money.js";
 
 /** "2026-10-07" → "2026-10" */
 export function monthKey(date) {
@@ -124,26 +124,26 @@ export function byCreatedAt(a, b) {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
-/** 一个账户的余额（分）：期初 + 这个账户的收入 − 这个账户的支出。
- *  不存余额字段——账目是唯一的可信来源，存了就会跟流水对不上。 */
-export function accountBalanceCents(account, transactions) {
+/** 一个账户的余额（分）：期初 + 这个账户的收入 − 这个账户的支出 + 转入 − 转出。
+ *  不存余额字段——账目和转账是唯一的可信来源，存了就会跟流水对不上。 */
+export function accountBalanceCents(account, transactions, transfers = []) {
   const init = Number(account && account.initialBalanceCents) || 0;
   let net = 0;
   for (const t of transactions || []) {
     if (!account || t.accountId !== account.id) continue;
     net += t.type === "income" ? Number(t.amountCents) || 0 : -(Number(t.amountCents) || 0);
   }
-  return init + net;
+  return init + net + transfersOfAccount(transfers, account && account.id).netCents;
 }
 
 /** 账户余额汇总。已删除的账户（账目还在、账户不在列表里）默认也算进总余额，
  *  所以单独报一份出来，好在界面上说明白。
  *  返回 { listedCents, deletedCents, totalCents, deletedCount }。 */
-export function balanceTotals(accounts, transactions) {
+export function balanceTotals(accounts, transactions, transfers = []) {
   const list = accounts || [];
   const ids = new Set(list.map((a) => a && a.id));
   let listedCents = 0;
-  for (const a of list) listedCents += accountBalanceCents(a, transactions);
+  for (const a of list) listedCents += accountBalanceCents(a, transactions, transfers);
 
   let deletedCents = 0;
   const deletedIds = new Set();
@@ -151,6 +151,19 @@ export function balanceTotals(accounts, transactions) {
     if (!t.accountId || ids.has(t.accountId)) continue;
     deletedIds.add(t.accountId);
     deletedCents += t.type === "income" ? Number(t.amountCents) || 0 : -(Number(t.amountCents) || 0);
+  }
+  // 转账也一样：连着已删账户那头的钱别因为账户删了就凭空消失。
+  // 两个账户都还在的转账不用管——一边转出一边转入，总余额里正好抵平。
+  for (const raw of transfers || []) {
+    const t = normalizeTransfer(raw);
+    if (t.fromAccountId && !ids.has(t.fromAccountId)) {
+      deletedIds.add(t.fromAccountId);
+      deletedCents -= t.amountCents;
+    }
+    if (t.toAccountId && !ids.has(t.toAccountId)) {
+      deletedIds.add(t.toAccountId);
+      deletedCents += t.amountCents;
+    }
   }
   return {
     listedCents,
@@ -256,4 +269,68 @@ export function dayCategories(list) {
 export function filterByCategory(list, cat) {
   const rows = list || [];
   return cat ? rows.filter((t) => t && t.category === cat) : rows.slice();
+}
+
+/* ---------------- 账户转账（2026-10-12 加的） ----------------
+   两个账户之间挪钱：单独一张 finance.transfers 表，一条转账就是一行。
+   这么做的好处是收支统计压根看不见它 —— monthTotals / categoryTotals /
+   环形图 / 预算 / 月历都只收 transactions，一行排除代码都不用写。 */
+
+/** 一条转账读出来规整：金额取整、id 去空白、缺的字段补默认。
+ *  读转账一律走这里（老数据、手改坏了的都不会把余额算崩）。 */
+export function normalizeTransfer(row) {
+  const src = row && typeof row === "object" ? row : {};
+  const text = (v) => String(v == null ? "" : v).trim();
+  return {
+    id: text(src.id),
+    amountCents: Math.abs(Math.round(Number(src.amountCents) || 0)),
+    date: text(src.date),
+    fromAccountId: text(src.fromAccountId),
+    toAccountId: text(src.toAccountId),
+    note: text(src.note),
+    createdAt: text(src.createdAt),
+    imagePaths: Array.isArray(src.imagePaths)
+      ? src.imagePaths.filter((p) => typeof p === "string" && p.trim())
+      : [],
+  };
+}
+
+/** 这个账户的转入 / 转出 / 净额（分）——余额就是在这上面加一项 */
+export function transfersOfAccount(transfers, accountId) {
+  const id = String(accountId == null ? "" : accountId).trim();
+  let inCents = 0;
+  let outCents = 0;
+  if (id) {
+    for (const raw of transfers || []) {
+      const t = normalizeTransfer(raw);
+      if (t.toAccountId === id) inCents += t.amountCents;
+      if (t.fromAccountId === id) outCents += t.amountCents;
+    }
+  }
+  return { inCents, outCents, netCents: inCents - outCents };
+}
+
+/** 转账表单的校验。形状照 validateAccountInput：错误按字段分开报，好在框下面写。
+ *  账户不够两个是最要紧的一句，先说它，别去挑金额的毛病。 */
+export function validateTransferInput({ amount, date, fromAccountId, toAccountId, accounts }) {
+  const out = { ok: false, amountCents: 0, amountErr: "", dateErr: "", fromErr: "", toErr: "", hint: "" };
+  const list = accounts || [];
+  if (list.length < 2) {
+    out.hint = "先在「账户」卡片上加第二个账户，才能记转账（至少要有两个）。";
+    return out;
+  }
+  out.amountCents = yuanToCents(amount);
+  if (out.amountCents === null) {
+    out.amountErr = "金额要填一个正数，最多两位小数（上限 999,999.99）";
+  }
+  const day = String(date == null ? "" : date).trim();
+  if (!day) out.dateErr = "日期不能为空";
+  const from = String(fromAccountId == null ? "" : fromAccountId).trim();
+  const to = String(toAccountId == null ? "" : toAccountId).trim();
+  const has = (id) => list.some((a) => a && String(a.id) === id);
+  if (!from || !has(from)) out.fromErr = "选一个「从」哪个账户转出";
+  if (!to || !has(to)) out.toErr = "选一个「到」哪个账户";
+  else if (to === from) out.toErr = "「从」和「到」不能是同一个账户";
+  out.ok = !out.amountErr && !out.dateErr && !out.fromErr && !out.toErr;
+  return out;
 }

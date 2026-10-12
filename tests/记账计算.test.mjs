@@ -9,6 +9,7 @@ import {
   accountBalanceCents, balanceTotals,
   categoryBudgetStates, validateAccountInput,
   ensureCategories, dayCategories, filterByCategory, DEFAULT_CATEGORIES,
+  normalizeTransfer, transfersOfAccount, validateTransferInput,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -234,6 +235,86 @@ eq(filterByCategory(DAY7, "餐饮").length, 1, "只看餐饮就剩一笔");
 eq(filterByCategory(DAY7, "餐饮")[0].id, "a", "剩下的是那一笔餐饮");
 eq(filterByCategory(DAY7, "没有这个分类").length, 0, "对不上的分类就是空列表");
 eq(filterByCategory(DAY7, "") === DAY7, false, "返回的是拷贝，不动传进来的数组");
+
+/* ---------------- 账户转账（2026-10-12 加的） ----------------
+   转账单独一张表：读出来先规整，余额多算它一项，
+   收支统计那几处（monthTotals / categoryTotals / 环形图 / 预算 / 月历）
+   只收 transactions，压根收不到转账 —— 所以那半边不用测「排除」。 */
+
+const ACC_A = { id: "a1", name: "微信", initialBalanceCents: 100000 };   // 期初 1000.00
+const ACC_B = { id: "a2", name: "银行卡", initialBalanceCents: 0 };
+
+eqDeep(normalizeTransfer({ amountCents: "1000", fromAccountId: " a1 ", toAccountId: "a2",
+  imagePaths: ["x.png", 3, ""] }),
+  { id: "", amountCents: 1000, date: "", fromAccountId: "a1", toAccountId: "a2",
+    note: "", createdAt: "", imagePaths: ["x.png"] },
+  "规整：金额取整、账户 id 去空白、图片里夹的非字符串丢掉");
+eq(normalizeTransfer({ amountCents: -500 }).amountCents, 500, "金额取绝对值（负数当手滑）");
+eq(normalizeTransfer(null).amountCents, 0, "整条是空的也不炸");
+
+const TFS = [
+  { id: "tf1", amountCents: 30000, date: "2026-10-12", fromAccountId: "a1", toAccountId: "a2", note: "还信用卡" },
+  { id: "tf2", amountCents: 5000, date: "2026-10-12", fromAccountId: "a2", toAccountId: "a1", note: "退回来一点" },
+  { id: "tf3", amountCents: 2000, date: "2026-10-12", fromAccountId: "a1", toAccountId: "zz", note: "转到已删账户" },
+];
+
+eqDeep(transfersOfAccount(TFS, "a1"), { inCents: 5000, outCents: 32000, netCents: -27000 },
+  "a1 的转入 50、转出 320（转给已删账户的那笔也算转出）");
+eqDeep(transfersOfAccount(TFS, "a2"), { inCents: 30000, outCents: 5000, netCents: 25000 },
+  "a2 反过来：转入 300、转出 50");
+eqDeep(transfersOfAccount(TFS, "没有这个账户"), { inCents: 0, outCents: 0, netCents: 0 },
+  "不认识的账户一分钱都不动");
+eqDeep(transfersOfAccount([], "a1"), { inCents: 0, outCents: 0, netCents: 0 }, "没有转账时干净地给 0");
+eqDeep(transfersOfAccount(null, "a1"), { inCents: 0, outCents: 0, netCents: 0 }, "传 null 也不炸");
+
+const TXS = [
+  { id: "t1", type: "expense", amountCents: 1000, date: "2026-10-12", accountId: "a1" },
+  { id: "t2", type: "income", amountCents: 200, date: "2026-10-12", accountId: "a1" },
+];
+eq(accountBalanceCents(ACC_A, TXS), 100000 - 1000 + 200, "老口径没动：期初 + 收入 − 支出");
+eq(accountBalanceCents(ACC_A, TXS, TFS), 100000 - 1000 + 200 - 27000,
+  "加上转账：a1 净转出 270，余额跟着少 270");
+eq(accountBalanceCents(ACC_B, TXS, TFS), 25000, "a2 只有转账：净转入 250");
+eq(accountBalanceCents(ACC_A, TXS, []), accountBalanceCents(ACC_A, TXS),
+  "不传转账 = 空转账，老调用点一个字都不用改");
+
+const TOTAL = balanceTotals([ACC_A, ACC_B], TXS, TFS);
+eq(TOTAL.listedCents, accountBalanceCents(ACC_A, TXS, TFS) + accountBalanceCents(ACC_B, TXS, TFS),
+  "账户总余额 = 各账户余额之和（含转账）");
+// 转出方（a1）那 −20 已经算在「在用账户」里了，所以「已删账户」这一桶要 +20，
+// 两边一抵，钱没凭空多也没凭空少。
+eq(TOTAL.deletedCents, 2000, "转给已删账户那 20 块落到「已删账户」那一桶（+20）");
+eq(TOTAL.totalCents, TOTAL.listedCents + TOTAL.deletedCents, "总余额 = 在用 + 已删");
+eq(TOTAL.totalCents, balanceTotals([ACC_A, ACC_B], TXS).totalCents,
+  "转账不改总余额（钱只是换个账户待着）—— 这条是守恒，算错了上面几条也跑不掉");
+
+const TWO = [{ id: "a1", name: "微信" }, { id: "a2", name: "银行卡" }];
+eq(validateTransferInput({ amount: "100", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).ok, true, "正常的一笔转账放行");
+eq(validateTransferInput({ amount: "100", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).amountCents, 10000, "金额换算成分");
+eq(validateTransferInput({ amount: "0", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).ok, false, "金额 0 不行");
+eq(validateTransferInput({ amount: "-5", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).ok, false, "金额负数不行");
+eq(validateTransferInput({ amount: "1.234", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).ok, false, "三位小数不行");
+eq(validateTransferInput({ amount: "1000000", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).ok, false, "超过 999,999.99 不行");
+eq(validateTransferInput({ amount: "100", date: "", fromAccountId: "a1",
+  toAccountId: "a2", accounts: TWO }).ok, false, "没填日期不行");
+eq(validateTransferInput({ amount: "100", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a1", accounts: TWO }).toErr, "「从」和「到」不能是同一个账户",
+  "转给自己要单独说清楚");
+eq(validateTransferInput({ amount: "100", date: "2026-10-12", fromAccountId: "",
+  toAccountId: "a2", accounts: TWO }).fromErr !== "", true, "没选「从」要报错");
+eq(validateTransferInput({ amount: "100", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "删掉的账户", accounts: TWO }).toErr !== "", true, "选了一个不在账户表里的要报错");
+const FEW = validateTransferInput({ amount: "100", date: "2026-10-12", fromAccountId: "a1",
+  toAccountId: "a1", accounts: [{ id: "a1", name: "微信" }] });
+eq(FEW.ok, false, "只有一个账户时存不了");
+eq(FEW.hint.indexOf("第二个账户") >= 0, true, "并且明说「先加第二个账户」");
+eq(FEW.amountErr, "", "账户不够时不去挑金额的毛病（先说清最要紧的那件事）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

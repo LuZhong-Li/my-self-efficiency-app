@@ -9,7 +9,9 @@ import {
   isHit, avgViewsOf, hitLevelOf, activityOf, accountStats, overviewOf, overviewSeries,
   PLATFORM_LIMIT, PLATFORM_MAX_CHARS, normalizePlatforms, platformsOf, addPlatform, removePlatform,
   lastSnapshotOf,
+  WORKS_CSV_HEAD, contentCsvRows, mediaCsv,
 } from "../app/web/media-calc.js";
+import { csvCell } from "../app/web/csv.js";
 
 let pass = 0;
 let fail = 0;
@@ -333,6 +335,72 @@ eq(lastSnapshotOf([{ accountId: "a1", date: "2026-10-05", count: -5 }], "a1").co
   "数字取整、负数当 0（手改坏了的也不至于垫一个负数进去）");
 eq(lastSnapshotOf([{ accountId: "a1", count: 999 }], "a1"), null,
   "没有日期的快照不算（那一条本来就不知道是哪天的）");
+
+/* ---------------- 作品导出 CSV（2026-10-13 加的） ----------------
+   一行一条作品；日期那一列「发布日优先，没发布就用排期日」，账号名回账号表取。
+   拼装那半截（裹引号、BOM）在 csv.js，记账那边已经用过一份了，这里只管「有哪些列」。 */
+
+eqDeep(WORKS_CSV_HEAD,
+  ["日期", "状态", "标题", "平台", "账号", "播放", "点赞", "评论", "收藏", "涨粉", "链接", "备注"],
+  "表头 12 列");
+
+const CSV_ACCS = [
+  { id: "a1", name: "B站小李", platform: "B站" },
+  { id: "a2", name: "小红书小号", platform: "小红书" },
+];
+const WORKS = [
+  { id: "w1", accountId: "a1", platform: "B站", title: "第一条", status: "已发布",
+    planDate: "2026-10-01", publishDate: "2026-10-02", link: "https://b23.tv/x",
+    views: 12000, likes: 300, comments: 20, collects: 88, fansGain: 15, note: "脚本要点",
+    createdAt: "2026-10-02 20:00" },
+  { id: "w2", accountId: "a2", platform: "小红书", title: "还没发的选题", status: "待发布",
+    planDate: "2026-10-05", publishDate: "", link: "",
+    views: 0, likes: 0, comments: 0, collects: 0, fansGain: 0, note: "素材在桌面",
+    createdAt: "2026-10-03 09:00" },
+  { id: "w3", accountId: "", platform: "B站", title: "上个月的老作品", status: "已发布",
+    planDate: "", publishDate: "2026-09-20", link: "",
+    views: 500, likes: 10, comments: 1, collects: 2, fansGain: 3, note: "",
+    createdAt: "2026-09-20 10:00" },
+  { id: "w4", accountId: "a1", platform: "B站", title: "连日期都没填的想法", status: "想法",
+    planDate: "", publishDate: "", link: "",
+    views: 0, likes: 0, comments: 0, collects: 0, fansGain: 0, note: "",
+    createdAt: "2026-10-04 08:00" },
+];
+
+const W_ROWS = contentCsvRows(WORKS, CSV_ACCS, {});
+eq(W_ROWS.length, 4, "四条作品四行");
+eqDeep(W_ROWS[0], ["2026-10-05", "待发布", "还没发的选题", "小红书", "小红书小号", "0", "0", "0", "0", "0", "", "素材在桌面"],
+  "日期倒序：10-05 排第一；没发布的用排期日（导出来一眼看得出排在哪天）");
+eqDeep(W_ROWS[1], ["2026-10-02", "已发布", "第一条", "B站", "B站小李", "12000", "300", "20", "88", "15",
+  "https://b23.tv/x", "脚本要点"],
+  "发布日那一列用实际发布日期；账号名回账号表取；数字不带千分位");
+eq(W_ROWS[2][1], "已发布", "第三行是 09-20 那条老作品");
+eq(W_ROWS[2][6], "10", "老作品的点赞也在");
+eq(W_ROWS[2][4], "", "认不出账号的（accountId 是空的）账号那列留空，不硬塞平台名");
+eq(W_ROWS[3][2], "连日期都没填的想法", "一条日期都没有的排在最后");
+eq(W_ROWS[3][0], "", "它的日期列空着");
+
+const W_MONTH = contentCsvRows(WORKS, CSV_ACCS, { month: "2026-10" });
+eq(W_MONTH.length, 2, "只看 10 月：三条里有日期的两条在");
+eq(W_MONTH.some((r) => r[2] === "上个月的老作品"), false, "9 月那条不在");
+eq(W_MONTH.some((r) => r[2] === "连日期都没填的想法"), false, "没日期的在按月筛时也不算（不知道该归哪个月）");
+
+eq(contentCsvRows(null, null, {}).length, 0, "什么都没传也不炸");
+eq(contentCsvRows(WORKS, null, {}).length, 4, "不传账号表也能导（账号列留空）");
+
+const W_CSV = mediaCsv(contentCsvRows(WORKS, CSV_ACCS, {}));
+eq(W_CSV.charCodeAt(0), 0xfeff, "开头是 BOM");
+eq(W_CSV.slice(1).split("\r\n")[0], WORKS_CSV_HEAD.join(","), "第一行是表头");
+eq(W_CSV.slice(1).split("\r\n").length, 6, "表头 + 四行 + 末尾换行");
+eq(mediaCsv([]), "\ufeff" + WORKS_CSV_HEAD.join(",") + "\r\n", "一条作品都没有时只剩表头");
+const W_NOTE = mediaCsv(contentCsvRows(
+  [{ id: "w9", title: '带 "引号, 逗号" 的标题', status: "想法", views: 1, likes: 0, comments: 0,
+     collects: 0, fansGain: 0, note: "第一行\n第二行" }],
+  null, {}
+));
+eq(W_NOTE.indexOf('"带 ""引号, 逗号"" 的标题"') >= 0, true, "标题里的引号逗号都照顾到了");
+eq(W_NOTE.indexOf('"第一行\n第二行"') >= 0, true, "备注里换行也裹起来");
+eq(csvCell("普通"), "普通", "共用的那份拼格子还在（csv.js）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

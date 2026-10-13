@@ -10,12 +10,13 @@ import {
   categoryBudgetStates, validateAccountInput,
   ensureCategories, dayCategories, filterByCategory, DEFAULT_CATEGORIES,
   normalizeTransfer, transfersOfAccount, validateTransferInput,
-  csvCell, financeRows, financeCsv, CSV_HEAD,
+  financeRows, financeCsv, CSV_HEAD,
   budgetNotice,
   ledgerRange, rangeTotals, ledgerOf, LEDGER_SCOPES,
   TEMPLATE_LIMIT, normalizeTemplate, templatesOf, templateFromTx, templateLabel, addTemplate,
   lastMonths, monthTrend, trendSummary,
 } from "../app/web/finance-calc.js";
+import { csvCell } from "../app/web/csv.js";
 
 let pass = 0;
 let fail = 0;

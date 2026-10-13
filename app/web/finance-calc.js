@@ -4,6 +4,7 @@
  */
 
 import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney } from "./money.js";
+import { csvCell, csvText } from "./csv.js";
 
 /** "2026-10-07" → "2026-10" */
 export function monthKey(date) {
@@ -374,12 +375,7 @@ export function validateTransferInput({ amount, date, fromAccountId, toAccountId
 /** 表头七列：转账多的那两列（分类 / 到账账户）账目留空 */
 export const CSV_HEAD = ["日期", "类型", "分类", "金额", "账户", "到账账户", "备注"];
 
-/** CSV 里一个格子：带逗号 / 引号 / 换行的裹进引号，里面的引号翻倍 */
-export function csvCell(value) {
-  const text = value === undefined || value === null ? "" : String(value);
-  if (!/[",\r\n]/.test(text)) return text;
-  return '"' + text.replace(/"/g, '""') + '"';
-}
+/* 拼格子和拼整份文本都在 csv.js（和自媒体共用一份），这里只管「记账有哪些列」 */
 
 /** 账户 id → 名字；不在列表里（删了的）写「（账户已删）」，不写一个认不出的 id */
 function csvAccountName(accounts, id) {
@@ -447,8 +443,7 @@ export function financeRows(txs, transfers, options = {}) {
 
 /** 表格 → CSV 文本：开头带 UTF-8 BOM（Excel 打开中文才不乱码），行尾用 \r\n */
 export function financeCsv(rows) {
-  const lines = [CSV_HEAD].concat(rows || []);
-  return "\ufeff" + lines.map((r) => (r || []).map(csvCell).join(",")).join("\r\n") + "\r\n";
+  return csvText(CSV_HEAD, rows);
 }
 
 /* ---------------- 明细的筛选：时间段 + 账户（2026-10-13 加的） ----------------

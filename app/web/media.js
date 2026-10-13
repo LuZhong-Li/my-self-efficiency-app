@@ -10,7 +10,7 @@
  * 算数的部分全在 media-calc.js（纯函数，有 Node 单测），这里只管画和接事件。
  */
 
-import { store, touch, uid, table, esc, todayStr, nowText, moveToTrash } from "./store.js";
+import { store, touch, uid, table, esc, todayStr, nowText, moveToTrash, downloadText } from "./store.js";
 import { sectionHead, emptyState, bindFresh, pageHeader } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, dayLabel } from "./calendar.js";
@@ -23,6 +23,7 @@ import {
   addPlatform,
   removePlatform,
   lastSnapshotOf,
+  contentCsvRows, mediaCsv,
   ARCHIVED,
   statusesOf,
   isPublished,
@@ -67,6 +68,7 @@ export function renderMedia(root, sub) {
     ${pageHeader(
       "media",
       `<span class="date-chip">共 ${items.length} 条</span>
+       <button class="btn small" data-act="csv" title="导成 CSV，拿去 Excel 看">导出 CSV</button>
        <button class="btn small" data-act="plat-manage" title="改「平台」下拉里有哪些可选">${icon("settings", 16)}平台</button>
        <button class="btn small" data-act="acc-new">${icon("settings", 16)}账号管理</button>`
     )}
@@ -713,6 +715,44 @@ function openAccountDialog(id) {
 /* ---------------- 记一笔粉丝 ---------------- */
 
 /**
+ * 「导出 CSV」：先问一句导哪些（全部 / 这个月），再由浏览器下载。
+ * 一行一条作品，日期那列「发布日优先、没发布就用排期日」——拿去 Excel 一眼看得出
+ * 哪条排在哪天、发布后数据是多少。
+ */
+function openCsvDialog() {
+  const month = todayStr().slice(0, 7);
+  const all = contentCsvRows(table("contents"), table("mediaAccounts"), {});
+  const inMonth = contentCsvRows(table("contents"), table("mediaAccounts"), { month });
+  openDialog({
+    title: "导出 CSV",
+    bodyHtml: `
+      <p class="fin-help">一行一条作品：12 列（日期 / 状态 / 标题 / 平台 / 账号 /
+        播放 / 点赞 / 评论 / 收藏 / 涨粉 / 链接 / 备注）。日期那一列「发布日优先，
+        没发布就用排期日」，所以还在排期里的也看得出排在哪天。</p>
+      <p class="fin-help">文件由浏览器直接下载，落在你的「下载」文件夹；
+        开头带了 UTF-8 BOM，Excel 打开中文不会乱码。</p>
+      <p class="fin-help">一共 ${all.length} 条；这个月 ${inMonth.length} 条。</p>`,
+    buttons: [
+      { id: "csv-month", label: "导出这个月" },
+      { id: "csv-all", label: "导出全部", kind: "primary" },
+      { id: "cancel", label: "取消" },
+    ],
+    onAction: (act) => {
+      if (act === "cancel") return true;
+      const scope = act === "csv-month" ? month : "";
+      const rows = contentCsvRows(table("contents"), table("mediaAccounts"), { month: scope });
+      downloadText(
+        `自媒体-${todayStr()}-${scope || "全部"}.csv`,
+        mediaCsv(rows),
+        "text/csv;charset=utf-8"
+      );
+      toast(`已导出 ${rows.length} 条（看看浏览器的下载）`);
+      return true;
+    },
+  });
+}
+
+/**
  * 「管理平台」：改的是**下拉里有哪些可选**，已经记下的账号和作品一个字不动 ——
  * 它们存的是平台名（文本），所以改名 / 删掉都不会动到数据。
  */
@@ -1163,6 +1203,7 @@ async function onClick(e) {
   if (act === "acc-edit") return openAccountDialog(id);
   if (act === "acc-snap") return openSnapshotDialog(id);
   if (act === "plat-manage") return openPlatformDialog();
+  if (act === "csv") return openCsvDialog();
   if (act === "acc-open") {
     // 切到「只看这个账号」，顺便写进地址，刷新之后还认
     location.hash = "#media/" + id;

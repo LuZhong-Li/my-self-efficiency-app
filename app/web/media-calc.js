@@ -2,8 +2,10 @@
    为什么单独一个文件：这里全是**最容易算错**的地方（粉丝到底从哪儿开始加、
    快照和作品同一天算几遍、一周从哪天算起、多少倍才算爆款），放在这里就能用
    Node 一条条断言（tests/自媒体计算.test.mjs），不用开浏览器对着界面数。
-   这个文件不 import 任何东西：不碰 DOM、不碰 store，取表函数自带一份。
-   别的文件（media.js / home-view.js / search.js）不许再自己算这些数。 */
+   这个文件只 import 了 csv.js（导出用，也是纯函数）：不碰 DOM、不碰 store，
+   取表函数自带一份。别的文件（media.js / home-view.js / search.js）不许再自己算这些数。 */
+
+import { csvText } from "./csv.js";
 
 /** 平台清单（**默认的那一份**）。账号和作品里存的是平台名（文本），
  *  所以「用户自己改清单」不用迁数据 —— 真正用哪几个看 settings.mediaPlatforms，
@@ -484,4 +486,74 @@ export function overviewSeries(data, today, days) {
     });
   }
   return { fans, views };
+}
+
+/* ---------------- 作品导出 CSV（2026-10-13 加的） ----------------
+   一行一条作品；日期那一列「发布日优先，没发布就用排期日」。
+   拼装（裹引号、BOM、行尾）在 csv.js —— 和记账共用一份，两边不会走岔。 */
+
+/** 表头 12 列 */
+export const WORKS_CSV_HEAD = [
+  "日期", "状态", "标题", "平台", "账号", "播放", "点赞", "评论", "收藏", "涨粉", "链接", "备注",
+];
+
+/** 这一条作品算哪一天：发布了看发布日，还没发布看排期日；都没有就是空
+ *  （按月筛的时候不算它 —— 不知道该归哪个月，硬塞进当月反而误导人） */
+export function workDateOf(c) {
+  const row = c && typeof c === "object" ? c : {};
+  return String(row.publishDate || row.planDate || "").trim();
+}
+
+/**
+ * 作品摊成表格（还没拼成文本，方便单测）：
+ * 一行一条，**按日期倒序**（新的在前），一条日期都没有的排在最后。
+ * 账号名回账号表取；没有 accountId（老数据 / 没绑账号）就留空，不硬塞平台名。
+ *
+ * @param {object[]} contents 作品
+ * @param {object[]} accounts 账号表（不传就账号列留空）
+ * @param {{month?: string}} options month 传 "2026-10" 就只导这个月
+ */
+export function contentCsvRows(contents, accounts, options = {}) {
+  const list = accounts || [];
+  const month = String(options.month || "").trim();
+  const num = (v) => String(Math.max(0, Math.round(Number(v) || 0)));
+  const rows = [];
+  for (const c of contents || []) {
+    if (!c || typeof c !== "object") continue;
+    const date = workDateOf(c);
+    if (month && !date.startsWith(month)) continue;
+    const acc = list.find((a) => a && a.id === c.accountId) || null;
+    rows.push({
+      date,
+      at: String(c.createdAt || ""),
+      row: [
+        date,
+        String(c.status || ""),
+        String(c.title || ""),
+        String(c.platform || ""),
+        acc ? String(acc.name || "") : "",
+        num(c.views),
+        num(c.likes),
+        num(c.comments),
+        num(c.collects),
+        num(c.fansGain),
+        String(c.link || ""),
+        String(c.note || ""),
+      ],
+    });
+  }
+  rows.sort((a, b) => {
+    if (a.date !== b.date) {
+      if (!a.date) return 1;      // 没日期的排最后
+      if (!b.date) return -1;
+      return a.date < b.date ? 1 : -1;   // 日期倒序：新的在前
+    }
+    return a.at < b.at ? 1 : a.at > b.at ? -1 : 0;   // 同一天按记录时间倒序
+  });
+  return rows.map((r) => r.row);
+}
+
+/** 表格 → CSV 文本（BOM 与行尾都在 csv.js 那份里，和记账一个口径） */
+export function mediaCsv(rows) {
+  return csvText(WORKS_CSV_HEAD, rows);
 }

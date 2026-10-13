@@ -20,6 +20,7 @@ import {
   budgetNotice,
   ledgerOf, rangeTotals,
   TEMPLATE_LIMIT, templatesOf, templateFromTx, templateLabel, addTemplate,
+  lastMonths, monthTrend, trendSummary,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -32,6 +33,8 @@ import {
 let selected = null; // 月历上选中的那天
 let ringPick = null; // 环形图上点开的分类（展开明细用）
 let ringType = "expense"; // 环形图看哪一头：expense / income
+const TREND_MONTHS = 6;   // 趋势图看几个月
+let trendType = "expense"; // 趋势图看哪一头：expense / income
 let dayCat = ""; // 当日明细的分类筛选；空串 = 全部（那天不止一个分类时才露出来）
 // 明细卡片的筛选：看哪一段时间（当天 / 本月 / 自定义）+ 只看哪个账户；
 // dayCat 是在这批账上再叠的一层分类筛选
@@ -444,6 +447,79 @@ function txRow(t, withDate = false) {
         <button class="link danger" data-act="tx-del">删除</button>
       </span>
     </li>`;
+}
+
+/** 左栏第三张：近 6 个月趋势（柱状）。页签切支出 / 收入，悬停给完整金额。
+ *  为什么是柱状不是折线：月份是离散的、要看的是「哪个月高」，而且某个月没花钱
+ *  就是一根零高柱，缺不缺一眼看得出；数值直接标在柱子上，不用悬停也能读。 */
+function trendCard(txs) {
+  const months = lastMonths(currentMonth(), TREND_MONTHS);
+  const series = monthTrend(txs, months, trendType);
+  const sum = trendSummary(series);
+  const isIncome = trendType === "income";
+  const head = `
+    <div class="card-head">
+      <h2>近 ${TREND_MONTHS} 个月</h2>
+      <span class="hint">${
+        sum.totalCents
+          ? `${isIncome ? "收入" : "支出"}共 ${fmtMoney(sum.totalCents)} · 月均 ${fmtMoney(sum.avgCents)}`
+          : ""
+      }</span>
+    </div>
+    <div class="fin-ring-tabs">
+      <button class="fin-tab${isIncome ? "" : " active"}" data-act="trend-type" data-type="expense">支出</button>
+      <button class="fin-tab${isIncome ? " active" : ""}" data-act="trend-type" data-type="income">收入</button>
+    </div>`;
+  if (!sum.totalCents) {
+    return `${head}${emptyState(
+      `近 ${TREND_MONTHS} 个月还没有账目`,
+      "记上几笔，这里就能看出高低。",
+      "",
+      "money"
+    )}`;
+  }
+  // 手写 SVG（不引图表库），固定坐标系，柱宽按月份数平分
+  const W = 600;
+  const H = 180;
+  const gap = 14;
+  const bw = (W - gap * (series.length - 1)) / series.length;
+  const baseY = H - 24;          // 柱子底线（下面留一行写月份）
+  const chartH = baseY - 30;     // 柱子最高到哪儿（上面留一行写金额）
+  const last = series[series.length - 1].month;
+  const bars = series
+    .map((row, i) => {
+      const h = row.cents ? Math.max(3, Math.round(chartH * row.ratio)) : 0;
+      const x = i * (bw + gap);
+      const y = baseY - h;
+      const mid = (x + bw / 2).toFixed(1);
+      const tip = `${row.month} · ${isIncome ? "收入" : "支出"} ${fmtMoney(row.cents)}`;
+      return `<g class="trend-bar${row.month === last ? " now" : ""}">
+        <title>${esc(tip)}</title>
+        <rect x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="5"></rect>
+        ${
+          row.cents
+            ? `<text class="trend-num" x="${mid}" y="${Math.max(13, y - 7)}" text-anchor="middle">${esc(
+                fmtMoneyShort(row.cents)
+              )}</text>`
+            : ""
+        }
+        <text class="trend-mon" x="${mid}" y="${baseY + 17}" text-anchor="middle">${esc(
+          Number(row.month.slice(5)) + "月"
+        )}</text>
+      </g>`;
+    })
+    .join("");
+  return `${head}
+    <svg class="fin-trend ${isIncome ? "is-income" : "is-expense"}" viewBox="0 0 ${W} ${H}"
+      role="img" aria-label="${isIncome ? "收入" : "支出"}近 ${TREND_MONTHS} 个月走势">
+      <line class="trend-base" x1="0" y1="${baseY}" x2="${W}" y2="${baseY}"></line>
+      ${bars}
+    </svg>
+    ${
+      last === currentMonth()
+        ? `<p class="hint">${esc(monthCN(last))}是到 ${esc(todayStr().slice(5))} 为止的数，这个月还没过完。</p>`
+        : ""
+    }`;
 }
 
 /** 右栏第三张：账户列表。余额是实时算出来的（期初 + 该账户的收支），
@@ -1067,6 +1143,7 @@ export function renderFinance(root, sub = "") {
              <div class="fin-main">
                <section class="card" id="fin-calendar">${calendarCard(txs)}</section>
                <section class="card" id="fin-ring">${ringCard(txs)}</section>
+               <section class="card" id="fin-trend">${trendCard(txs)}</section>
              </div>
              <div class="fin-side">
                 <section class="card" id="fin-overview">${overviewCard(txs, tfs)}</section>
@@ -1206,6 +1283,11 @@ function onClick(e) {
   if (act === "ring-type") {
     ringType = btn.dataset.type;
     ringPick = null; // 换了一头，之前点开的那个分类就不在了
+    redraw();
+    return;
+  }
+  if (act === "trend-type") {
+    trendType = btn.dataset.type;
     redraw();
     return;
   }

@@ -2483,6 +2483,22 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
   letter-spacing: 0.04em;
 }
 
+/* 记账：近 6 个月趋势（手写 SVG 柱状图，和环形图一个路子——零依赖、颜色走变量） */
+.fin-trend {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 4px;
+}
+.fin-trend .trend-base { stroke: var(--line); stroke-width: 1; }
+.fin-trend .trend-bar rect { fill: var(--err); opacity: 0.72; }
+.fin-trend.is-income .trend-bar rect { fill: var(--ok); }
+/* 当月那根是「到今天为止」的数，画实一点，和别的月份分得开 */
+.fin-trend .trend-bar.now rect { opacity: 1; }
+.fin-trend .trend-num { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.fin-trend .trend-mon { fill: var(--muted); font-size: 11px; }
+.fin-trend .trend-bar.now .trend-mon { fill: var(--ink); }
+
 /* 常用模板那一条：页头底下一条细带，有模板时才出现（点胶囊填好，× 删掉它） */
 .fin-tplstrip {
   display: flex;

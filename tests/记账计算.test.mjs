@@ -14,6 +14,7 @@ import {
   budgetNotice,
   ledgerRange, rangeTotals, ledgerOf, LEDGER_SCOPES,
   TEMPLATE_LIMIT, normalizeTemplate, templatesOf, templateFromTx, templateLabel, addTemplate,
+  lastMonths, monthTrend, trendSummary,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -537,6 +538,48 @@ const FULL_TRY = addTemplate(FULL, templateFromTx({ type: "expense", category: "
 eq(FULL_TRY.status, "full", "存满 8 个之后再存：告诉它满了（让它自己删一个）");
 eq(FULL_TRY.list.length, TEMPLATE_LIMIT, "满了就不再往里加");
 eq(addTemplate(null, templateFromTx(TPL_TX)).status, "added", "传 null 也能存（当空列表）");
+
+/* ---------------- 近 6 个月趋势（2026-10-13 加的） ----------------
+   记账页一直是「一个月一个月」的：月历按月翻、概览和环形图只看当前那个月。
+   这一组给趋势图备数据：最近 6 个月各是多少、柱高按什么比例算、合计与月均。
+   口径走现成的 monthTotals，不会出现「图上 427、概览 428」。 */
+
+eqDeep(lastMonths("2026-10"), ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"],
+  "默认往回数 6 个月，含当月、升序");
+eqDeep(lastMonths("2026-01"), ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01"],
+  "跨年接得上（1 月往回数要跨到上一年）");
+eqDeep(lastMonths("2026-03", 1), ["2026-03"], "只要一个月就是它自己");
+eqDeep(lastMonths("2026-03", 14).length, 14, "要几个月给几个月");
+eqDeep(lastMonths("2026-03", 14)[0], "2025-02", "往回数 14 个月也对（2026-03 → 2025-02）");
+eqDeep(lastMonths("不是月份"), [], "认不出来的给空数组，不抛错");
+eqDeep(lastMonths(null), [], "没传也给空数组");
+eqDeep(lastMonths("2026-12", 2), ["2026-11", "2026-12"], "年末两个月");
+
+const TREND_TX = [
+  { id: "a", type: "expense", amountCents: 10000, date: "2026-05-10", category: "餐饮" },
+  { id: "b", type: "expense", amountCents: 5000, date: "2026-05-11", category: "交通" },
+  { id: "c", type: "income", amountCents: 800000, date: "2026-05-01", category: "工资" },
+  { id: "d", type: "expense", amountCents: 30000, date: "2026-07-20", category: "购物" },
+  { id: "e", type: "expense", amountCents: 9999, date: "2026-04-30", category: "其他" },
+];
+const TREND_MONTHS = lastMonths("2026-10");
+const TREND = monthTrend(TREND_TX, TREND_MONTHS, "expense");
+eqDeep(TREND.map((r) => r.month), TREND_MONTHS, "月份顺序照给进来的来（升序）");
+eqDeep(TREND.map((r) => r.cents), [15000, 0, 30000, 0, 0, 0],
+  "5 月 150（两笔加起来）、7 月 300（第三根）、别的月 0（4 月那笔不在窗口里）");
+eq(TREND[0].ratio, 0.5, "柱高比例：15000 / 30000");
+eq(TREND[2].ratio, 1, "最高的那个月（7 月那根）是满格");
+eq(TREND[1].ratio, 0, "空月份比例是 0（画出来就是一根零高柱）");
+eq(monthTrend(TREND_TX, TREND_MONTHS, "income").map((r) => r.cents)[0], 800000,
+  "切到收入那头：只算收入");
+eq(monthTrend([], TREND_MONTHS, "expense").every((r) => r.ratio === 0), true,
+  "一笔都没有时全是 0，不除零");
+eq(monthTrend(null, null, "expense").length, 0, "什么都没传也不炸");
+
+eqDeep(trendSummary([{ cents: 10000 }, { cents: 20000 }, { cents: 0 }]),
+  { totalCents: 30000, avgCents: 10000 }, "合计 + 月均（空月份也算进分母）");
+eqDeep(trendSummary([]), { totalCents: 0, avgCents: 0 }, "空列表给 0，不除零");
+eqDeep(trendSummary(null), { totalCents: 0, avgCents: 0 }, "传 null 也不炸");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

@@ -610,3 +610,42 @@ export function addTemplate(list, tpl) {
   const id = next.id || `tpl-${Date.now().toString(36)}-${rows.length}`;
   return { list: rows.concat([{ ...next, id }]), status: "added" };
 }
+
+/* ---------------- 近 6 个月趋势（2026-10-13 加的） ----------------
+   记账页一直是「一个月一个月」的：月历按月翻、概览和环形图只看当前那个月。
+   这一组给趋势图备数据：最近几个月各是多少、柱高按什么比例算、合计与月均。
+   口径走现成的 monthTotals —— 图上和概览上的数永远是同一个来源。 */
+
+/** "2026-10" 往回数 → ["2026-05" … "2026-10"]（升序、含当月；跨年接得上） */
+export function lastMonths(month, count = 6) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(month == null ? "" : month).trim());
+  if (!m) return [];
+  const n = Math.max(1, Math.floor(Number(count) || 1));
+  const end = Number(m[1]) * 12 + (Number(m[2]) - 1);   // 以「0 年 1 月」为 0 的月序号
+  const out = [];
+  for (let i = n - 1; i >= 0; i -= 1) {
+    const at = end - i;
+    out.push(`${Math.floor(at / 12)}-${String((at % 12) + 1).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+/**
+ * 每个月那一头的数 + 给画柱用的比例。
+ * ratio = 这个月 / 最高的那个月（全是 0 时都给 0，不除零）——柱高直接用它。
+ */
+export function monthTrend(transactions, months, type = "expense") {
+  const list = (months || []).map((month) => {
+    const totals = monthTotals(transactions, month);
+    return { month, cents: type === "income" ? totals.incomeCents : totals.expenseCents };
+  });
+  const max = list.reduce((best, row) => Math.max(best, row.cents), 0);
+  return list.map((row) => ({ ...row, ratio: max ? row.cents / max : 0 }));
+}
+
+/** 卡片头上那句：几个月一共多少、月均多少（空月份也算进分母，好和「每月大概花多少」对上） */
+export function trendSummary(series) {
+  const rows = series || [];
+  const totalCents = rows.reduce((sum, r) => sum + (Number(r && r.cents) || 0), 0);
+  return { totalCents, avgCents: rows.length ? Math.round(totalCents / rows.length) : 0 };
+}

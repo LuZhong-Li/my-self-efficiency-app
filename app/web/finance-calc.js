@@ -450,3 +450,100 @@ export function financeCsv(rows) {
   const lines = [CSV_HEAD].concat(rows || []);
   return "\ufeff" + lines.map((r) => (r || []).map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
+
+/* ---------------- 明细的筛选：时间段 + 账户（2026-10-13 加的） ----------------
+   明细卡片原来只看「选中的那一天」。这一版能切「本月 / 自定义时间段」，
+   再叠一个「只看某个账户」——顺带把一直缺的「整月账目列表」补上了。
+   纯逻辑只负责把条件归一成一段时间 + 一个账户，再把那批账挑出来；
+   画不画折行、筛选栏长什么样，是 finance.js 的事。 */
+
+/** 明细卡片能选的范围：当天 / 本月 / 自定义时间段 */
+export const LEDGER_SCOPES = ["day", "month", "range"];
+
+/**
+ * 把筛选条件归一成一段时间 + 一个账户，后面取数和合计都只看这三个。
+ *   day   —— 日历上选中的那一天
+ *   month —— 选中的那个月（整月账目列表就是它）
+ *   range —— 用户自己填的起止日期：填反了自动换过来，只填一头另一头补上，
+ *            两头都空就当回「当天」（别一不小心把整本账倒出来）
+ * 认不出来的范围一律当「当天」。
+ *
+ * @param {{scope?: string, from?: string, to?: string, accountId?: string}} filter
+ * @param {{selected?: string, month?: string}} ctx
+ */
+export function ledgerRange(filter, ctx = {}) {
+  const f = filter || {};
+  const selected = String(ctx.selected || "");
+  const month = String(ctx.month || "");
+  const scope = LEDGER_SCOPES.includes(f.scope) ? f.scope : "day";
+  let from = "";
+  let to = "";
+  if (scope === "month") {
+    from = month ? month + "-01" : "";
+    to = month ? month + "-31" : "";
+  } else if (scope === "range") {
+    from = String(f.from || "").slice(0, 10);
+    to = String(f.to || "").slice(0, 10);
+    if (!from && !to) {
+      from = selected;
+      to = selected;
+    } else if (!from) from = to;
+    else if (!to) to = from;
+    if (from > to) {
+      const swap = from;
+      from = to;
+      to = swap;
+    }
+  } else {
+    from = selected;
+    to = selected;
+  }
+  return { scope, from, to, accountId: String(f.accountId || "").trim() };
+}
+
+/** 一段时间里的账目合计。结余 = 收入 − 支出（和月度口径一致）。
+ *  和 dayTotals 一个脾气：多一个「结余」，省得调用方各算各的。 */
+export function rangeTotals(transactions, from, to) {
+  let expenseCents = 0;
+  let incomeCents = 0;
+  for (const t of transactions || []) {
+    if (!t) continue;
+    const date = String(t.date || "");
+    if (from && date < from) continue;
+    if (to && date > to) continue;
+    if (t.type === "income") incomeCents += Number(t.amountCents) || 0;
+    else expenseCents += Number(t.amountCents) || 0;
+  }
+  return { expenseCents, incomeCents, balanceCents: incomeCents - expenseCents };
+}
+
+/**
+ * 明细卡片要画的那一批：账目按时间段 + 账户筛出来，转账另外给一份
+ * （转账不算收支，所以单列一块、不进 totals）。
+ * 转账跟账户的关系是「两头任一边是这个账户都算」——钱从它出或进它都关它的事。
+ *
+ * @returns {{from: string, to: string, accountId: string,
+ *            scope: string,
+ *            rows: object[], transfers: object[],
+ *            totals: {expenseCents: number, incomeCents: number, balanceCents: number},
+ *            count: number}}
+ */
+export function ledgerOf(transactions, transfers, filter, ctx = {}) {
+  const { scope, from, to, accountId } = ledgerRange(filter, ctx);
+  const inRange = (date) => (!from || date >= from) && (!to || date <= to);
+  const mine = (id) => !accountId || String(id || "") === accountId;
+  const rows = (transactions || [])
+    .filter((t) => t && inRange(String(t.date || "")) && mine(t.accountId))
+    .sort(byCreatedAt);
+  const tfs = (transfers || [])
+    .map(normalizeTransfer)
+    .filter((t) => inRange(t.date) && (mine(t.fromAccountId) || mine(t.toAccountId)))
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  // scope 也带出去：界面靠它决定标题、头上那句说明、以及要不要在每行前面写日期
+  return {
+    scope, from, to, accountId,
+    rows, transfers: tfs,
+    totals: rangeTotals(rows, from, to),
+    count: rows.length,
+  };
+}

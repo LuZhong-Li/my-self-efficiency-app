@@ -2482,6 +2482,21 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
   font-size: 12px;
   letter-spacing: 0.04em;
 }
+
+/* 明细卡片的筛选栏：看哪段时间 + 只看哪个账户（「自定义」时才多两个日期框） */
+.fin-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 8px;
+}
+.fin-filter select,
+.fin-filter input[type="date"] {
+  max-width: 130px;
+  font-size: 12px;
+}
+.fin-filter-sep { color: var(--muted); font-size: 12px; }
 html[data-theme="dark"] .fin-row.is-expense { background: rgba(248, 113, 113, 0.08); }
 html[data-theme="dark"] .fin-row.is-income { background: rgba(52, 211, 153, 0.08); }
 /* 编辑 / 删除按钮：hover 从下划线换成一块玻璃高亮 */

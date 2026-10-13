@@ -12,6 +12,7 @@ import {
   normalizeTransfer, transfersOfAccount, validateTransferInput,
   csvCell, financeRows, financeCsv, CSV_HEAD,
   budgetNotice,
+  ledgerRange, rangeTotals, ledgerOf, LEDGER_SCOPES,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -406,6 +407,76 @@ eq(budgetNotice(budgetState(10500, 10000)).short, "超 ¥5.00", "短文案同一
 eq(budgetNotice(budgetState(10500, 10000)).pct, 105, "百分比照实给（画条时自己封顶）");
 eq(budgetNotice(budgetState(5000, 0)), null, "没设预算：没什么好提醒的");
 eq(budgetNotice(null), null, "什么都没传也不炸");
+
+/* ---------------- 明细的筛选：时间段 + 账户（2026-10-13 加的） ----------------
+   明细卡片原来只看「选中的那一天」，这一版能切「本月 / 自定义时间段」再叠一个账户。
+   纯逻辑只负责把条件归一成一段时间 + 一个账户，再筛出这批账（转账另外给一份）。 */
+
+eqDeep(LEDGER_SCOPES, ["day", "month", "range"], "三种范围：当天 / 本月 / 自定义");
+
+const LEDGER_CTX = { selected: "2026-10-08", month: "2026-10" };
+eqDeep(ledgerRange({ scope: "day" }, LEDGER_CTX),
+  { scope: "day", from: "2026-10-08", to: "2026-10-08", accountId: "" },
+  "当天：两头都是选中的那天");
+eqDeep(ledgerRange({ scope: "month" }, LEDGER_CTX),
+  { scope: "month", from: "2026-10-01", to: "2026-10-31", accountId: "" },
+  "本月：整个月那一头到尾");
+eqDeep(ledgerRange({ scope: "range", from: "2026-10-01", to: "2026-10-05" }, LEDGER_CTX),
+  { scope: "range", from: "2026-10-01", to: "2026-10-05", accountId: "" },
+  "自定义：两头照填的来");
+eqDeep(ledgerRange({ scope: "range", from: "2026-10-09", to: "2026-10-01" }, LEDGER_CTX),
+  { scope: "range", from: "2026-10-01", to: "2026-10-09", accountId: "" },
+  "自定义：起止填反了自动换过来（不是筛出一片空）");
+eqDeep(ledgerRange({ scope: "range", from: "", to: "2026-10-05" }, LEDGER_CTX),
+  { scope: "range", from: "2026-10-05", to: "2026-10-05", accountId: "" },
+  "自定义只填了一头：另一头补上（当那天）");
+eqDeep(ledgerRange({ scope: "range" }, LEDGER_CTX),
+  { scope: "range", from: "2026-10-08", to: "2026-10-08", accountId: "" },
+  "自定义两头都空：当回选中的那天，别把整本账都倒出来");
+eqDeep(ledgerRange({ scope: "没有这种", accountId: "a1" }, LEDGER_CTX),
+  { scope: "day", from: "2026-10-08", to: "2026-10-08", accountId: "a1" },
+  "范围认不出来就当「当天」（老数据 / 手改过不至于白屏）");
+eqDeep(ledgerRange(null, LEDGER_CTX).accountId, "", "什么都没传也不炸");
+
+const RANGE_TX = [
+  { id: "r1", type: "expense", amountCents: 1000, date: "2026-10-03", accountId: "a1", category: "餐饮", createdAt: "2026-10-03 08:00" },
+  { id: "r2", type: "income", amountCents: 5000, date: "2026-10-05", accountId: "a2", category: "工资", createdAt: "2026-10-05 08:00" },
+  { id: "r3", type: "expense", amountCents: 300, date: "2026-09-30", accountId: "a1", category: "其他", createdAt: "2026-09-30 08:00" },
+];
+eqDeep(rangeTotals(RANGE_TX, "2026-10-01", "2026-10-05"),
+  { expenseCents: 1000, incomeCents: 5000, balanceCents: 4000 },
+  "一段时间里的合计：结余 = 收入 − 支出");
+eqDeep(rangeTotals(RANGE_TX, "", ""), { expenseCents: 1300, incomeCents: 5000, balanceCents: 3700 },
+  "两头都不限就是全部");
+eqDeep(rangeTotals([], "2026-10-01", "2026-10-31"), { expenseCents: 0, incomeCents: 0, balanceCents: 0 },
+  "一笔都没有时干净地给 0");
+
+const RANGE_TFS = [
+  { id: "rt1", amountCents: 2000, date: "2026-10-04", fromAccountId: "a1", toAccountId: "a2", note: "转一笔", createdAt: "2026-10-04 08:00" },
+  { id: "rt2", amountCents: 900, date: "2026-09-01", fromAccountId: "a1", toAccountId: "a2", note: "上月的", createdAt: "2026-09-01 08:00" },
+];
+
+const MONTH_LEDGER = ledgerOf(RANGE_TX, RANGE_TFS, { scope: "month" }, LEDGER_CTX);
+eq(MONTH_LEDGER.scope, "month", "归一后的范围也带出来（界面靠它决定标题和说明）");
+eq(MONTH_LEDGER.from + "~" + MONTH_LEDGER.to, "2026-10-01~2026-10-31", "顺带把时间段给出来");
+eqDeep(MONTH_LEDGER.rows.map((t) => t.id), ["r1", "r2"], "本月：10 月那两笔（9 月的不进来）");
+eqDeep(MONTH_LEDGER.transfers.map((t) => t.id), ["rt1"], "转账也照同一段时间筛");
+eq(MONTH_LEDGER.totals.expenseCents, 1000, "合计只算筛出来的这几笔");
+eq(MONTH_LEDGER.count, 2, "条数是账目的条数（转账单算）");
+
+const ACC_LEDGER = ledgerOf(RANGE_TX, RANGE_TFS, { scope: "month", accountId: "a2" }, LEDGER_CTX);
+eqDeep(ACC_LEDGER.rows.map((t) => t.id), ["r2"], "只看 a2：账目只剩工资那笔");
+eqDeep(ACC_LEDGER.transfers.map((t) => t.id), ["rt1"],
+  "转账：钱从 a2 出或进 a2 都算（这条是从 a1 到 a2）");
+eq(ledgerOf(RANGE_TX, RANGE_TFS, { scope: "month", accountId: "没有这个账户" }, LEDGER_CTX).rows.length, 0,
+  "账户选了个不存在的：空列表（不是整本账）");
+
+const RANGE_LEDGER = ledgerOf(RANGE_TX, RANGE_TFS, { scope: "range", from: "2026-10-01", to: "2026-10-04" }, LEDGER_CTX);
+eqDeep(RANGE_LEDGER.rows.map((t) => t.id), ["r1"], "自定义时间段：只到 10-04 那天");
+eqDeep(RANGE_LEDGER.transfers.map((t) => t.id), ["rt1"], "转账也在这一段里");
+eq(ledgerOf(RANGE_TX, RANGE_TFS, null, LEDGER_CTX).rows.length, 0,
+  "筛选条件传 null：退回「当天」（10-08 那天没账目，所以是空）");
+eq(ledgerOf(null, null, { scope: "month" }, LEDGER_CTX).rows.length, 0, "账目传 null 也不炸");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

@@ -12,12 +12,13 @@ import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, currentMonth, showMonth, dayLabel } from "./calendar.js";
 import { yuanToCents, centsToYuan, fmtMoney, fmtMoneyShort } from "./money.js";
 import {
-  monthKey, dayTotals, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
+  monthKey, monthTotals, monthByDay, categoryTotals, overDays, budgetState, byCreatedAt,
   accountBalanceCents, balanceTotals, categoryBudgetStates, validateAccountInput,
   ensureCategories, dayCategories, filterByCategory,
   normalizeTransfer, transfersOfAccount, validateTransferInput,
   financeRows, financeCsv,
   budgetNotice,
+  ledgerOf, rangeTotals,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -31,6 +32,9 @@ let selected = null; // 月历上选中的那天
 let ringPick = null; // 环形图上点开的分类（展开明细用）
 let ringType = "expense"; // 环形图看哪一头：expense / income
 let dayCat = ""; // 当日明细的分类筛选；空串 = 全部（那天不止一个分类时才露出来）
+// 明细卡片的筛选：看哪一段时间（当天 / 本月 / 自定义）+ 只看哪个账户；
+// dayCat 是在这批账上再叠的一层分类筛选
+const ledger = { scope: "day", from: "", to: "", accountId: "" };
 
 /** 左栏：月历。格子里画当天的支出（红）和收入（绿），超支的日子套一圈红边。 */
 function calendarCard(txs) {
@@ -265,29 +269,67 @@ function ringCard(txs) {
     }`;
 }
 
-/** 右栏第二张：选中那天的一笔笔账（点一行就能改）。
- *  那天有两个以上分类时，卡片头上多一个分类下拉——想核某一种分类花在哪几笔，
- *  不用再一天天翻。只列这天真有的分类；选中的分类不在这一天，就按「全部」显示。 */
+/** 明细卡片的筛选栏：看哪一段时间 + 只看哪个账户。
+ *  「自定义」时才出两个日期框（平时不占地方）。 */
+function ledgerFilterHtml() {
+  const accs = accountsOf();
+  const missing = ledger.accountId && !accs.some((a) => a.id === ledger.accountId);
+  return `
+    <div class="fin-filter">
+      <select id="day-scope" title="看哪一段时间">
+        <option value="day"${ledger.scope === "day" ? " selected" : ""}>当天</option>
+        <option value="month"${ledger.scope === "month" ? " selected" : ""}>本月</option>
+        <option value="range"${ledger.scope === "range" ? " selected" : ""}>自定义</option>
+      </select>
+      ${
+        ledger.scope === "range"
+          ? `<input id="day-from" type="date" value="${esc(ledger.from)}" title="从哪天起">
+             <span class="fin-filter-sep">~</span>
+             <input id="day-to" type="date" value="${esc(ledger.to)}" title="到哪天">`
+          : ""
+      }
+      <select id="day-account" title="只看某个账户">
+        <option value="">全部账户</option>
+        ${missing ? `<option value="${esc(ledger.accountId)}" selected>（账户已删）</option>` : ""}
+        ${accs
+          .map(
+            (a) =>
+              `<option value="${esc(a.id)}"${a.id === ledger.accountId ? " selected" : ""}>${esc(a.name)}</option>`
+          )
+          .join("")}
+      </select>
+    </div>`;
+}
+
+/** 卡片头上那句说明：看的是哪一段、筛了哪个账户 */
+function ledgerHintHtml(view) {
+  const acc = view.accountId
+    ? " · " + ((accountsOf().find((a) => a.id === view.accountId) || {}).name || "（账户已删）")
+    : "";
+  if (view.scope === "month") return `${monthCN(currentMonth())} · ${view.count} 笔${acc}`;
+  if (view.scope === "range") return `${view.from.slice(5)} ~ ${view.to.slice(5)} · ${view.count} 笔${acc}`;
+  return `${dayLabel(selected)}${acc}`;
+}
+
+/** 右栏第二张：账目明细。默认看选中的那一天；筛选栏能切「本月 / 自定义时间段」，
+ *  再叠一个「只看某个账户」——整月账目列表就是切到「本月」。
+ *  那天有两个以上分类时，卡片头上照旧多一个分类下拉（在筛出来的这几笔里再分）。 */
 function dayCard(txs) {
-  const all = txs.filter((t) => t.date === selected).sort(byCreatedAt);
-  // 当天转的账：中性的一小块，单独列在收支下面（它不进上面那两个合计）
-  const tfs = table("finance.transfers")
-    .map(normalizeTransfer)
-    .filter((t) => t.date === selected)
-    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
-  if (!all.length && !tfs.length) {
-    return `
-      <div class="card-head"><h2>当日明细</h2><span class="hint">${esc(dayLabel(selected))}</span></div>
-      ${emptyState("这天还没记账", "右上角「记一笔」记上第一笔。", "", "money")}`;
-  }
-  const cats = dayCategories(all);
-  const cat = cats.includes(dayCat) ? dayCat : ""; // 换天之后，老筛选可能不在这一天里
-  const list = filterByCategory(all, cat);
-  // 加减号后面是「下面这几笔」的合计，不是整天那个数——筛完之后上下两边对得上
-  const totals = dayTotals(list, selected);
+  const view = ledgerOf(txs, table("finance.transfers"), ledger, {
+    selected,
+    month: currentMonth(),
+  });
+  const title = view.scope === "month" ? "本月账目" : view.scope === "range" ? "这段时间" : "当日明细";
+  const cats = dayCategories(view.rows);
+  const cat = cats.includes(dayCat) ? dayCat : ""; // 换天 / 换范围之后，老筛选可能不在里面了
+  const list = filterByCategory(view.rows, cat);
+  // 加减号后面是「下面这几笔」的合计，不是整天 / 整月那个数——筛完之后上下两边对得上
+  const totals = rangeTotals(list, "", "");
+  const withDate = view.scope !== "day";   // 看一段时间的列表，得知道每笔是哪天的
+  const empty = !view.rows.length && !view.transfers.length;
   return `
     <div class="card-head">
-      <h2>当日明细</h2>
+      <h2>${title}</h2>
       <div class="card-tools">
         ${
           cats.length > 1
@@ -297,28 +339,41 @@ function dayCard(txs) {
                </select>`
             : ""
         }
-        <span class="hint">${esc(dayLabel(selected))}</span>
+        <span class="hint">${esc(ledgerHintHtml(view))}</span>
       </div>
     </div>
+    ${ledgerFilterHtml()}
     ${
-      all.length
-        ? `<div class="fin-day-sum">
-             <span class="fin-amount expense">-${fmtMoney(totals.expenseCents)}</span>
-             <span class="fin-amount income">+${fmtMoney(totals.incomeCents)}</span>
-             ${cat ? `<span class="hint">${esc(cat)} · ${list.length} 笔</span>` : ""}
-           </div>`
-        : ""
-    }
-    <ul class="items">${list.map(txRow).join("")}</ul>
-    ${
-      tfs.length
-        ? `<div class="fin-sub">转账</div><ul class="items">${tfs.map(tfRow).join("")}</ul>`
-        : ""
+      empty
+        ? emptyState(
+            view.scope === "day" ? "这天还没记账" : "这段时间没有账目",
+            view.scope === "day"
+              ? "右上角「记一笔」记上第一笔。"
+              : "换个时间段或者换个账户试试；「本月」能看整月的账。",
+            "",
+            "money"
+          )
+        : `${
+            list.length
+              ? `<div class="fin-day-sum">
+                   <span class="fin-amount expense">-${fmtMoney(totals.expenseCents)}</span>
+                   <span class="fin-amount income">+${fmtMoney(totals.incomeCents)}</span>
+                   ${cat ? `<span class="hint">${esc(cat)} · ${list.length} 笔</span>` : ""}
+                 </div>`
+              : ""
+          }
+          <ul class="items">${list.map((t) => txRow(t, withDate)).join("")}</ul>
+          ${
+            view.transfers.length
+              ? `<div class="fin-sub">转账</div>
+                 <ul class="items">${view.transfers.map((t) => tfRow(t, withDate)).join("")}</ul>`
+              : ""
+          }`
     }`;
 }
 
 /** 转账那一行：中性的「搬东西」，不带 + / −，也不进上下两个合计 */
-function tfRow(t) {
+function tfRow(t, withDate = false) {
   const nameOf = (id) => {
     const a = accountsOf().find((x) => x.id === id);
     return a ? a.name : "（账户已删）";
@@ -331,6 +386,7 @@ function tfRow(t) {
         <span class="i-title">${esc(t.note || arrow)}</span>
         ${thumbsHtml(rowPaths(t))}
       </span>
+      ${withDate ? `<span class="i-meta">${esc(String(t.date || "").slice(5))}</span>` : ""}
       <span class="i-meta">${esc(arrow)}</span>
       <span class="fin-amount transfer">${fmtMoney(t.amountCents)}</span>
       <span class="i-actions">
@@ -340,7 +396,7 @@ function tfRow(t) {
     </li>`;
 }
 
-function txRow(t) {
+function txRow(t, withDate = false) {
   const account = accountsOf().find((a) => a.id === t.accountId);
   const accountName = t.accountId ? (account ? account.name : "（账户已删）") : "";
   const note = t.note || t.category;
@@ -352,6 +408,7 @@ function txRow(t) {
         <span class="i-title">${esc(note)}</span>
         ${thumbsHtml(rowPaths(t))}
       </span>
+      ${withDate ? `<span class="i-meta">${esc(String(t.date || "").slice(5))}</span>` : ""}
       ${accountName ? `<span class="i-meta">${esc(accountName)}</span>` : ""}
       <span class="fin-amount ${t.type === "income" ? "income" : "expense"}">
         ${t.type === "income" ? "+" : "-"}${fmtMoney(t.amountCents)}
@@ -1106,6 +1163,32 @@ function onSubmit(e) {
 }
 
 function onChange(e) {
+  if (e.target.id === "day-scope") {
+    ledger.scope = e.target.value;
+    // 切到「自定义」时先把起止日期垫成现在看的那一天，别让人对着两个空框发呆
+    if (ledger.scope === "range" && !ledger.from && !ledger.to) {
+      ledger.from = selected;
+      ledger.to = selected;
+    }
+    dayCat = ""; // 换了范围，之前选的分类不一定还在
+    redrawDay();
+    return;
+  }
+  if (e.target.id === "day-account") {
+    ledger.accountId = e.target.value;
+    redrawDay();
+    return;
+  }
+  if (e.target.id === "day-from") {
+    ledger.from = e.target.value;
+    redrawDay();
+    return;
+  }
+  if (e.target.id === "day-to") {
+    ledger.to = e.target.value;
+    redrawDay();
+    return;
+  }
   if (e.target.id === "day-cat") {
     dayCat = e.target.value;
     redrawDay();

@@ -7,6 +7,7 @@ import {
   fmtCount, contentsOfAccount, followersAt, followersSeries, viewsSeries,
   weekRangeOf, shiftDateStr, followersGain, growthText,
   isHit, avgViewsOf, hitLevelOf, activityOf, accountStats, overviewOf, overviewSeries,
+  PLATFORM_LIMIT, PLATFORM_MAX_CHARS, normalizePlatforms, platformsOf, addPlatform, removePlatform,
 } from "../app/web/media-calc.js";
 
 let pass = 0;
@@ -266,6 +267,48 @@ eq(fresh.weekGain, 0, "全新账号本周没涨粉");
 eq(fresh.lastWeekGain, null, "没有更早的快照和作品 → 上周是 null");
 eq(fresh.weekTip, "上周没有记录", "不编一个环比百分比出来");
 eq(fresh.top.length, 0, "没有作品就没有 TOP3");
+
+/* ---------------- 平台清单可以自己编辑（2026-10-13 加的） ----------------
+   PLATFORMS 那份是**默认**清单；真正用哪几个看 settings.mediaPlatforms。
+   账号和作品里存的还是平台名（文本），所以改清单不影响已经记下的东西 ——
+   这一版只改「下拉里有哪些可选」。 */
+
+eq(PLATFORM_LIMIT, 12, "最多 12 个平台");
+eq(PLATFORM_MAX_CHARS, 12, "平台名最多 12 个字");
+
+eqDeep(normalizePlatforms(null), PLATFORMS, "没设过 → 用默认那份清单");
+eqDeep(normalizePlatforms([]), PLATFORMS, "设成空数组也算没设 → 回到默认");
+eqDeep(normalizePlatforms("坏掉的"), PLATFORMS, "被手改成别的形状 → 回到默认");
+eqDeep(normalizePlatforms(["B站", " 小红书 ", "B站", ""]),
+  ["B站", "小红书"], "去空白、去重、丢空串");
+eqDeep(normalizePlatforms(["x".repeat(PLATFORM_MAX_CHARS + 5)])[0].length, PLATFORM_MAX_CHARS,
+  "太长的名字截到上限");
+eqDeep(normalizePlatforms(Array.from({ length: PLATFORM_LIMIT + 3 }, (_, i) => "平台" + i)).length,
+  PLATFORM_LIMIT, "超过上限就只留前 12 个");
+
+eqDeep(platformsOf({ settings: { mediaPlatforms: ["B站", "知乎"] } }), ["B站", "知乎"],
+  "设过就用设的");
+eqDeep(platformsOf({}), PLATFORMS, "老数据没有这个设置 → 默认清单");
+eqDeep(platformsOf(null), PLATFORMS, "什么都没传也不炸");
+
+const ADD1 = addPlatform(["B站"], "小红书");
+eq(ADD1.status, "added", "加一个新的：added");
+eqDeep(ADD1.list, ["B站", "小红书"], "加到尾巴上（顺序就是下拉里的顺序）");
+eq(addPlatform(["B站"], "B站").status, "dup", "重名的：dup");
+eq(addPlatform(["B站"], " B站 ").status, "dup", "带空白也算重名");
+eq(addPlatform(["B站"], "   ").status, "bad", "空名字：bad");
+eq(addPlatform(["B站"], "x".repeat(PLATFORM_MAX_CHARS + 1)).status, "bad", "太长：bad");
+eq(addPlatform(Array.from({ length: PLATFORM_LIMIT }, (_, i) => "p" + i), "新的").status, "full",
+  "满 12 个：full（让用户自己删一个）");
+eq(addPlatform(null, "知乎").status, "dup", "传 null 时按默认清单算（知乎本来就在里面）");
+eq(addPlatform(null, "播客").status, "added", "传 null 也能加默认清单里没有的那个");
+
+const REM1 = removePlatform(["B站", "知乎"], "知乎");
+eq(REM1.status, "removed", "删一个：removed");
+eqDeep(REM1.list, ["B站"], "列表里少了一个");
+eq(removePlatform(["B站"], "B站").status, "last", "只剩最后一个就不让删了（下拉不能是空的）");
+eqDeep(removePlatform(["B站"], "B站").list, ["B站"], "不让删就原样返回");
+eq(removePlatform(["B站", "知乎"], "没有这个").status, "removed", "删一个本来就没有的：当成功（幂等）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

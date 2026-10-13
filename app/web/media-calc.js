@@ -5,8 +5,65 @@
    这个文件不 import 任何东西：不碰 DOM、不碰 store，取表函数自带一份。
    别的文件（media.js / home-view.js / search.js）不许再自己算这些数。 */
 
-/** 平台清单。存的还是文本，所以以后想改可编辑也不用迁数据。 */
+/** 平台清单（**默认的那一份**）。账号和作品里存的是平台名（文本），
+ *  所以「用户自己改清单」不用迁数据 —— 真正用哪几个看 settings.mediaPlatforms，
+ *  走下面的 platformsOf()。 */
 export const PLATFORMS = ["B站", "小红书", "抖音", "公众号", "知乎", "视频号", "其他"];
+
+/** 平台清单最多几个、名字最多几个字 */
+export const PLATFORM_LIMIT = 12;
+export const PLATFORM_MAX_CHARS = 12;
+
+/**
+ * 把用户设的清单洗干净：去空白、去重（忽略大小写）、每个截到上限、最多留 PLATFORM_LIMIT 个。
+ * 没设过 / 设成别的形状 / 洗完全是空的 → 一律回到默认那份（下拉不能是空的）。
+ */
+export function normalizePlatforms(value) {
+  const list = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const name = item.trim().slice(0, PLATFORM_MAX_CHARS);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= PLATFORM_LIMIT) break;
+  }
+  return out.length ? out : PLATFORMS.slice();
+}
+
+/** 现在实际用哪几个平台：settings.mediaPlatforms 设过就用它，没设就默认那份 */
+export function platformsOf(data) {
+  const s = (data && data.settings) || {};
+  return normalizePlatforms(s.mediaPlatforms);
+}
+
+/**
+ * 往清单里加一个平台。重名（忽略大小写与首尾空白）不加、满了不加、名字空或太长不加 ——
+ * 返回 { list, status }：status 是 "added" / "dup" / "full" / "bad"，界面照它说话。
+ */
+export function addPlatform(list, name) {
+  const rows = normalizePlatforms(list);
+  const picked = String(name == null ? "" : name).trim();
+  if (!picked || picked.length > PLATFORM_MAX_CHARS) return { list: rows, status: "bad" };
+  if (rows.some((p) => p.toLowerCase() === picked.toLowerCase())) return { list: rows, status: "dup" };
+  if (rows.length >= PLATFORM_LIMIT) return { list: rows, status: "full" };
+  return { list: rows.concat([picked]), status: "added" };
+}
+
+/**
+ * 从清单里删一个。**最后一个不让删**（下拉不能是空的），返回 status "last"；
+ * 删一个本来就没有的算成功（幂等，点两下不会出岔子）。
+ */
+export function removePlatform(list, name) {
+  const rows = normalizePlatforms(list);
+  const picked = String(name == null ? "" : name).trim();
+  if (rows.length <= 1) return { list: rows, status: "last" };
+  return { list: rows.filter((p) => p !== picked), status: "removed" };
+}
 
 /** 内容流水线：想法 → 撰写中 → 剪辑中 → 待发布 → 已发布 */
 export const STATUSES = ["想法", "撰写中", "剪辑中", "待发布", "已发布"];

@@ -17,6 +17,11 @@ import { monthGridHtml, calendarAction, dayLabel } from "./calendar.js";
 import { icon } from "./icons.js";
 import {
   PLATFORMS,
+  PLATFORM_LIMIT,
+  PLATFORM_MAX_CHARS,
+  platformsOf,
+  addPlatform,
+  removePlatform,
   ARCHIVED,
   statusesOf,
   isPublished,
@@ -61,6 +66,7 @@ export function renderMedia(root, sub) {
     ${pageHeader(
       "media",
       `<span class="date-chip">共 ${items.length} 条</span>
+       <button class="btn small" data-act="plat-manage" title="改「平台」下拉里有哪些可选">${icon("settings", 16)}平台</button>
        <button class="btn small" data-act="acc-new">${icon("settings", 16)}账号管理</button>`
     )}
 
@@ -270,7 +276,8 @@ function platformsInUse(items) {
 
 function legendKinds(items) {
   const used = platformsInUse(items);
-  return (used.length ? used : PLATFORMS.slice(0, 3)).map((p) => ["plat-" + platformSlug(p), p]);
+  return (used.length ? used : platformsOf(store.data).slice(0, 3))
+    .map((p) => ["plat-" + platformSlug(p), p]);
 }
 
 /** 日历筛完之后，这条作品还算不算数 */
@@ -573,7 +580,7 @@ function accountOptions(accounts, current = "") {
   if (!accounts.length) {
     return (
       `<option value="">（先加账号）</option>` +
-      PLATFORMS.map(
+      platformsOf(store.data).map(
         (p) => `<option value="${esc(p)}"${p === current ? " selected" : ""}>${esc(p)}</option>`
       ).join("")
     );
@@ -602,7 +609,7 @@ function resolvePick(value, accounts) {
   const acc = accounts.find((a) => a.id === value);
   if (acc) return { accountId: acc.id, platform: acc.platform };
   const text = String(value || "").trim();
-  return { accountId: "", platform: PLATFORMS.includes(text) ? text : "" };
+  return { accountId: "", platform: platformsOf(store.data).includes(text) ? text : "" };
 }
 
 function readNum(el) {
@@ -622,9 +629,16 @@ function openAccountDialog(id) {
       <input id="acc-name" maxlength="30" placeholder="例：B站小李" value="${esc(a ? a.name : "")}">
       <p class="fin-err" id="acc-err" hidden></p>
       <label class="fin-label" for="acc-platform">平台</label>
-      <select id="acc-platform">${PLATFORMS.map(
-        (p) => `<option${a && a.platform === p ? " selected" : ""}>${esc(p)}</option>`
-      ).join("")}</select>
+      <select id="acc-platform">${(() => {
+        // 这个账号原来那个平台要是被「管理平台」删掉了：照样把它摆在第一个并选中，
+        // 不然下拉会跳到别的平台上，一保存就把这个账号悄悄改了（和「账户已删」一个道理）
+        const list = platformsOf(store.data);
+        const cur = a ? String(a.platform || "") : "";
+        const gone = cur && !list.includes(cur) ? `<option selected>${esc(cur)}</option>` : "";
+        return (
+          gone + list.map((p) => `<option${cur === p ? " selected" : ""}>${esc(p)}</option>`).join("")
+        );
+      })()}</select>
       <label class="fin-label" for="acc-intro">账号简介</label>
       <input id="acc-intro" maxlength="60" placeholder="一句话说清这个号做什么"
         value="${esc(a ? a.intro || "" : "")}">
@@ -696,6 +710,100 @@ function openAccountDialog(id) {
 }
 
 /* ---------------- 记一笔粉丝 ---------------- */
+
+/**
+ * 「管理平台」：改的是**下拉里有哪些可选**，已经记下的账号和作品一个字不动 ——
+ * 它们存的是平台名（文本），所以改名 / 删掉都不会动到数据。
+ */
+function openPlatformDialog() {
+  const listHtml = () => {
+    const list = platformsOf(store.data);
+    return `
+      <p class="fin-help">这里是「平台」下拉里的可选清单（最多 ${PLATFORM_LIMIT} 个，
+        每个不超过 ${PLATFORM_MAX_CHARS} 个字）。改它只改下拉里有哪些可选 ——
+        <strong>已经记下的账号和作品一个字都不动</strong>（它们存的是平台名本身）。</p>
+      <ul class="items" id="plat-list">
+        ${list
+          .map(
+            (p) => `<li class="item">
+              <span class="i-title">${esc(p)}</span>
+              <span class="i-actions">
+                <button class="link danger" data-plat-del="${esc(p)}"${
+                  list.length <= 1 ? " disabled" : ""
+                }>删掉</button>
+              </span>
+            </li>`
+          )
+          .join("")}
+      </ul>
+      <label class="fin-label" for="plat-new">加一个平台</label>
+      <div class="fin-two">
+        <div>
+          <input id="plat-new" maxlength="${PLATFORM_MAX_CHARS}" placeholder="比如：播客 / 即刻">
+        </div>
+        <div>
+          <button class="btn" id="plat-add" type="button">加进清单</button>
+        </div>
+      </div>
+      <p class="fin-err" id="plat-err" hidden></p>`;
+  };
+  const { el } = openDialog({
+    title: "管理平台",
+    bodyHtml: listHtml(),
+    buttons: [{ id: "done", label: "完成", kind: "primary" }],
+    onAction: (act) => act !== "done",
+  });
+
+  /** 改完清单：落盘 + 把弹窗内容重画一遍（不关弹窗，好连着加几个） */
+  const apply = (next, msg) => {
+    const s = store.data.settings || (store.data.settings = {});
+    s.mediaPlatforms = next;
+    touch(true);
+    el.querySelector(".dlg-form").innerHTML = listHtml();
+    bind();
+    const err = el.querySelector("#plat-err");
+    if (msg && msg.err) {
+      err.textContent = msg.err;
+      err.hidden = false;
+    } else if (msg && msg.text) {
+      err.hidden = true;
+      toast(msg.text);
+    }
+  };
+  const bind = () => {
+    const input = el.querySelector("#plat-new");
+    el.querySelector("#plat-add")?.addEventListener("click", () => {
+      const picked = String(input.value || "").trim();
+      const res = addPlatform(platformsOf(store.data), picked);
+      if (res.status === "bad") {
+        apply(res.list, { err: `名字要 1～${PLATFORM_MAX_CHARS} 个字` });
+        return;
+      }
+      if (res.status === "dup") {
+        apply(res.list, { err: `「${picked}」已经在清单里了` });
+        return;
+      }
+      if (res.status === "full") {
+        apply(res.list, { err: `最多 ${PLATFORM_LIMIT} 个平台，先删掉一个再添` });
+        return;
+      }
+      apply(res.list, { text: `已加上「${picked}」` });
+      el.querySelector("#plat-new")?.focus();
+    });
+    el.querySelectorAll("[data-plat-del]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.platDel;
+        const res = removePlatform(platformsOf(store.data), name);
+        if (res.status === "last") {
+          apply(res.list, { err: "至少留一个平台（下拉不能是空的）" });
+          return;
+        }
+        apply(res.list, { text: `已删掉「${name}」` });
+      });
+    });
+  };
+  bind();
+}
 
 function openSnapshotDialog(id) {
   const accounts = table("mediaAccounts");
@@ -1036,6 +1144,7 @@ async function onClick(e) {
   if (act === "acc-new") return openAccountDialog(null);
   if (act === "acc-edit") return openAccountDialog(id);
   if (act === "acc-snap") return openSnapshotDialog(id);
+  if (act === "plat-manage") return openPlatformDialog();
   if (act === "acc-open") {
     // 切到「只看这个账号」，顺便写进地址，刷新之后还认
     location.hash = "#media/" + id;

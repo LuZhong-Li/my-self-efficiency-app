@@ -137,6 +137,7 @@ def default_finance() -> dict:
         "transactions": [],
         "budget": {"monthlyTotalCents": 0, "categoryCents": {}},
         "transfers": [],
+        "templates": [],
     }
 
 

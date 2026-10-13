@@ -284,6 +284,15 @@ def main() -> int:
               and old_tf.get("imagePaths") == [] and old_tf.get("amountCents") == 100,
               str(old_tf))
 
+        # 常用模板（2026-10-13 新增）：只是个新键，骨架里带上之后老数据读到就自动有了；
+        # 行内的字段规整交给前端（finance-calc 的 normalizeTemplate），服务端不碰内容。
+        cur = call(port, "/api/data")[1]
+        cur["finance"].pop("templates", None)
+        call(port, "/api/data", "POST", cur)
+        check("老数据没有 templates 读出来补成空表",
+              call(port, "/api/data")[1]["finance"].get("templates") == [],
+              str(call(port, "/api/data")[1]["finance"].get("templates")))
+
         # 债务：导出导入也要带着走
         cur = call(port, "/api/data")[1]
         cur["debt"]["items"] = [{

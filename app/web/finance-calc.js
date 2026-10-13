@@ -547,3 +547,66 @@ export function ledgerOf(transactions, transfers, filter, ctx = {}) {
     count: rows.length,
   };
 }
+
+/* ---------------- 常用账目模板（2026-10-13 加的） ----------------
+   常记的那几笔（午饭、房租、工资）存成模板，下次点一下就填好。
+   模板只存「记一笔」表单里那几个字段：类型 / 分类 / 金额 / 账户 / 备注 ——
+   图片不存（每次的截图都不一样），日期也不存（用哪天的就是哪天的）。
+   它是配置、不是记录：不进全局搜索、不进明细列表、不参与任何统计。 */
+
+/** 最多存几个模板（再多就该删了） */
+export const TEMPLATE_LIMIT = 8;
+
+/**
+ * 读一条模板：金额取整、账户 id 去空白、只留该留的键。
+ * 类型只认 expense / income —— 转账不做模板（它没有分类，形状也对不上）。
+ */
+export function normalizeTemplate(row) {
+  const src = row && typeof row === "object" ? row : {};
+  const text = (v) => String(v == null ? "" : v).trim();
+  return {
+    id: text(src.id),
+    type: src.type === "income" ? "income" : "expense",
+    category: text(src.category) || "其他",
+    amountCents: Math.abs(Math.round(Number(src.amountCents) || 0)),
+    accountId: text(src.accountId),
+    note: text(src.note),
+  };
+}
+
+/** 从一笔账（或者「记一笔」表单里填好的东西）捏一个模板出来 */
+export function templateFromTx(row) {
+  return normalizeTemplate(row);
+}
+
+/** 财务那块里的模板列表（老数据没这个键就是空的，手改坏了也当空） */
+export function templatesOf(finance) {
+  const list = finance && Array.isArray(finance.templates) ? finance.templates : [];
+  return list.map(normalizeTemplate).filter((t) => t.amountCents > 0 || t.note);
+}
+
+/** 胶囊上写什么：有备注就用备注，没有就「分类 金额」；收入带个加号好认 */
+export function templateLabel(tpl) {
+  const t = normalizeTemplate(tpl);
+  if (t.note) return t.note;
+  const money = fmtMoney(t.amountCents);
+  return t.type === "income" ? `${t.category} +${money}` : `${t.category} ${money}`;
+}
+
+/**
+ * 往列表里加一个模板。同一笔（类型 + 分类 + 金额 + 备注都一样）算重复，不重复加；
+ * 满了（TEMPLATE_LIMIT 个）也不加，让用户自己删一个。
+ * 返回 { list, status }：status 是 "added" / "dup" / "full"，界面照它说话。
+ * 不改传进来的数组（返回新数组），方便单测。
+ */
+export function addTemplate(list, tpl) {
+  const rows = (list || []).map(normalizeTemplate);
+  const next = normalizeTemplate(tpl);
+  const same = (a, b) =>
+    a.type === b.type && a.category === b.category &&
+    a.amountCents === b.amountCents && a.note === b.note;
+  if (rows.some((r) => same(r, next))) return { list: rows, status: "dup" };
+  if (rows.length >= TEMPLATE_LIMIT) return { list: rows, status: "full" };
+  const id = next.id || `tpl-${Date.now().toString(36)}-${rows.length}`;
+  return { list: rows.concat([{ ...next, id }]), status: "added" };
+}

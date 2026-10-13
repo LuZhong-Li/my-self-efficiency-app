@@ -13,6 +13,7 @@ import {
   csvCell, financeRows, financeCsv, CSV_HEAD,
   budgetNotice,
   ledgerRange, rangeTotals, ledgerOf, LEDGER_SCOPES,
+  TEMPLATE_LIMIT, normalizeTemplate, templatesOf, templateFromTx, templateLabel, addTemplate,
 } from "../app/web/finance-calc.js";
 
 let pass = 0;
@@ -477,6 +478,65 @@ eqDeep(RANGE_LEDGER.transfers.map((t) => t.id), ["rt1"], "转账也在这一段�
 eq(ledgerOf(RANGE_TX, RANGE_TFS, null, LEDGER_CTX).rows.length, 0,
   "筛选条件传 null：退回「当天」（10-08 那天没账目，所以是空）");
 eq(ledgerOf(null, null, { scope: "month" }, LEDGER_CTX).rows.length, 0, "账目传 null 也不炸");
+
+/* ---------------- 常用账目模板（2026-10-13 加的） ----------------
+   常记的那几笔（午饭、房租、工资）存成模板，下次点一下就填好。
+   模板只存「记一笔」表单里那几个字段：类型 / 分类 / 金额 / 账户 / 备注；
+   图片不存（每次的截图都不一样），也不进全局搜索（它是配置，不是记录）。 */
+
+eq(TEMPLATE_LIMIT, 8, "最多存 8 个（再多就该删了）");
+
+const TPL_TX = {
+  type: "expense", category: "餐饮", amountCents: 2550, accountId: "a1",
+  note: "午饭 黄焖鸡", date: "2026-10-13", imagePaths: ["x.png"], createdAt: "2026-10-13 12:00",
+};
+eqDeep(templateFromTx(TPL_TX),
+  { id: "", type: "expense", category: "餐饮", amountCents: 2550, accountId: "a1", note: "午饭 黄焖鸡" },
+  "从一笔账捏模板：只挑那五个字段，日期 / 图片 / 创建时间都不带");
+eq(templateFromTx({ type: "income" }).category, "其他",
+  "分类空着给「其他」（和「记一笔」的默认值一个口径）");
+eq(templateFromTx(null).type, "expense", "什么都没有时当一笔普通支出，不炸");
+
+eqDeep(normalizeTemplate({ id: "t1", type: "income", category: "工资", amountCents: "800000",
+  accountId: " a2 ", note: " 月薪 ", extra: "忽略我" }),
+  { id: "t1", type: "income", category: "工资", amountCents: 800000, accountId: "a2", note: "月薪" },
+  "读模板：金额取整、账户去空白、多余的键不要");
+eq(normalizeTemplate({ type: "转账" }).type, "expense", "类型认不出就当支出（转账不做模板）");
+eq(normalizeTemplate({ amountCents: -100 }).amountCents, 100, "金额负数当手滑，取正");
+
+const TPL_FINANCE = { templates: [{ id: "t1", type: "expense", category: "餐饮", amountCents: 2550 },
+                                  { type: "income", category: "工资", amountCents: 800000 }] };
+eq(templatesOf(TPL_FINANCE).length, 2, "读出来两条");
+eq(templatesOf({}).length, 0, "没这个键的老数据：空列表，不抛错");
+eq(templatesOf({ templates: "坏掉的" }).length, 0, "被手改成别的形状也当空");
+
+eq(templateLabel({ category: "餐饮", amountCents: 2550 }), "餐饮 ¥25.50", "显示名：分类 + 金额");
+eq(templateLabel({ category: "餐饮", amountCents: 2550, note: "午饭" }), "午饭", "有备注就用备注");
+eq(templateLabel({ category: "工资", amountCents: 800000, type: "income" }), "工资 +¥8,000.00",
+  "收入那边带个加号，一眼分得清");
+
+const ADDED = addTemplate([], templateFromTx(TPL_TX));
+eq(ADDED.status, "added", "存一个新的：added");
+eq(ADDED.list.length, 1, "列表里多了一条");
+eq(ADDED.list[0].category, "餐饮", "存的是那一笔的内容");
+eq(ADDED.list[0].id.length > 0, true, "顺手给它一个 id（删的时候要用）");
+eq(ADDED.list[0].id === ADDED.list[0].id, true, "id 是稳定的");
+
+const TWICE = addTemplate(ADDED.list, templateFromTx(TPL_TX));
+eq(TWICE.status, "dup", "再存同一条：告诉你是重复的");
+eq(TWICE.list.length, 1, "重复的不往里加");
+eq(addTemplate(ADDED.list, templateFromTx({ ...TPL_TX, amountCents: 3000 })).status, "added",
+  "金额不一样就不算重复");
+eq(addTemplate(ADDED.list, templateFromTx({ ...TPL_TX, category: "交通" })).status, "added",
+  "分类不一样也不算重复");
+
+const FULL = Array.from({ length: TEMPLATE_LIMIT }, (_, i) => ({
+  id: "t" + i, type: "expense", category: "其他", amountCents: 100 + i, accountId: "", note: "",
+}));
+const FULL_TRY = addTemplate(FULL, templateFromTx({ type: "expense", category: "餐饮", amountCents: 999 }));
+eq(FULL_TRY.status, "full", "存满 8 个之后再存：告诉它满了（让它自己删一个）");
+eq(FULL_TRY.list.length, TEMPLATE_LIMIT, "满了就不再往里加");
+eq(addTemplate(null, templateFromTx(TPL_TX)).status, "added", "传 null 也能存（当空列表）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

@@ -2483,6 +2483,38 @@ html[data-skin="glass"] .mk-debt { background: #e0685f; }
   letter-spacing: 0.04em;
 }
 
+/* 常用模板那一条：页头底下一条细带，有模板时才出现（点胶囊填好，× 删掉它） */
+.fin-tplstrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.fin-tplstrip-label { color: var(--muted); font-size: 12px; }
+.fin-tpl { display: inline-flex; align-items: stretch; }
+.fin-tpl-fill {
+  padding: 3px 10px;
+  border: var(--bw) solid var(--line);
+  border-right: 0;
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  background: var(--chip);
+  color: var(--chip-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fin-tpl-fill:hover { border-color: var(--accent); }
+.fin-tpl-del {
+  padding: 3px 7px;
+  border: var(--bw) solid var(--line);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fin-tpl-del:hover { color: var(--err); border-color: var(--err); }
+
 /* 明细卡片的筛选栏：看哪段时间 + 只看哪个账户（「自定义」时才多两个日期框） */
 .fin-filter {
   display: flex;

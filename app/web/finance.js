@@ -19,6 +19,7 @@ import {
   financeRows, financeCsv,
   budgetNotice,
   ledgerOf, rangeTotals,
+  TEMPLATE_LIMIT, templatesOf, templateFromTx, templateLabel, addTemplate,
 } from "./finance-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
@@ -267,6 +268,31 @@ function ringCard(txs) {
            </div>`
         : ""
     }`;
+}
+
+/**
+ * 常用模板那一条：有模板时才出现（一个都没有就整条不显示，别占地方）。
+ * 点胶囊 = 打开「记一笔」并填好；尾巴上的 × 是删掉这个模板。
+ */
+function templateStripHtml() {
+  const list = templatesOf(financeOf());
+  if (!list.length) return "";
+  return `
+    <div class="fin-tplstrip">
+      <span class="fin-tplstrip-label">常用</span>
+      ${list
+        .map(
+          (t) => `<span class="fin-tpl">
+            <button class="fin-tpl-fill" data-act="tpl-fill" data-id="${esc(t.id)}"
+              title="${esc(t.type === "income" ? "收入" : "支出")} · ${esc(t.category)}${t.accountId ? " · " + esc((accountsOf().find((a) => a.id === t.accountId) || {}).name || "（账户已删）") : ""}"
+              >${esc(templateLabel(t))}</button>
+            <button class="fin-tpl-del" data-act="tpl-del" data-id="${esc(t.id)}"
+              title="删掉这个模板">×</button>
+          </span>`
+        )
+        .join("")}
+      <span class="hint">点一下就填好；「记一笔」里能把填好的存成模板（最多 ${TEMPLATE_LIMIT} 个）。</span>
+    </div>`;
 }
 
 /** 明细卡片的筛选栏：看哪一段时间 + 只看哪个账户。
@@ -676,9 +702,10 @@ function openTxDialog(tx, options = {}) {
   const isTransfer = Boolean(tx && (tx.fromAccountId || tx.toAccountId));
   const f = financeOf();
   const accounts = accountsOf();
+  const tpl = options.template ? { ...options.template } : null;
   let type = editing
     ? (isTransfer ? "transfer" : tx.type)
-    : (options.type === "transfer" ? "transfer" : "expense");
+    : (tpl ? tpl.type : options.type === "transfer" ? "transfer" : "expense");
   const v = editing
     ? (isTransfer
         ? {
@@ -690,7 +717,14 @@ function openTxDialog(tx, options = {}) {
             amount: centsToYuan(tx.amountCents), date: tx.date, category: tx.category,
             accountId: tx.accountId || "", note: tx.note || "",
           })
-    : (type === "transfer"
+    : (tpl
+        ? {
+            amount: centsToYuan(tpl.amountCents), date: selected,
+            category: tpl.category || "其他",
+            accountId: tpl.accountId || (accounts[0] || {}).id || "",
+            note: tpl.note || "",
+          }
+        : type === "transfer"
         ? {
             amount: "", date: selected,
             fromAccountId: (accounts[0] || {}).id || "",
@@ -713,6 +747,8 @@ function openTxDialog(tx, options = {}) {
     bodyHtml: txFormHtml(v, type, f),
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
+      // 转账不做模板（它没分类，形状也对不上），所以只在支出 / 收入这两种里出现
+      ...(type === "transfer" ? [] : [{ id: "tpl-save", label: "存成模板" }]),
       { id: "cancel", label: "取消" },
       { id: "save", label: "保存", kind: "primary" },
     ],
@@ -728,6 +764,44 @@ function openTxDialog(tx, options = {}) {
       // 类型切换和点分类是弹窗内部的按钮，不走 onAction（见下面那段 click），
       // 这里只会收到 save / cancel / delete 三个。
       if (act === "cancel") return true;
+      if (act === "tpl-save") {
+        // 把现在填好的存成模板。返回 false：弹窗留着，接着保存这一笔
+        if (type === "transfer") {
+          toast("转账不做模板（它没有分类）", "err");
+          return false;
+        }
+        const pick = (sel) => {
+          const el = dlg.el.querySelector(sel);
+          return el ? el.value : "";
+        };
+        const cents = yuanToCents(pick("#tx-amount"));
+        if (cents === null) {
+          toast("金额要填一个正数，最多两位小数", "err");
+          return false;
+        }
+        const res = addTemplate(
+          templatesOf(f),
+          templateFromTx({
+            type,
+            category: v.category,
+            amountCents: cents,
+            accountId: pick("#tx-account"),
+            note: pick("#tx-note").trim(),
+          })
+        );
+        if (res.status === "dup") {
+          toast("这个模板已经有了");
+          return false;
+        }
+        if (res.status === "full") {
+          toast(`最多存 ${TEMPLATE_LIMIT} 个模板，先删掉不用的`, "err");
+          return false;
+        }
+        f.templates = res.list;
+        touch(true);
+        toast("已存成模板，下次点一下就填好");
+        return false;
+      }
       if (act === "delete") {
         const tf = isTransfer;
         (async () => {
@@ -979,6 +1053,7 @@ export function renderFinance(root, sub = "") {
         : `<button class="btn" data-act="csv" title="导成 CSV，拿去 Excel 看">导出 CSV</button>
            <button class="btn primary" data-act="add">${icon("plus", 16)}记一笔</button>`
     )}
+    ${onDebt ? "" : templateStripHtml()}
     <div class="fin-subtabs">
       <a class="fin-subtab${onDebt ? "" : " active"}" href="#finance">${icon("list", 16)}账目记录</a>
       <a class="fin-subtab${onDebt ? " active" : ""}" href="#finance/debt">${icon("debt", 16)}债务欠款${
@@ -1050,6 +1125,34 @@ function onClick(e) {
   }
   if (act === "csv") {
     openCsvDialog();
+    return;
+  }
+  if (act === "tpl-fill") {
+    const tpl = templatesOf(financeOf()).find((t) => t.id === id);
+    if (!tpl) {
+      toast("这个模板已经不在了", "err");
+      return;
+    }
+    openTxDialog(null, { template: tpl });
+    return;
+  }
+  if (act === "tpl-del") {
+    const f = financeOf();
+    const list = templatesOf(f);
+    const tpl = list.find((t) => t.id === id);
+    if (!tpl) return;
+    (async () => {
+      const ok = await askConfirm({
+        title: `删掉模板「${templateLabel(tpl)}」？`,
+        message: "只删这个模板，已经记下的账一笔都不动。",
+        confirmLabel: "删掉",
+        danger: true,
+      });
+      if (!ok) return;
+      f.templates = list.filter((t) => t.id !== id);
+      touch(true);
+      toast("已删掉这个模板");
+    })();
     return;
   }
   if (act === "tf-edit" || act === "tf-del") {

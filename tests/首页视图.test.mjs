@@ -7,6 +7,7 @@ import {
   progressOf, summaryOf, cardOf, cardsFor, hasData, otherVisibleIn,
   debtWarningOf, financeBriefOf, financeTextOf,
   budgetWarningOf,
+  pendingNoticeOf,
 } from "../app/web/home-view.js";
 import { SUMMARY_MODULES } from "../app/web/modules.js";
 
@@ -156,8 +157,8 @@ eq(cardOf("media", DATA, TODAY).main, "总粉 1.5k ｜ 本周 +140",
   "自媒体卡片正面：总粉丝 + 本周涨粉（520 快照 + 60 + 140）");
 eq(cardOf("media", DATA, TODAY).sub, "总播放 1.2w ｜ 待发布 2 条", "第二行：总播放与待发布");
 eq(cardOf("media", DATA, TODAY).extra, "本周已发 1 条", "没爆款就不写「爆款 0 条」");
-eq(cardOf("media", DATA, TODAY).tip, "总播放 1.2w ｜ 待发布 2 条 · 本周已发 1 条",
-  "hover 提示 = 第二行 + 第三行");
+eq(cardOf("media", DATA, TODAY).tip, "本周还有 1 条要发 · 总播放 1.2w ｜ 待发布 2 条 · 本周已发 1 条",
+  "hover 提示 = 提醒 + 第二行 + 第三行（最要紧的话放最前面）");
 eq(cardOf("dev", DATA, TODAY).main, "2 个项目进行中", "开发工作");
 eq(cardOf("dev", DATA, TODAY).tip, "未解决 bug 2 条", "开发工作的提示");
 eq(cardOf("study", DATA, TODAY).main, "本周学了 340 分钟", "学习工作按本周合计");
@@ -255,6 +256,58 @@ eq(summaryOf("finance", withBudget(50000), TODAY).extra, "本月预算已用 86%
   "记账卡片那一行：快到预算时先说预算");
 eq(summaryOf("finance", withBudget(100000), TODAY).extra, "已逾期：欠朋友 ¥200.00",
   "没到 80% 时，那一行还是债务预警（老行为没动）");
+
+console.log("home-view.js：首页的「待发布」提醒");
+// 待发布 = 状态「待发布」且没归档；只提醒**有排期日**的（没排期的还没到提醒的时候）
+const work = (id, planDate, status = "待发布", extra = {}) => ({
+  id, title: id, status, planDate, publishDate: "", platform: "B站", ...extra,
+});
+const pendingData = (list) => ({ contents: list, mediaAccounts: [] });
+
+eq(pendingNoticeOf({}, TODAY), null, "一条作品都没有 → 不提醒");
+eq(pendingNoticeOf(DATA, TODAY).text, "本周还有 1 条要发",
+  "样例里「选题 A」（排期 10-10，TODAY 是 10-07）落在 7 天内 → 提示档；"
+    .replace("；", "——")
+    + "「选题 B」排在 10-16，还早，不算");
+eq(pendingNoticeOf(DATA, TODAY).count, 1, "只数这一档的条数");
+eq(pendingNoticeOf(pendingData([work("还早", "2026-11-01")]), TODAY), null,
+  "排期还在一个月以后：不打扰");
+eq(pendingNoticeOf(pendingData([work("没排期", "")]), TODAY), null,
+  "连排期日都没填的：不算「该发」");
+eq(pendingNoticeOf(pendingData([work("已发布", "2026-10-01", "已发布")]), TODAY), null,
+  "已经发出去的不算");
+eq(pendingNoticeOf(pendingData([work("归档的", "2026-10-01", "废弃")]), TODAY), null,
+  "废弃（归档）的不算");
+
+const soon = pendingNoticeOf(pendingData([work("三天后", "2026-10-10")]), TODAY);
+eq(soon.level, "soon", "7 天内 → 提示档");
+eq(soon.text, "本周还有 1 条要发", "提示档的文案");
+eq(soon.count, 1, "条数给对");
+eq(soon.tip.includes("三天后") && soon.tip.includes("2026-10-10"), true,
+  "悬停里有最紧那条的标题和日期（" + soon.tip + "）");
+
+const todayOne = pendingNoticeOf(pendingData([work("今天就该发", TODAY)]), TODAY);
+eq(todayOne.level, "today", "排期就是今天 → 今天这一档（比「本周」紧）");
+eq(todayOne.text, "今天该发 1 条", "今天这一档的文案");
+eq(pendingNoticeOf(pendingData([work("昨天该发", "2026-10-06")]), TODAY).level, "overdue",
+  "排期过了还没发 → 逾期档");
+eq(pendingNoticeOf(pendingData([work("昨天该发", "2026-10-06")]), TODAY).text,
+  "有 1 条排期过了还没发", "逾期档的文案");
+
+const mixed = pendingNoticeOf(pendingData([
+  work("过期的", "2026-10-01"),
+  work("过期的二", "2026-10-02"),
+  work("今天的", TODAY),
+  work("本周的", "2026-10-11"),
+]), TODAY);
+eq(mixed.level, "overdue", "四档混着来：先说最要紧的（逾期）");
+eq(mixed.count, 2, "条数只数这一档的（两条逾期）");
+eq(mixed.text, "有 2 条排期过了还没发", "文案也跟着这一档");
+eq(mixed.tip.includes("过期的"), true, "悬停给最先过期的那条（" + mixed.tip + "）");
+
+eq(cardOf("media", pendingData([work("今天就该发", TODAY)]), TODAY).alert.level, "today",
+  "卡片上带着这条提醒（首页照它画那一行）");
+eq(cardOf("dev", pendingData([]), TODAY).alert, null, "别的模块没有这条");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

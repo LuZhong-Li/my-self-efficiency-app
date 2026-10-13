@@ -134,6 +134,12 @@ function modCard(card, showSub = false) {
     <a class="mod-card" href="#${card.id}" title="${esc(card.tip)}">
       <div class="mod-title"><span class="mod-icon">${icon(card.icon, 18)}</span>${esc(card.name)}</div>
       <div class="mod-main${card.empty ? " mod-main-none" : ""}">${esc(card.main)}</div>
+      ${
+        card.alert
+          ? `<div class="mod-alert ${esc(card.alert.level)}" title="${esc(card.alert.tip)}"
+               >${icon("warning", 13)}${esc(card.alert.text)}</div>`
+          : ""
+      }
       ${showSub && card.sub ? `<div class="mod-sub">${esc(card.sub)}</div>` : ""}
       ${showSub && card.extra ? `<div class="mod-extra">${esc(card.extra)}</div>` : ""}
     </a>`;

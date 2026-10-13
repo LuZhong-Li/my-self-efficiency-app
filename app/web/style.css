@@ -1503,6 +1503,26 @@ html[data-theme="dark"] .dlg-icon.danger { background: #3a2220; }
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* 模块卡片上的一条提醒（现在只有自媒体「待发布」用）：简洁 / 完整两种模式都画 ——
+   简洁模式默认只显示卡片正面那一行，提醒要是塞进 sub 就看不见了。
+   颜色跟首页那两条预警（债务 / 预算）同一套：排期过了红边，其余琥珀色。 */
+.mod-alert {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border: var(--bw) solid var(--warn-line);
+  border-radius: var(--r-sm);
+  background: var(--warn-bg);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mod-alert.overdue { border-color: var(--err); }
+
 .mod-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lift);

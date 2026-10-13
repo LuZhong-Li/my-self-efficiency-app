@@ -10,7 +10,7 @@ import { SUMMARY_MODULES, HOME_HIGHLIGHT_MODULES, HOME_OTHER_MODULES, moduleOf }
 import { dayTotals, monthTotals, budgetState, budgetNotice } from "./finance-calc.js";
 import { fmtMoney } from "./money.js";
 import { upcoming, remainCents, dueState, daysUntil } from "./debt-calc.js";
-import { fmtCount, growthText, overviewOf, isArchived, isPublished, weekRangeOf } from "./media-calc.js";
+import { fmtCount, growthText, overviewOf, isArchived, isPublished, weekRangeOf, shiftDateStr } from "./media-calc.js";
 import { isIssueClosed } from "./dev-calc.js";
 import { inTodayPlan, taskArchived } from "./task-calc.js";
 
@@ -111,6 +111,52 @@ export function debtWarningOf(data, today) {
 }
 
 /**
+ * 「待发布」提醒（首页用）：状态是「待发布」、没归档、**而且填了排期日**的作品里，
+ * 挑最要紧的那一档说一句话。没排期的不算（还没到提醒的时候），已发布 / 废弃的不算。
+ *   排期过了 → overdue（红）｜排在今天 → today ｜7 天内 → soon
+ * 一条都没有 / 都还早 → null（首页那张卡片上就不多这一行）。
+ */
+export function pendingNoticeOf(data, today) {
+  const day = String(today || "");
+  const works = rows(data, "contents")
+    .filter(
+      (c) =>
+        c && c.status === "待发布" && !isArchived(c) && String(c.planDate || "").trim()
+    )
+    .sort((a, b) => {
+      const x = String(a.planDate);
+      const y = String(b.planDate);
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
+  const overdue = works.filter((c) => String(c.planDate) < day);
+  const dueToday = works.filter((c) => String(c.planDate) === day);
+  const soon = works.filter(
+    (c) => String(c.planDate) > day && String(c.planDate) <= shiftDateStr(day, 7)
+  );
+  const pick = overdue.length
+    ? { level: "overdue", list: overdue }
+    : dueToday.length
+      ? { level: "today", list: dueToday }
+      : soon.length
+        ? { level: "soon", list: soon }
+        : null;
+  if (!pick) return null;
+  const head = pick.list[0];
+  const text =
+    pick.level === "overdue"
+      ? `有 ${pick.list.length} 条排期过了还没发`
+      : pick.level === "today"
+        ? `今天该发 ${pick.list.length} 条`
+        : `本周还有 ${pick.list.length} 条要发`;
+  return {
+    level: pick.level,
+    count: pick.list.length,
+    text,
+    tip: `《${String(head.title || "（没写标题）")}》排期 ${String(head.planDate)}`,
+  };
+}
+
+/**
  * 预算提醒（首页用）：本月支出对着这个月的总预算算，没设预算 / 还没到 80% 就是 null。
  * 那句话本身来自 finance-calc 的 budgetNotice —— 和记账页那两处同一个来源，
  * 这里只补上「本月预算」这四个字，好和旁边的债务预警分得开。
@@ -171,6 +217,8 @@ export function summaryOf(id, data, today) {
       sub: `总播放 ${fmtCount(ov.totalViews)} ｜ 待发布 ${pending} 条`,
       extra:
         `本周已发 ${weekPublished} 条` + (ov.hitCount ? ` · 爆款 ${ov.hitCount} 条` : ""),
+      // 卡面上多一行提醒（简洁模式也画）：有排期到了 / 过了的待发布作品就得说一声
+      alert: pendingNoticeOf(data, today),
     };
   }
   if (id === "dev") {
@@ -251,7 +299,8 @@ export function cardOf(id, data, today) {
     empty: !hasData(id, data),
     sub,
     extra,
-    tip: [sub, extra].filter(Boolean).join(" · "),
+    alert: s.alert || null,
+    tip: [s.alert ? s.alert.text : "", sub, extra].filter(Boolean).join(" · "),
   };
 }
 

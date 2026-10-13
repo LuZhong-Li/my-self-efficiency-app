@@ -65,6 +65,25 @@ export function removePlatform(list, name) {
   return { list: rows.filter((p) => p !== picked), status: "removed" };
 }
 
+/**
+ * 某个账号**最近记过的那一条**快照（「记粉丝」里那行「上一条 … 用它」用的）。
+ * 按日期取最新的一条，不看数组顺序；没记过 / 没给账号 / 那一条没有日期 → null。
+ * 数字取整、负数当 0：手改坏了的也不至于垫一个负数进输入框。
+ */
+export function lastSnapshotOf(snapshots, accountId) {
+  const id = String(accountId == null ? "" : accountId).trim();
+  if (!id) return null;
+  let best = null;
+  for (const s of snapshots || []) {
+    if (!s || typeof s !== "object") continue;
+    if (s.accountId !== id) continue;
+    const date = String(s.date || "").trim();
+    if (!date) continue;
+    if (!best || date > best.date) best = { id: String(s.id || ""), date, count: Math.max(0, Math.round(Number(s.count) || 0)) };
+  }
+  return best;
+}
+
 /** 内容流水线：想法 → 撰写中 → 剪辑中 → 待发布 → 已发布 */
 export const STATUSES = ["想法", "撰写中", "剪辑中", "待发布", "已发布"];
 

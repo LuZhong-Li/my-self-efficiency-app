@@ -22,6 +22,7 @@ import {
   platformsOf,
   addPlatform,
   removePlatform,
+  lastSnapshotOf,
   ARCHIVED,
   statusesOf,
   isPublished,
@@ -811,6 +812,8 @@ function openSnapshotDialog(id) {
   if (!a) return;
   const today = todayStr();
   const current = followersAt(a, table("contents"), table("mediaFollowers"), today, accounts);
+  // 上一条记过的快照：想「在昨天那个数上改两个数字」的时候点它一下就行
+  const lastSnap = lastSnapshotOf(table("mediaFollowers"), a.id);
   const { el, close } = openDialog({
     title: `记一笔粉丝 · ${a.name}`,
     bodyHtml: `
@@ -825,7 +828,14 @@ function openSnapshotDialog(id) {
           <input id="snap-count" type="number" min="0" step="1" value="${esc(String(current))}">
         </div>
       </div>
-      <p class="fin-err" id="snap-err" hidden></p>`,
+      <p class="fin-err" id="snap-err" hidden></p>
+      ${
+        lastSnap
+          ? `<p class="fin-help">上一条：${esc(lastSnap.date)} · ${esc(fmtCount(lastSnap.count))} 粉
+               <button class="link" id="snap-copy" type="button"
+                 title="把这个数字垫进上面的输入框，你只改数字">用它</button></p>`
+          : ""
+      }`,
     buttons: [
       { id: "cancel", label: "取消" },
       { id: "save", label: "记下", kind: "primary" },
@@ -849,6 +859,14 @@ function openSnapshotDialog(id) {
       touch(true);
       toast(`${date}：${fmtCount(count)} 粉`);
     },
+  });
+  // 点「用它」：垫进输入框并全选，你直接打新数字就行
+  el.querySelector("#snap-copy")?.addEventListener("click", () => {
+    if (!lastSnap) return;
+    const input = el.querySelector("#snap-count");
+    input.value = String(lastSnap.count);
+    input.focus();
+    input.select?.();
   });
   setTimeout(() => el.querySelector("#snap-count")?.focus(), 0);
 }

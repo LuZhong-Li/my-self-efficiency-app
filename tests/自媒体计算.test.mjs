@@ -8,6 +8,7 @@ import {
   weekRangeOf, shiftDateStr, followersGain, growthText,
   isHit, avgViewsOf, hitLevelOf, activityOf, accountStats, overviewOf, overviewSeries,
   PLATFORM_LIMIT, PLATFORM_MAX_CHARS, normalizePlatforms, platformsOf, addPlatform, removePlatform,
+  lastSnapshotOf,
 } from "../app/web/media-calc.js";
 
 let pass = 0;
@@ -309,6 +310,29 @@ eqDeep(REM1.list, ["B站"], "列表里少了一个");
 eq(removePlatform(["B站"], "B站").status, "last", "只剩最后一个就不让删了（下拉不能是空的）");
 eqDeep(removePlatform(["B站"], "B站").list, ["B站"], "不让删就原样返回");
 eq(removePlatform(["B站", "知乎"], "没有这个").status, "removed", "删一个本来就没有的：当成功（幂等）");
+
+/* ---------------- 快照：最近记过的那一条（2026-10-13 加的） ----------------
+   「记粉丝」里加一行「上一条：10-10 · 1,260 粉」+ 一个「用它」——
+   点一下把那个数字垫进输入框，你只改数字，省得从头敲。 */
+
+const SNAP_LIST = [
+  { id: "s1", accountId: "a1", date: "2026-10-01", count: 1200 },
+  { id: "s2", accountId: "a1", date: "2026-10-05", count: 1400 },
+  { id: "s3", accountId: "a2", date: "2026-10-09", count: 560 },
+  { id: "s4", accountId: "a1", date: "2026-10-03", count: 1300 },
+];
+eqDeep(lastSnapshotOf(SNAP_LIST, "a1"), { id: "s2", date: "2026-10-05", count: 1400 },
+  "取这个账号最近那一条（不按数组顺序，按日期）");
+eqDeep(lastSnapshotOf(SNAP_LIST, "a2"), { id: "s3", date: "2026-10-09", count: 560 },
+  "别的账号各取各的");
+eq(lastSnapshotOf(SNAP_LIST, "没记过的账号"), null, "没记过：null（界面就不显示那一行）");
+eq(lastSnapshotOf([], "a1"), null, "一条快照都没有：null");
+eq(lastSnapshotOf(null, "a1"), null, "传 null 也不炸");
+eq(lastSnapshotOf(SNAP_LIST, ""), null, "没给账号 id：null");
+eq(lastSnapshotOf([{ accountId: "a1", date: "2026-10-05", count: -5 }], "a1").count, 0,
+  "数字取整、负数当 0（手改坏了的也不至于垫一个负数进去）");
+eq(lastSnapshotOf([{ accountId: "a1", count: 999 }], "a1"), null,
+  "没有日期的快照不算（那一条本来就不知道是哪天的）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

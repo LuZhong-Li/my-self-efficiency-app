@@ -42,7 +42,7 @@ export const ATTACH_MODULES = [
   "finance", "buglog", "progress",
   "today_plan", "dev_project", "dev_todo", "study_record", "study_item",
   "fitness", "game", "game_record",
-  "note",
+  "note", "media_asset",
 ];
 
 export const MODULE_LABEL = {
@@ -51,6 +51,7 @@ export const MODULE_LABEL = {
   study_record: "学习记录", study_item: "学习对象", fitness: "训练打卡", game: "游戏",
   game_record: "游玩记录",
   note: "笔记",
+  media_asset: "自媒体素材",
 };
 
 /** 附件在 JSON 里统一用这个前缀（相对路径，不带盘符，换机器也认） */

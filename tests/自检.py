@@ -164,7 +164,7 @@ def main() -> int:
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
                 "games", "gameRecords", "settings", "finance", "debt", "mediaAccounts",
-                "mediaFollowers", "moduleGoals"]
+                "mediaFollowers", "mediaAssets", "moduleGoals"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -552,6 +552,26 @@ def main() -> int:
               and back4["mediaFollowers"][0]["count"] == 260)
         check("老数据里的「写作中」会迁成「撰写中」",
               back4["contents"][0]["status"] == "撰写中", str(back4["contents"][0]["status"]))
+
+        # 素材库（2026-10-14 新增）：新键由骨架补；老作品的 assetIds 补空数组；
+        # 导出来的一份里，素材本身也要跟着走
+        cur = call(port, "/api/data")[1]
+        cur.pop("mediaAssets", None)
+        cur["contents"] = [{"id": "c-old", "title": "老作品", "status": "想法",
+                            "accountId": "", "platform": "B站"}]
+        cur["mediaAssets"] = [{
+            "id": "asset-selftest", "title": "自检素材", "kind": "link",
+            "url": "https://example.com/a", "note": "参考", "createdAt": "2026-10-14 10:00",
+        }]
+        call(port, "/api/data", "POST", cur)
+        back_assets = call(port, "/api/data")[1]
+        check("老数据没有 mediaAssets 读出来补成空表 / 有的话原样留着",
+              back_assets.get("mediaAssets") and back_assets["mediaAssets"][0]["url"]
+              == "https://example.com/a",
+              str(back_assets.get("mediaAssets")))
+        check("老作品的 assetIds 补齐成空数组",
+              back_assets["contents"][0].get("assetIds") == [],
+              str(back_assets["contents"][0].get("assetIds")))
 
         # 模块目标（健身 / 学习 / 饮食）：顶层一个 moduleGoals，按模块 id 分桶
         cur = call(port, "/api/data")[1]

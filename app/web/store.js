@@ -373,6 +373,7 @@ export const TRASH_TABLE_LABEL = {
   contents: "自媒体",
   mediaAccounts: "自媒体账号",
   mediaFollowers: "粉丝记录",
+  mediaAssets: "自媒体素材",
   projects: "项目",
   issues: "问题",
   progress: "进展",

@@ -65,7 +65,7 @@ ATTACH_MODULES = (
     "finance", "buglog", "progress",
     "today_plan", "dev_project", "dev_todo", "study_record", "study_item",
     "fitness", "game", "game_record",
-    "note",
+    "note", "media_asset",
 )
 ATTACH_EXTS = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
 # 服务端兜底的单张上限：前端压完一般远小于这个数，这道闸是防手写的请求
@@ -162,6 +162,8 @@ def default_data() -> dict:
         # 自媒体：账号 + 粉丝快照（作品还是上面那个 contents，不搬家）
         "mediaAccounts": [],
         "mediaFollowers": [],
+        # 自媒体素材：脚本 / 封面 / 参考链接（图片走 attachments/media_asset/，链接存 url）
+        "mediaAssets": [],
         "projects": [],
         "issues": [],
         "progress": [],
@@ -486,6 +488,15 @@ def migrate(data: dict) -> dict:
     for c in data.get("contents") or []:
         if isinstance(c, dict) and c.get("status") == "写作中":
             c["status"] = "撰写中"
+        # 素材引用（2026-10-14 新增）：老作品没有 assetIds，读出来补一个空数组，
+        # 页面那边就不用到处判空；只补缺的，已有的（字符串）原样留着、顺手滤掉杂物。
+        if isinstance(c, dict):
+            if not isinstance(c.get("assetIds"), list):
+                c["assetIds"] = []
+            else:
+                c["assetIds"] = [
+                    x for x in c["assetIds"] if isinstance(x, str) and x.strip()
+                ]
     # 图片附件：老记录没有 imagePaths，读出来先补一个空数组，
     # 页面那边就不用到处判空了；也只是补，不动任何已有字段。
     for row in (data.get("finance") or {}).get("transactions") or []:

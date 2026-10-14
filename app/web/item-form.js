@@ -12,6 +12,7 @@ import { rowPaths } from "./attachment-calc.js";
 import { GOAL_CYCLES } from "./goal-calc.js";
 import { DURATION_UNITS, toMinutes, shownDuration } from "./time-calc.js";
 import { linkGameId } from "./game-calc.js";
+import { DIET_SLOTS } from "./diet-calc.js";
 import { normalizeTags, tagInputError, tagsText } from "./tag-calc.js";
 // 子任务的条数上限（30）只在 task-calc.js 定义一份：这里再写一个数字，迟早两边不一样
 import { SUBTASK_LIMIT } from "./task-calc.js";
@@ -465,6 +466,111 @@ export const FORMS = {
       delete row.durationUnit;
     },
   },
+
+  /* 菜谱（2026-10-14 加）：一样东西**每份**多少热量 / 蛋白 / 脂肪 / 碳水。
+     营养四格都选填（只知道热量也能用，留空就是 0）。 */
+  food: {
+    table: "foods",
+    titleNew: "加一样吃的",
+    titleEdit: "改这一样",
+    hint: "记「一样东西每份多少」：米饭一碗 200 千卡、鸡蛋一个 70 千卡。之后每餐从库里挑，填份数就行。",
+    fields: [
+      { name: "name", label: "名称", kind: "text", required: true, maxlength: 40,
+        placeholder: "比如：米饭" },
+      { name: "unit", label: "每份是", kind: "text", maxlength: 20, half: true,
+        placeholder: "碗 / 个 / 100 克" },
+      { name: "kcal", label: "热量（千卡）", kind: "number", min: 0, step: 1, half: true,
+        placeholder: "比如 200" },
+      { name: "protein", label: "蛋白质（克）", kind: "number", min: 0, step: 1, half: true },
+      { name: "fat", label: "脂肪（克）", kind: "number", min: 0, step: 0.5, half: true },
+      { name: "carb", label: "碳水（克）", kind: "number", min: 0, step: 1, half: true },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：主食、高蛋白" },
+      { name: "note", label: "备注", kind: "textarea", rows: 2, maxlength: 200,
+        placeholder: "备注（可不填）" },
+    ],
+    label: (row) => row.name || "（没写名字）",
+    create: (ctx) => ({
+      id: ctx.uid(),
+      name: "",
+      unit: "",
+      kcal: 0,
+      protein: 0,
+      fat: 0,
+      carb: 0,
+      tags: [],
+    }),
+  },
+
+  /* 吃了什么（2026-10-14 加）：挂在某一天某一餐上的一条。
+     它**不进顶层表**（table 留空），落盘走 persist（挂到 ctx.meal.items）、
+     删除走 trashPlan.apply（从那一餐里摘掉，不进回收站）。 */
+  mealItem: {
+    table: "",
+    titleNew: "加一样吃的",
+    titleEdit: "改这一条",
+    hint: "选菜谱库里有的名字会自动带出营养；手打的新名字就自己填每份的热量。份数可以是 0.5、1.5 这样的小数。",
+    fields: [
+      { name: "slot", label: "哪一餐", kind: "select", list: DIET_SLOTS.map((s) => s[1]),
+        half: true, default: "早餐" },
+      { name: "amount", label: "份数", kind: "number", min: 0, step: 0.5, half: true,
+        default: "1", placeholder: "比如 1.5" },
+      { name: "name", label: "名称", kind: "combo", source: "foodOptions", autoFill: "foods",
+        required: true, maxlength: 40, placeholder: "选一样，或者直接打名字" },
+      { name: "unit", label: "每份是", kind: "text", maxlength: 20, autoFill: "foods",
+        half: true, placeholder: "碗 / 个" },
+      { name: "kcal", label: "每份热量", kind: "number", min: 0, step: 1, autoFill: "foods",
+        half: true },
+      { name: "protein", label: "每份蛋白质", kind: "number", min: 0, step: 1,
+        autoFill: "foods", half: true },
+      { name: "fat", label: "每份脂肪", kind: "number", min: 0, step: 0.5,
+        autoFill: "foods", half: true },
+      { name: "carb", label: "每份碳水", kind: "number", min: 0, step: 1,
+        autoFill: "foods", half: true },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：外卖、聚餐" },
+    ],
+    label: (row) => row.name || "（没写什么）",
+    create: (ctx) => ({
+      id: ctx.uid(),
+      slot: "breakfast",
+      foodId: "",
+      name: "",
+      unit: "",
+      amount: 1,
+      kcal: 0,
+      protein: 0,
+      fat: 0,
+      carb: 0,
+      tags: [],
+    }),
+    // 「哪一餐」那一格是中文名（早/午/晚/加餐），落盘要换回键（breakfast / …）
+    mapValues: (row, values) => {
+      const zh = String(values.slot || "");
+      const hit = DIET_SLOTS.find((s) => s[1] === zh);
+      row.slot = hit ? hit[0] : "snack";
+    },
+    persist: (ctx, saved, created) => {
+      if (!created) return;      // 编辑时改的是同一条对象，不用再挂一次
+      const meal = ctx && ctx.meal;
+      if (!meal) return;
+      if (!Array.isArray(meal.items)) meal.items = [];
+      meal.items.push(saved);
+    },
+    // 它不进回收站：本来就是某一天记录里的一条，删了就是从那一餐里去掉
+    trashPlan: (row, rows, ctx) => ({
+      label: row.name || "（没写什么）",
+      extra: 0,
+      items: [],
+      note: "只把这一条从这一餐里去掉（它本来就在某一天的记录里面，不进回收站）。",
+      apply: () => {
+        const meal = ctx && ctx.meal;
+        if (!meal || !Array.isArray(meal.items)) return;
+        const index = meal.items.indexOf(row);
+        if (index >= 0) meal.items.splice(index, 1);
+      },
+    }),
+  },
 };
 
 export const ITEM_TYPES = Object.keys(FORMS);
@@ -803,10 +909,10 @@ export function newRow(type, values, ctx = {}) {
  * 删一条要动哪些表：先写清楚，交给调用方去执行（这里保持纯函数）。
  * 两处会「连带」：删学习对象带走它的学习记录；删项目带走它的待办、问题和进展。
  */
-export function trashPlan(type, row, rowsByTable = {}) {
+export function trashPlan(type, row, rowsByTable = {}, ctx = {}) {
   const spec = formOf(type);
   // 有些类型不在普通表里（模块目标按模块分桶存），自己给一份删除计划
-  if (typeof spec.trashPlan === "function") return spec.trashPlan(row, rowsByTable);
+  if (typeof spec.trashPlan === "function") return spec.trashPlan(row, rowsByTable, ctx);
   const label = spec.label(row);
   const items = [{ table: spec.table, row, label }];
   if (type === "studyItem") {

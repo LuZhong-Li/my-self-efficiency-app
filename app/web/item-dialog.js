@@ -194,6 +194,7 @@ export function openItemDialog(type, row, options = {}) {
   bindTagPreview(dlg.el, spec);
   bindSubtasks(dlg.el, spec);
   bindRulePreview(dlg.el, spec);
+  bindAutoFill(dlg.el, spec, ctx);
   bindEnterToSave(dlg);
   const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
@@ -357,6 +358,40 @@ function bindRulePreview(el, spec) {
     input.addEventListener("input", sync);
     sync();          // 编辑老规则时进来就先把这句话翻译一遍
   }
+}
+
+/**
+ * 「选了一样东西，把别的几格自动带出来」—— 比如「吃了什么」里选了菜谱库里的「米饭」，
+ * 后面的每份热量 / 蛋白 / 脂肪 / 碳水 / 单位就自动填上（填完还能自己改）。
+ *
+ * 声明方式：字段写 `autoFill: "foods"`，弹窗的 `ctx.autoFill.foods` 是「名字 → 资料」。
+ * 只在名字真的换了的时候带一次（用户接下来自己改的数不会再被覆盖）。
+ */
+function bindAutoFill(el, spec, ctx) {
+  const targets = spec.fields.filter((f) => f.autoFill);
+  if (!targets.length) return;
+  const source = targets[0];
+  const src = el.querySelector("#item-" + source.name);
+  const table = (ctx && ctx.autoFill) || null;
+  if (!src || !table) return;
+  const box = table[source.autoFill];
+  if (!box) return;
+  let last = String(src.value || "").trim();
+  const fill = () => {
+    const now = String(src.value || "").trim();
+    if (now === last) return;
+    last = now;
+    const hit = box[now];
+    if (!hit) return;
+    for (const field of targets) {
+      if (field === source) continue;
+      const input = el.querySelector("#item-" + field.name);
+      if (!input || hit[field.name] === undefined) continue;
+      input.value = String(hit[field.name]);
+    }
+  };
+  src.addEventListener("change", fill);
+  src.addEventListener("input", fill);
 }
 
 /** 回车 = 保存。只在输入框 / 下拉里按回车才算（多行描述里回车要能换行）。 */

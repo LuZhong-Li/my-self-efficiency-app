@@ -53,8 +53,8 @@ function ok(cond, label) {
 
 eqDeep(ITEM_TYPES,
   ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game",
-    "gamePlayRecord", "moduleGoal", "repeatRule", "workLog"],
-  "十一个弹窗类型都在，按顺序（工时是 2026-10-14 加的）");
+    "gamePlayRecord", "moduleGoal", "repeatRule", "workLog", "food", "mealItem"],
+  "十三个弹窗类型都在，按顺序（菜谱与吃了什么是 2026-10-14 加的）");
 eq(formOf("devProject").table, "projects", "项目存 projects 表");
 eq(formOf("devProject").upload, "dev_project", "项目的图片单独一格");
 eq(formOf("game").table, "games", "游戏存 games 表");
@@ -68,6 +68,9 @@ ok(!formOf("repeatRule").upload,
   "重复任务不带图片区（实例不继承图片，规则自己存图没地方用）");
 eq(formOf("workLog").table, "workLogs", "工时存 workLogs 表");
 ok(!formOf("workLog").upload, "工时不带图片区（一条工时没有值得存图的场景）");
+eq(formOf("food").table, "foods", "菜谱存 foods 表");
+ok(!formOf("food").upload, "菜谱不带图片区");
+eq(formOf("mealItem").table, "", "吃了什么不进顶层表（挂在 meals 那条的 items 上）");
 
 for (const type of ITEM_TYPES) {
   const spec = FORMS[type];
@@ -585,6 +588,45 @@ const projPlan = trashPlan("devProject", { id: "p1", name: "工作台" },
 eqDeep(projPlan.items.filter((i) => i.table === "workLogs").map((i) => i.row.id), ["w1"],
   "只带走这个项目的工时（别的项目的不动）");
 eq(projPlan.extra, 1, "连带条数算上了它");
+
+/* ---------------- 菜谱与「吃了什么」（2026-10-14 加的） ---------------- */
+
+const foodRow = newRow("food", { ...defaultsOf("food"), name: "米饭", unit: "碗",
+  kcal: "200", protein: "4", fat: "0.5", carb: "44", tags: "主食", note: "一小碗" },
+  { uid: () => "f1", nowIso: () => "2026-10-14T10:00:00.000Z" });
+eq(foodRow.kcal, 200, "热量转成数字");
+eq(foodRow.fat, 0.5, "脂肪能是小数");
+eqDeep(foodRow.tags, ["主食"], "标签照旧");
+eq(validate("food", { ...defaultsOf("food"), name: "" }).ok, false, "名称必填");
+eq(validate("food", { ...defaultsOf("food"), name: "米饭" }).ok, true, "只填名字也能存");
+eq(validate("food", { ...defaultsOf("food"), name: "米饭", kcal: "" }).ok, true,
+  "热量留空也能存（先记个名字、回头再补）");
+eq(formOf("food").fields.find((f) => f.name === "kcal").kind, "number", "热量是数字格");
+
+const itemForm = { ...defaultsOf("mealItem"), slot: "早餐", name: "米饭", unit: "碗",
+  amount: "1.5", kcal: "200", protein: "4", fat: "0.5", carb: "44" };
+eq(defaultsOf("mealItem").slot, "早餐", "新增时默认早餐");
+eq(formOf("mealItem").fields.find((f) => f.name === "name").autoFill, "foods",
+  "名称那一格声明了「从菜谱库自动带出」");
+const itemRow = newRow("mealItem", itemForm, { uid: () => "mi1" });
+eq(itemRow.slot, "breakfast", "「早餐」这一格落盘成 breakfast");
+eq(itemRow.name, "米饭", "名字留着");
+eq(itemRow.amount, 1.5, "份数能是小数");
+eq(itemRow.kcal, 200, "每份热量照存（不是乘完的总数）");
+eq(validate("mealItem", { ...itemForm, name: "" }).ok, false, "名字必填");
+eq(newRow("mealItem", { ...itemForm, slot: "夜宵" }, { uid: () => "mi2" }).slot, "snack",
+  "认不出的餐次归加餐（脏数据也不丢）");
+
+// 「吃了什么」不进顶层表：落盘走 persist，删除走 apply（都不碰回收站）
+const bucket = { items: [] };
+const mealSpec = formOf("mealItem");
+mealSpec.persist({ meal: bucket }, itemRow, true);
+eqDeep(bucket.items.map((i) => i.id), ["mi1"], "persist 把它挂到那一餐上");
+eq(bucket.items[0].slot, "breakfast", "挂上去的那条餐次已经换成了键");
+const mealPlan = trashPlan("mealItem", itemRow, {}, { meal: bucket });
+eqDeep(mealPlan.items, [], "删除计划不走回收站");
+mealPlan.apply();
+eq(bucket.items.length, 0, "apply 把它从那一餐里摘掉");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

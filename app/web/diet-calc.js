@@ -70,6 +70,8 @@ export function normalizeMealItem(row) {
     protein: Math.max(0, num(r.protein)),
     fat: Math.max(0, num(r.fat)),
     carb: Math.max(0, num(r.carb)),
+    // 标签和别处一个规矩：只认数组（清洗与去重是 tag-calc.js 的事）
+    tags: Array.isArray(r.tags) ? r.tags.map((t) => text(t)).filter(Boolean) : [],
   };
 }
 

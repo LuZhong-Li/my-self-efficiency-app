@@ -65,9 +65,10 @@ console.log("\n【一条「吃了什么」的形状】");
 eqDeep(normalizeMealItem({ id: "i1", slot: "breakfast", foodId: "f1", name: "米饭",
   unit: "碗", amount: "1.5", kcal: 200, protein: 4, fat: 0.5, carb: 44 }),
 { id: "i1", slot: "breakfast", foodId: "f1", name: "米饭", unit: "碗", amount: 1.5,
-  kcal: 200, protein: 4, fat: 0.5, carb: 44 }, "份数能是小数");
+  kcal: 200, protein: 4, fat: 0.5, carb: 44, tags: [] }, "份数能是小数");
 eqDeep(normalizeMealItem({}), { id: "", slot: "snack", foodId: "", name: "", unit: "",
-  amount: 1, kcal: 0, protein: 0, fat: 0, carb: 0 }, "缺字段补默认值（份数默认 1）");
+  amount: 1, kcal: 0, protein: 0, fat: 0, carb: 0, tags: [] }, "缺字段补默认值（份数默认 1）");
+eqDeep(normalizeMealItem({ tags: ["外卖"] }).tags, ["外卖"], "条目也能贴标签");
 eq(normalizeMealItem({ slot: "dinner" }).slot, "dinner", "认得出的餐次留着");
 eq(normalizeMealItem({ slot: "夜宵" }).slot, "snack", "认不出的餐次归加餐（不丢数据）");
 eq(normalizeMealItem({ amount: 0 }).amount, 0, "写了 0 份就是 0 份");

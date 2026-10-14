@@ -156,6 +156,7 @@ function askNewDataset() {
     value: "",
     okLabel: "新建",
     action: "new",
+    okId: "create",     // 按钮 id 和「干什么」分开：测试和文案都按 create 认它
   });
 }
 
@@ -166,12 +167,14 @@ function askRenameDataset(name) {
     value: name,
     okLabel: "改名",
     action: "rename",
+    okId: "rename",
     from: name,
   });
 }
 
 /** 新建和重命名共用一个小弹窗：一个名字输入框 + 一行当场校验 */
-function askNameDialog({ title, hint, value, okLabel, action, from = "" }) {
+function askNameDialog({ title, hint, value, okLabel, action, okId, from = "" }) {
+  const confirmId = okId || action;
   const dlg = openDialog({
     title,
     bodyHtml: `
@@ -185,10 +188,10 @@ function askNameDialog({ title, hint, value, okLabel, action, from = "" }) {
       </div>`,
     buttons: [
       { id: "cancel", label: "取消" },
-      { id: action, label: okLabel, kind: "primary" },
+      { id: confirmId, label: okLabel, kind: "primary" },
     ],
     onAction: (id, el) => {
-      if (id !== action) return;
+      if (id !== confirmId) return;
       const input = el.querySelector("#ds-new-name");
       const msg = el.querySelector("#ds-new-msg");
       const name = String((input && input.value) || "").trim();

@@ -206,6 +206,20 @@ async function waitReload(expr, label) {
   return got;
 }
 
+/** 等一个目录真的出现且里面有东西（有些动作是异步落盘的，等一等再断言） */
+async function waitFile(dir, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if (fs.existsSync(dir) && fs.readdirSync(dir).length) return true;
+    } catch {
+      /* 目录还没建出来，接着等 */
+    }
+    if (Date.now() > deadline) return false;
+    await sleep(100);
+  }
+}
+
 async function main() {
   if (typeof WebSocket !== "function") {
     console.log("\n⚠ 跳过：Node 太老（要 22+，用它内置的 fetch / WebSocket 说 CDP）。");
@@ -237,6 +251,7 @@ async function main() {
 
   const fileY = path.join(root, "默认", "数据.json");
   const fileG = path.join(root, "工作", "数据.json");
+  const fileA = path.join(root, "工作A", "数据.json");   // 重命名之后那一份
   fs.writeFileSync(
     fileY,
     JSON.stringify({
@@ -411,6 +426,73 @@ async function main() {
     const texts = await ev('[...document.querySelectorAll(".task")].map(li=>li.textContent)');
     ok(texts.some((t) => t.includes("默认里的待办")), "就是「默认」原来那条");
     ok(!texts.some((t) => t.includes("工作在写的待办")), "「工作」那条没跟过来");
+
+    /* 5) 重命名：文件夹真改名，里面的数据一个字不动 */
+    console.log("\n重命名「工作」→「工作A」：文件夹是改名不是重建");
+    await ev('location.hash = "#data"');
+    ok(await waitFor('!!document.querySelector(\'[data-ds-act="rename"][data-ds-name="工作"]\')',
+      10000), "「工作」那一行有「重命名」");
+    await ev('document.querySelector(\'[data-ds-act="rename"][data-ds-name="工作"]\').click()');
+    ok(await waitFor('!!document.getElementById("ds-new-name")', 5000), "改名弹窗开了");
+    eq(await ev('document.getElementById("ds-new-name").value'), "工作",
+      "输入框里预填着原来的名字");
+    await setFields({ "ds-new-name": "工作A" });
+    await ev('document.querySelector(\'[data-dlg-act="rename"]\').click()');
+    ok(await waitFor('!!document.querySelector(\'[data-ds-name="工作A"]\')', 8000),
+      "列表里换成了「工作A」");
+    ok(fs.existsSync(path.join(root, "工作A", "数据.json")), "磁盘上多了 工作A\\数据.json");
+    ok(!fs.existsSync(path.join(root, "工作")), "原来那个 工作\\ 不在了");
+    eq(readData(fileA).tasks[0].text, "工作在写的待办", "里面的数据一个字没动");
+    ok(!fs.existsSync(fileG), "没留下一个空壳文件夹");
+
+    /* 6) 导出 zip：落在当前数据集的 导出\ 里，用 Python 解开看一眼 */
+    console.log("\n导出「工作A」：打包成 zip");
+    ok(!fs.existsSync(path.join(root, "默认", "导出")), "导出前还没有 导出\\ 这个文件夹");
+    await ev('document.querySelector(\'[data-ds-act="export"][data-ds-name="工作A"]\').click()');
+    const exportDir = path.join(root, "默认", "导出");
+    ok(await waitFile(exportDir), "当前数据集的 导出\\ 里多了一个文件");
+    const zips = fs.readdirSync(exportDir);
+    eq(zips.length, 1, "就一个 zip");
+    ok(zips[0].startsWith("数据集-工作A-") && zips[0].endsWith(".zip"),
+      "文件名带着数据集名和时间（" + zips[0] + "）");
+    // 让 Python 用 JSON 打印里面的文件名：中文名走管道会被换成系统编码，直接打印对不上
+    const probe = spawnSync(python, ["-c",
+      "import sys,zipfile,json;print(json.dumps(zipfile.ZipFile(sys.argv[1]).namelist()))",
+      path.join(exportDir, zips[0])], { encoding: "utf8" });
+    let inner = [];
+    try {
+      inner = JSON.parse(String(probe.stdout || "[]"));
+    } catch {
+      inner = [];
+    }
+    ok(inner.some((n) => n.endsWith("数据.json")), "zip 里带着那份数据的 数据.json");
+    ok(inner.some((n) => n.startsWith("工作A/")), "zip 里的路径是按数据集名分的文件夹");
+
+    /* 7) 新建：坏名字当场拦住，好名字才建出来，而且不切过去 */
+    console.log("\n新建数据集：坏名字拦住、好名字建出来、不自动切过去");
+    await ev('document.querySelector(\'[data-ds-act="new"]\').click()');
+    ok(await waitFor('!!document.getElementById("ds-new-name")', 5000), "新建弹窗开了");
+    await setFields({ "ds-new-name": "a/b" });
+    await ev('document.querySelector(\'[data-dlg-act="create"]\').click()');
+    await sleep(400);
+    ok(await ev('!!document.querySelector(\'[data-dlg-act="create"]\')'), "坏名字：弹窗没关");
+    const why = (await textOf("#ds-new-msg")) || "";
+    ok(why.includes("不能有"), "坏名字：当场说清了为什么（" + why + "）");
+    ok(!fs.existsSync(path.join(root, "a/b")), "坏名字：磁盘上什么都没建出来");
+
+    await setFields({ "ds-new-name": "私人" });
+    await ev('document.querySelector(\'[data-dlg-act="create"]\').click()');
+    await waitFor('!document.querySelector(\'[data-dlg-act="create"]\')', 8000);
+    ok(await waitFor('!!document.querySelector(\'[data-ds-name="私人"]\')', 8000),
+      "好名字：列表里多了一份「私人」");
+    ok(fs.existsSync(path.join(root, "私人", "数据.json")), "磁盘上真建出来了");
+    eq(readData(path.join(root, "私人", "数据.json")).tasks.length, 0, "新的那份是空的");
+    eq(fs.readFileSync(path.join(root, "当前数据集.txt"), "utf8").trim(), "默认",
+      "新建不自动切过去（还在 默认）");
+    ok(
+      await ev('(document.getElementById("foot-file").textContent||"").includes("数据集「默认」")'),
+      "状态栏还写着「默认」（页面也没被重载）"
+    );
 
     /* ---- 全程不该冒 JS 报错 ---- */
     const errors = cdp.pageErrors.filter((t) => !/favicon/i.test(t));

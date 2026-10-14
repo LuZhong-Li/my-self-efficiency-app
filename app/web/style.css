@@ -3896,3 +3896,27 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .nu-cell strong { font-size: 17px; font-variant-numeric: tabular-nums; }
 .nu-goal { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
 .nu-goal input { width: 64px; }
+
+/* 笔记（2026-10-14 加，第 11 个模块） */
+.note-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; }
+.note-side { align-self: start; }
+.note-filter { margin: 0 0 8px; }
+.note-list { max-height: 60vh; overflow: auto; }
+.note-row { cursor: pointer; }
+.note-row.active { background: var(--hover); }
+.note-row .nr-title { flex: 1 1 auto; }
+.note-row .nr-sub { color: var(--muted); font-size: 13px; }
+.note-editor-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.note-title { font-size: 17px; }
+.note-text {
+  width: 100%;
+  min-height: 46vh;
+  resize: vertical;
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.note-hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+@media (max-width: 820px) {
+  .note-layout { grid-template-columns: 1fr; }
+}

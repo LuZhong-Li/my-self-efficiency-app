@@ -1,4 +1,4 @@
-/* 九个模块的唯一清单：侧边导航、首页摘要卡片、全局搜索都从这里取，
+/* 十一个模块的唯一清单：侧边导航、首页摘要卡片、全局搜索都从这里取，
  * 免得三处各写一份名字和图标，改一个忘一个。 */
 
 export const MODULES = [
@@ -11,6 +11,7 @@ export const MODULES = [
   { id: "fitness", name: "健身计划", icon: "fitness", desc: "每周安排、训练打卡和体重" },
   { id: "diet", name: "饮食计划", icon: "diet", desc: "三餐、加餐和喝水" },
   { id: "game", name: "游戏娱乐", icon: "game", desc: "在玩、想玩和通关记录" },
+  { id: "note", name: "笔记", icon: "pencil", desc: "随手写点什么，支持 Markdown 和贴图" },
   { id: "data", name: "数据与设置", icon: "settings", desc: "备份、回收站、外观和清空" },
 ];
 

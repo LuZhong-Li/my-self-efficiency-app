@@ -15,6 +15,7 @@ import { renderFinance } from "./finance.js";
 import { renderFitness } from "./fitness.js";
 import { renderDiet } from "./diet.js";
 import { renderGame } from "./game.js";
+import { renderNote } from "./notes.js";
 import { renderSettings } from "./settings.js";
 import { initSearch } from "./search.js";
 import { icon } from "./icons.js";
@@ -88,6 +89,7 @@ function render() {
   else if (id === "fitness") renderFitness(view);
   else if (id === "diet") renderDiet(view, sub);
   else if (id === "game") renderGame(view);
+  else if (id === "note") renderNote(view, sub);
   else renderSettings(view);
 
   const key = id + "/" + sub;

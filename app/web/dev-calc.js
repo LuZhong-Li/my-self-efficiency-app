@@ -8,6 +8,7 @@
 
 import { MODULES } from "./modules.js";
 import { rowPaths } from "./attachment-calc.js";
+import { subTasksOf } from "./task-calc.js";
 
 /** 一条记录归没归档。缺字段的老数据一律当「没归档」，所以老数据不用搬。 */
 export function archivedOf(row) {
@@ -103,6 +104,13 @@ export function normalizeTodo(row) {
     doneAt: String(r.doneAt || ""),
     isArchived: archivedOf(r),
     archivedAt: String(r.archivedAt || ""),
+    // 子任务清单（2026-10-14 加的）：项目详情画的是这份展示副本，副本也得带着清单，
+    // 行上那枚「2/5」才画得出来。每条重新捏一份 —— 副本不该能反过来改到数据里那条。
+    subtasks: subTasksOf(r).map((s) => ({
+      id: String(s.id || ""),
+      text: String(s.text || ""),
+      done: s.done === true,
+    })),
   };
 }
 

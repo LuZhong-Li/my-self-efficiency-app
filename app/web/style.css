@@ -3739,3 +3739,28 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
   .gm-bar-gap { display: none; }
   .gm-stat > strong { font-size: 17px; }
 }
+
+/* 子任务：行上那枚胶囊 + 就地展开的清单（2026-10-14 加） */
+.sub-chip { font-variant-numeric: tabular-nums; }
+.sub-chip.sub-done { color: var(--muted); }
+
+.subtasks {
+  display: none;
+  flex: 1 1 100%;          /* 父行是 flex + wrap，这一块自己占满一整行 */
+  margin: 6px 0 0 28px;
+  padding: 0;
+  list-style: none;
+}
+.task.sub-open .subtasks { display: block; }
+.subtask { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; }
+.subtask .sub-text { flex: 1 1 auto; min-width: 6em; word-break: break-word; font-size: 13px; }
+.subtask.done .sub-text { color: var(--muted); text-decoration: line-through; }
+
+/* 弹窗里那块清单 */
+.dlg-subtasks { margin-top: 4px; }
+.dlg-subtasks .sub-list { margin: 6px 0; padding: 0; list-style: none; }
+.dlg-subtasks .subtask { border-bottom: var(--bw) solid var(--line); }
+.dlg-subtasks .sub-empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+.dlg-subtasks .sub-add { display: flex; gap: 8px; }
+.dlg-subtasks .sub-input { flex: 1 1 auto; min-width: 0; }
+.dlg-sub-hint { color: var(--muted); font-size: 12px; margin-top: 4px; }

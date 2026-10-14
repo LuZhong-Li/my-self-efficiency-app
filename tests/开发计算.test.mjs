@@ -201,11 +201,16 @@ eqDeep(todo, {
   id: "t1", belong: "dev:p1", text: "写文档", done: true, priority: "高", note: "顺手",
   date: "", isTodayPlan: false,
   imagePaths: ["a.png"], createdAt: "", doneAt: "",
-  isArchived: true, archivedAt: "2026-10-08 09:00",
+  isArchived: true, archivedAt: "2026-10-08 09:00", subtasks: [],
 }, "待办规整：归档字段照搬，缺的补默认值");
 eqDeep(normalizeTodo(null), normalizeTodo({}), "null 和空对象规整成一样的东西");
 eq(normalizeTodo({ done: "yes" }).done, false, "done 只认真正的布尔 true");
 eq(normalizeTodo({ imagePaths: "坏掉的" }).imagePaths.length, 0, "图片字段被写坏了也不炸");
+// 子任务清单（2026-10-14 加的）：项目详情画的是展示副本，副本也得带着清单，
+// 行上那枚「2/5」才画得出来；只留 { id, text, done }，坏条目扔掉。
+eqDeep(normalizeTodo({ id: "t2", subtasks: [{ id: "s1", text: "改侧栏", done: true }, null, "坏掉的"] })
+  .subtasks, [{ id: "s1", text: "改侧栏", done: true }], "展示副本带着清单（坏条目扔掉）");
+eqDeep(normalizeTodo({ subtasks: "不是数组" }).subtasks, [], "清单写坏了当空的，不炸");
 
 const ARCH_MIX = [
   { id: "a1", status: "待处理", severity: "高" },

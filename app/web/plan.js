@@ -9,7 +9,9 @@ import {
   store, touch, todayStr, formatDateCN, table, esc, moveToTrash,
   planShowGameOf, setPlanShowGame,
 } from "./store.js";
-import { bindFresh, pageHeader, markEnter, priorityChip, sourceTag, tagChips } from "./ui.js";
+import {
+  bindFresh, pageHeader, markEnter, priorityChip, sourceTag, tagChips, subtaskBadge,
+} from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { renderCalendar } from "./calendar.js";
 import { icon } from "./icons.js";
@@ -20,7 +22,10 @@ import { recordsOn, durationText } from "./game-calc.js";
 import {
   planTasksOf, planStatsOf, overdueTasksOf, taskOwnerOf, devProjectOf, groupPlanTasks, dailyTargetsOf,
 } from "./task-calc.js";
-import { updateTaskStatus, toggleTaskInTodayPlan, bumpModuleProgress } from "./task-actions.js";
+import {
+  updateTaskStatus, toggleTaskInTodayPlan, bumpModuleProgress,
+  handleSubtaskChange, handleSubtaskClick,
+} from "./task-actions.js";
 import { openDailyTargetDialog } from "./daily-target.js";
 import { barLevelOf } from "./goal-calc.js";
 
@@ -208,6 +213,7 @@ function row(t) {
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
       ${tagChips(t)}
+      ${subtaskBadge(t)}
       ${imgBadge(t.imagePaths, "图")}
       ${sourceTag(t)}
       ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}
@@ -235,6 +241,7 @@ async function onClick(e) {
   if (!btn) return;
   const act = btn.dataset.act;
   if (act === "toggle") return; // 勾选走 change
+  if (handleSubtaskClick(e)) return;   // 行上那枚「2/5」：就地展开 / 收起
   if (act === "daily-plus") {
     bumpModuleProgress(btn.dataset.module, 1, todayStr());
     return;
@@ -323,6 +330,8 @@ async function onClick(e) {
 }
 
 function onChange(e) {
+  // 子任务清单里的小复选框：走它自己的入口（父子联动在 task-actions.js 里）
+  if (handleSubtaskChange(e)) return;
   const box = e.target.closest('[data-act="toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");

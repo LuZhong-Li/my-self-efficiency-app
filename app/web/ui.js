@@ -3,7 +3,9 @@
 import { esc } from "./store.js";
 import { icon } from "./icons.js";
 import { moduleOf } from "./modules.js";
-import { priorityClass, taskSourceLabel, taskOwnerOf } from "./task-calc.js";
+import {
+  priorityClass, taskSourceLabel, taskOwnerOf, subtaskProgress, subTasksOf,
+} from "./task-calc.js";
 import { tagsOfRow, tagColor, visibleTags } from "./tag-calc.js";
 
 /** 一段小标题 + 右侧说明，用来分隔同一张卡片里的几个区块 */
@@ -58,6 +60,32 @@ export function tagChips(row, max = 3) {
       ? `<span class="chip tag-chip tag-more" title="${esc(tags.join("、"))}">+${rest}</span>`
       : "")
   );
+}
+
+/**
+ * 子任务标记：一枚「2/5」的小胶囊 + 就地展开的那份清单（藏在同一个 li 里）。
+ * 今日计划 / 首页 / 项目详情三处共用这一份零件（和 priorityChip / sourceTag 摆一起），
+ * 所以三处的样子和口径天生一致。没子任务的返回空串，不占地方。
+ * 展开 / 收起靠 li 上的 .sub-open（CSS 管显隐），事件走 task-actions.js 那两个助手。
+ */
+export function subtaskBadge(task) {
+  const list = subTasksOf(task);
+  if (!list.length) return "";
+  const p = subtaskProgress(task);
+  const allDone = p.done === p.total;
+  const chip =
+    `<button class="link sub-chip${allDone ? " sub-done" : ""}" data-act="sub-open"` +
+    ` title="子任务 ${p.done}/${p.total}，点这里就地展开">${p.done}/${p.total}</button>`;
+  const items = list
+    .map(
+      (s) =>
+        `<li class="subtask${s.done ? " done" : ""}">` +
+        `<label class="check"><input type="checkbox" data-act="sub" data-sub="${esc(s.id)}"` +
+        `${s.done ? " checked" : ""}></label>` +
+        `<span class="sub-text">${esc(s.text)}</span></li>`
+    )
+    .join("");
+  return chip + `<ul class="subtasks">${items}</ul>`;
 }
 
 /** 把 <select> 的选项拼出来 */

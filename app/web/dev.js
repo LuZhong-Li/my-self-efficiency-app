@@ -5,11 +5,13 @@ import {
   autoArchiveTodoOf, autoArchiveIssueOf,
 } from "./store.js";
 import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip,
-  tagChips } from "./ui.js";
+  tagChips, subtaskBadge } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
 import { inTodayPlan } from "./task-calc.js";
-import { markTaskDone, toggleTaskInTodayPlan } from "./task-actions.js";
+import {
+  markTaskDone, toggleTaskInTodayPlan, handleSubtaskChange, handleSubtaskClick,
+} from "./task-actions.js";
 import {
   createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
   purgeRowAttachments, thumbsHtml, rowPaths, imgBadge, openPathViewer,
@@ -378,6 +380,7 @@ function todoRow(t) {
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
       ${tagChips(t)}
+      ${subtaskBadge(t)}
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>
       <label class="plan-pick" title="加入今日计划：勾上之后，这条也出现在今日计划和首页总览，两边状态同步">
@@ -1102,6 +1105,8 @@ function bindDialogEnter(dlg, focusSel) {
 }
 
 async function onClick(e) {
+  // 行上那枚「2/5」：就地展开 / 收起（只动 DOM，不重画）
+  if (handleSubtaskClick(e)) return;
   const btn = e.target.closest("[data-act]");
   if (!btn) {
     // 点条目本身 = 展开 / 收起详情（详情里看完整描述和截图）
@@ -1255,6 +1260,8 @@ async function onClick(e) {
 }
 
 function onChange(e) {
+  // 子任务清单里的小复选框：走它自己的入口（父子联动在 task-actions.js 里）
+  if (handleSubtaskChange(e)) return;
   if (e.target.id === "project-status-filter") {
     filterStatus = e.target.value;
     applyFilter();

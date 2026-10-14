@@ -13,16 +13,31 @@
  */
 
 import { store, table, touch, uid, todayStr } from "./store.js";
-import { planTasksOf, moduleKeyOf, dailyTargetsOf, DAILY_DEFAULTS } from "./task-calc.js";
+import {
+  planTasksOf, moduleKeyOf, dailyTargetsOf, DAILY_DEFAULTS,
+  subTasksOf, subtaskProgress, setSubtasksDone,
+} from "./task-calc.js";
 
 function findTask(taskId) {
   return table("tasks").find((t) => t && t.id === taskId) || null;
 }
 
-/** 只改内存里的状态，不落盘也不重画（自动归档那种要连着做几件事的地方用） */
-export function markTaskDone(task, done) {
+/** 只写 done / doneAt 这一格（子任务联动和别的地方都走它） */
+function writeDone(task, done) {
   task.done = Boolean(done);
   task.doneAt = task.done ? new Date().toISOString() : null;
+  return task;
+}
+
+/**
+ * 勾 / 取消一条待办：顺带把它的子任务清单整体带成一样的状态（父 → 子）。
+ * 「勾上父任务 → 清单全勾；取消父任务 → 全部取消」就发生在这一处，
+ * 所以今日计划、首页、项目详情三处点复选框的表现天然一样。
+ * 只改内存，不落盘也不重画（谁调用谁负责）。
+ */
+export function markTaskDone(task, done) {
+  writeDone(task, done);
+  if (subTasksOf(task).length) task.subtasks = setSubtasksDone(task, done);
   return task;
 }
 
@@ -33,6 +48,43 @@ export function updateTaskStatus(taskId, done) {
   markTaskDone(task, done);
   touch(true);
   return task;
+}
+
+/**
+ * 勾 / 取消**一条子任务**（列表里就地展开那份清单上的复选框）。
+ *
+ * 子 → 父：清单全勾上就把父任务一起勾上；只要有一条没勾（刚取消的这条也算），
+ * 父任务就跟着取消。这里用 writeDone 而不是 markTaskDone —— 走后者会把父任务的状态
+ * 反过来铺给整份清单（取消一条会把别的子任务也一起取消）。
+ */
+export function setSubtaskDone(taskId, subId, done) {
+  const task = findTask(taskId);
+  if (!task) return null;
+  const sub = subTasksOf(task).find((s) => s.id === subId);
+  if (!sub) return null;
+  sub.done = Boolean(done);
+  const p = subtaskProgress(task);
+  writeDone(task, p.total > 0 && p.done === p.total);
+  touch(true);
+  return task;
+}
+
+/** 列表里那个子任务复选框：认出来就处理掉、返回 true（页面那边的 change 就别管了） */
+export function handleSubtaskChange(e) {
+  const box = e.target.closest('[data-act="sub"]');
+  if (!box) return false;
+  const li = box.closest("[data-id]");
+  if (li) setSubtaskDone(li.dataset.id, box.dataset.sub, box.checked);
+  return true;
+}
+
+/** 行上那枚「2/5」：点一下就地展开 / 收起（只动这一层 DOM，不改数据、不落盘） */
+export function handleSubtaskClick(e) {
+  const btn = e.target.closest('[data-act="sub-open"]');
+  if (!btn) return false;
+  const li = btn.closest("[data-id]");
+  if (li) li.classList.toggle("sub-open");
+  return true;
 }
 
 /**

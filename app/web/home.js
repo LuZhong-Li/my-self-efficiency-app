@@ -15,9 +15,11 @@ import {
   HOME_TASK_LIMIT, progressOf, overdueTasks, cardsFor, otherVisibleIn,
   financeBriefOf, financeTextOf,
 } from "./home-view.js";
-import { bindFresh, emptyState, priorityChip, sourceTag, tagChips } from "./ui.js";
+import { bindFresh, emptyState, priorityChip, sourceTag, tagChips, subtaskBadge } from "./ui.js";
 import { icon } from "./icons.js";
-import { updateTaskStatus, bumpModuleProgress } from "./task-actions.js";
+import {
+  updateTaskStatus, bumpModuleProgress, handleSubtaskChange, handleSubtaskClick,
+} from "./task-actions.js";
 import { overviewRowsOf } from "./goal-calc.js";
 import { planTasksOf, groupPlanTasks, dailyTargetsOf } from "./task-calc.js";
 import { openDailyTargetDialog } from "./daily-target.js";
@@ -358,6 +360,7 @@ function row(t) {
       ${priorityChip(t.priority)}
       ${tagChips(t)}
       ${sourceTag(t)}
+      ${subtaskBadge(t)}
       ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}
       <span class="t-time">${t.time ? esc(t.time) : ""}</span>
     </li>`;
@@ -393,6 +396,8 @@ function bindMorePanel(root) {
 }
 
 function onChange(e) {
+  // 子任务清单里的小复选框：走它自己的入口（父子联动在 task-actions.js 里）
+  if (handleSubtaskChange(e)) return;
   const box = e.target.closest('[data-act="toggle"]');
   if (!box) return;
   const li = box.closest("[data-id]");
@@ -402,6 +407,8 @@ function onChange(e) {
 }
 
 function onClick(e) {
+  // 行上那枚「2/5」：就地展开 / 收起（只动 DOM，不重画）
+  if (handleSubtaskClick(e)) return;
   // 卡片整体可点，但卡片里的链接优先——不然点「债务欠款」会被卡片吞成「打开记账」
   const link = e.target.closest("a[href]");
   if (link && link.closest("[data-act]")) return;

@@ -8,6 +8,9 @@ import {
   overdueTasksOf,
   PLAN_GROUPS, moduleKeyOf, groupPlanTasks,
   DAILY_DEFAULTS, dailyTargetsOf, valueOf,
+  subTasksOf, subtaskProgress, setSubtasksDone, subtaskTextOf,
+  isRepeatRule, repeatRulesOf, repeatDueOn, genKeyOf, addDays, nextRepeatDay,
+  planRepeatTasks,
 } from "../app/web/task-calc.js";
 
 let pass = 0;
@@ -87,6 +90,10 @@ eq(taskSourceLabel({ belong: "plan", sourceModule: "game" }), "游戏娱乐",
   "游戏娱乐顺手加的那条挂「游戏娱乐」");
 eq(taskSourceLabel({ belong: "goal" }), "模块目标", "只有 belong 没 sourceModule 时的兜底");
 eq(taskSourceLabel({ belong: "plan" }), "", "今日计划自己的任务不挂来源标签");
+eq(taskSourceLabel({ repeatId: "t-rule-1", belong: "plan" }), "重复任务",
+  "重复规则生成的待办挂「重复任务」标签");
+eq(taskSourceLabel({ sourceModule: "fitness", repeatId: "x" }), "重复任务",
+  "重复任务优先于模块标签（规则是更直接的那个来源）");
 
 console.log("\n【排序】");
 const rows = [
@@ -229,6 +236,91 @@ eq(emptyConfigured.groups[0].percent, 0, "进度 0（不显示 NaN）");
 console.log("\n【超额时 target 不会被 100% 截断】");
 eq(groupPlanTasks([{ id: "x", belong: "goal", sourceModule: "fitness", done: true }], {})
   .groups[0].percent, 100, "没配目标时，全部做完就是 100%");
+
+console.log("\n【子任务：清单、进度、整体勾选（2026-10-14 加的）】");
+const withSubs = { id: "t-s", text: "把工作台改版做完", subtasks: [
+  { id: "st-1", text: "改侧栏", done: true },
+  { id: "st-2", text: "改首页卡片", done: false },
+] };
+eq(subTasksOf(withSubs).length, 2, "两条子任务都读得到");
+eqDeep(subTasksOf({ id: "t", subtasks: "不是数组" }), [], "subtasks 不是数组就当空的、不抛错");
+eqDeep(subTasksOf(null), [], "空记录不抛错");
+eqDeep(subtaskProgress(withSubs), { done: 1, total: 2, percent: 50 }, "1 / 2 → 50%");
+eqDeep(subtaskProgress({ id: "t" }), { done: 0, total: 0, percent: 0 },
+  "没清单时分母是 0、百分比 0（不是 NaN）");
+eqDeep(setSubtasksDone(withSubs, true), [
+  { id: "st-1", text: "改侧栏", done: true },
+  { id: "st-2", text: "改首页卡片", done: true },
+], "整体勾上：返回一份新的、两条都 done");
+eqDeep(setSubtasksDone(withSubs, false).map((s) => s.done), [false, false], "整体取消：两条都 false");
+eq(withSubs.subtasks[1].done, false, "setSubtasksDone 不改传进去的那条（纯函数）");
+eq(subtaskTextOf(withSubs), "改侧栏 改首页卡片", "子任务的文字拼成一段（进搜索池用）");
+eq(subtaskTextOf({ id: "t" }), "", "没子任务给空串");
+
+console.log("\n【重复任务：认规则、算日子（2026-10-14 加的）】");
+const RULE = { id: "t-rule-1", text: "跑步 5 公里", date: "", repeat: "每周一、三、五" };
+eq(isRepeatRule(RULE), true, "repeat 有内容 + 不占日期 = 规则");
+eq(isRepeatRule({ id: "t1", text: "普通待办", date: "2026-10-14" }), false, "有日期的普通待办不是规则");
+eq(isRepeatRule({ id: "t2", date: "", repeat: "" }), false, "repeat 空着不是规则");
+eq(isRepeatRule({ id: "t3", date: "", repeat: "每天", isArchived: true }), false, "归档了的规则不算数");
+eq(isRepeatRule(null), false, "空记录不抛错");
+eq(repeatRulesOf([RULE, { id: "t1", date: "2026-10-14" }, null]).length, 1,
+  "从一堆待办里只挑得出规则那一条");
+eq(repeatDueOn(RULE, "2026-10-14"), true, "2026-10-14 是周三 → 该做");
+eq(repeatDueOn(RULE, "2026-10-15"), false, "周四不在规则里");
+eq(repeatDueOn({ ...RULE, repeatUntil: "2026-10-13" }, "2026-10-14"), false, "过了 repeatUntil 就停");
+eq(genKeyOf(RULE, "2026-10-14"), "repeat:t-rule-1:2026-10-14", "防重键的拼法固定");
+
+eq(addDays("2026-10-14", 1), "2026-10-15", "跨日");
+eq(addDays("2026-10-31", 1), "2026-11-01", "跨月");
+eq(addDays("2026-12-31", 1), "2027-01-01", "跨年");
+eq(nextRepeatDay(RULE, "2026-10-14"), "2026-10-16", "周三之后的下一天是周五");
+eq(nextRepeatDay({ id: "r", repeat: "每天" }, "2026-10-14"), "2026-10-15", "每天 → 明天");
+eq(nextRepeatDay({ id: "r", repeat: "每月 1 号" }, "2026-10-14"), "2026-11-01", "每月 1 号 → 下个月 1 号");
+eq(nextRepeatDay({ id: "r", repeat: "每月 1 号" }, "2026-12-05"), "2027-01-01", "跨年找得到");
+eq(nextRepeatDay({ id: "r", repeat: "每周一" }, "2026-10-15"), "2026-10-19", "周四 → 下周一");
+eq(nextRepeatDay({ id: "r", repeat: "每周一", repeatUntil: "2026-10-16" }, "2026-10-15"), "",
+  "后面没有了就是空串（卡片上不画「下次」）");
+eq(nextRepeatDay({ id: "r", repeat: "" }, "2026-10-14"), "", "不是规则给空串");
+
+console.log("\n【重复任务：今天该补哪几条（2026-10-14 加的）】");
+const plan1 = planRepeatTasks([RULE], [{ ...RULE }], "2026-10-14");
+eq(plan1.newTasks.length, 1, "周三该生成一条");
+eq(plan1.newTasks[0].date, "2026-10-14", "生成的那条日期就是今天");
+eq(plan1.newTasks[0].text, "跑步 5 公里", "正文照抄规则");
+eq(plan1.newTasks[0].genKey, "repeat:t-rule-1:2026-10-14", "带着防重键");
+eq(plan1.newTasks[0].repeatId, "t-rule-1", "带着来源规则 id");
+eq(plan1.newTasks[0].belong, "plan", "落进今日计划");
+eq(Boolean(plan1.newTasks[0].repeat), false, "实例身上不带 repeat（不然它自己也成了规则）");
+eqDeep(plan1.markRun, ["t-rule-1"], "这条规则今天对过表了，要记 lastRun");
+
+const again = planRepeatTasks([RULE], [{ ...RULE, genKey: "repeat:t-rule-1:2026-10-14" }], "2026-10-14");
+eq(again.newTasks.length, 0, "今天已经有了就不再加一条");
+eqDeep(again.markRun, ["t-rule-1"], "已经生成过也算对过表");
+
+const afterRun = planRepeatTasks([{ ...RULE, lastRun: "2026-10-14" }], [{ ...RULE }], "2026-10-14");
+eq(afterRun.newTasks.length, 0, "lastRun 是今天就一条都不补（你自己删掉的那条不回来）");
+eqDeep(afterRun.markRun, [], "也不用再记一遍");
+
+const notDue = planRepeatTasks([RULE], [{ ...RULE }], "2026-10-15");
+eq(notDue.newTasks.length, 0, "周四不该生成");
+eqDeep(notDue.markRun, [], "不是它的日子就不记 lastRun");
+
+const inherit = planRepeatTasks(
+  [{ ...RULE, priority: "中", category: "运动", note: "穿跑鞋", tags: ["运动"],
+     subtasks: [{ id: "st-9", text: "换跑鞋", done: true }] }],
+  [],
+  "2026-10-14"
+);
+eq(inherit.newTasks[0].priority, "中", "优先级继承");
+eq(inherit.newTasks[0].category, "运动", "分类继承");
+eq(inherit.newTasks[0].note, "穿跑鞋", "备注继承");
+eqDeep(inherit.newTasks[0].tags, ["运动"], "标签继承");
+eqDeep(inherit.newTasks[0].subtasks, [{ id: "", text: "换跑鞋", done: false }],
+  "子任务抄一份过来、勾选从零开始（id 留给上屏那边补）");
+eqDeep(inherit.newTasks[0].imagePaths, [], "图片不继承（共用一个路径会误删规则那张图）");
+eq(RULE.id, "t-rule-1", "planRepeatTasks 不改传进来的规则");
+eq(planRepeatTasks(null, null, "2026-10-14").newTasks.length, 0, "传 null 不炸");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

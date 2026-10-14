@@ -16,7 +16,7 @@
  * 能一条条断言，和记账、开发那几个计算模块一个路数。
  */
 
-import { sourceLabelOf, barLevelOf } from "./goal-calc.js";
+import { sourceLabelOf, barLevelOf, parseRule, clauseMatches } from "./goal-calc.js";
 
 /** 优先级高 / 中 / 低各自对应哪个胶囊样式；没标的给空串（不画那个标签） */
 export const PRIORITY_CLASS = { 高: "pri-high", 中: "pri-mid", 低: "pri-low" };
@@ -65,6 +65,7 @@ export function taskSourceLabel(row) {
   const r = row && typeof row === "object" ? row : {};
   const belong = String(r.belong || "");
   if (belong.indexOf("dev:") === 0) return "开发待办";
+  if (r.repeatId) return "重复任务";        // 重复规则生成的那条（2026-10-14 加的）
   if (r.sourceModule) return sourceLabelOf(r.sourceModule);
   return belong === "goal" ? "模块目标" : "";
 }
@@ -115,6 +116,38 @@ export function planStatsOf(list) {
     untimed: items.filter((t) => t && !t.time).length,
     percent: items.length ? Math.round((done * 100) / items.length) : 0,
   };
+}
+
+/* ---------------- 子任务（2026-10-14 加） ----------------
+   一条待办底下挂几件小事：tasks 里多一个 subtasks 数组，每条 { id, text, done }。
+   只有一层（子任务不能再挂子任务），一条最多 30 条（上限在这里定义一份）。
+   进度不落盘 —— 2/5 每次现算（和「今日进度不另存」一个哲学）。 */
+
+export const SUBTASK_LIMIT = 30;
+
+/** 这条待办的子任务清单。缺字段 / 写得不是数组 / 老数据，一律当空的 —— 页面不用到处判空。 */
+export function subTasksOf(task) {
+  if (!task || typeof task !== "object" || !Array.isArray(task.subtasks)) return [];
+  return task.subtasks.filter((s) => s && typeof s === "object");
+}
+
+/** 清单的完成情况：{ done, total, percent }。没清单时长 0、百分比 0（不是 NaN）。 */
+export function subtaskProgress(task) {
+  const list = subTasksOf(task);
+  const done = list.filter((s) => s.done === true).length;
+  const total = list.length;
+  return { done, total, percent: total ? Math.round((done * 100) / total) : 0 };
+}
+
+/** 父任务勾上 / 取消时，把清单整体带成一样的状态。
+ *  返回一份**新的**清单，不改传进来的那条（勾选联动要能当纯函数测）。 */
+export function setSubtasksDone(task, done) {
+  return subTasksOf(task).map((s) => ({ id: s.id, text: s.text, done: Boolean(done) }));
+}
+
+/** 子任务的文字拼成一段（搜索池要用：搜「改侧栏」能带出父任务）。 */
+export function subtaskTextOf(task) {
+  return subTasksOf(task).map((s) => String(s.text || "")).filter(Boolean).join(" ");
 }
 
 /* ---------------- 按模块分组的「今日进度」（2026-10-09 加） ----------------
@@ -247,4 +280,110 @@ export function groupPlanTasks(list, targets) {
     });
   }
   return { groups, loose };
+}
+
+/* ---------------- 重复任务（2026-10-14 加） ----------------
+   一条规则 = tasks 里 repeat 有内容、且不占某一天（date 空）的那条记录；
+   到日子了给它生成一条当天的实例（带 genKey / repeatId）。
+   规则怎么解析、哪天算数，直接用 goal-calc.js 那套现成的（parseRule / clauseMatches），
+   和模块目标的「自动任务规则」一句话也不差；这里只管「今天该补哪几条」。 */
+
+/** 这条是不是规则：repeat 有内容、没归档、且不占某一天。
+ *  生成出来的实例有日期、身上也没有 repeat，所以不会被误认成规则。 */
+export function isRepeatRule(row) {
+  if (!row || typeof row !== "object") return false;
+  if (!String(row.repeat || "").trim()) return false;
+  if (taskArchived(row)) return false;
+  return !row.date;
+}
+
+/** 所有生效中的规则（页面上那张卡片、对表都用这一份） */
+export function repeatRulesOf(tasks) {
+  return (tasks || []).filter((t) => isRepeatRule(t));
+}
+
+/** 这一天是不是这条规则的日子。repeatUntil 之后一律不算（「重复到哪天」）。 */
+export function repeatDueOn(rule, date) {
+  if (!rule || !String(rule.repeat || "").trim()) return false;
+  if (rule.repeatUntil && date > rule.repeatUntil) return false;
+  return parseRule(rule.repeat, {}).some((clause) => clauseMatches(clause, date, {}));
+}
+
+/** 防重键：同一条规则、同一天只生成一条 */
+export function genKeyOf(rule, date) {
+  return "repeat:" + rule.id + ":" + date;
+}
+
+/** 日期加减（本地时区，不走 UTC；和 goal-calc.js 的日期小工具一个口径） */
+export function addDays(date, n) {
+  const [y, m, d] = String(date).split("-").map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  const p = (x) => String(x).padStart(2, "0");
+  return dt.getFullYear() + "-" + p(dt.getMonth() + 1) + "-" + p(dt.getDate());
+}
+
+/** 卡片上那行「下次：10-16」：从明天往后找最近一天，最多找 400 天（够跨年了）；
+ *  过了 repeatUntil 就是空串，卡片上写「已到期，不再生成」。 */
+export function nextRepeatDay(rule, today) {
+  if (!rule || !String(rule.repeat || "").trim()) return "";
+  const clauses = parseRule(rule.repeat, {});
+  if (!clauses.length) return "";
+  let date = addDays(today, 1);
+  for (let i = 0; i < 400; i += 1) {
+    if (rule.repeatUntil && date > rule.repeatUntil) return "";
+    if (clauses.some((clause) => clauseMatches(clause, date, {}))) return date;
+    date = addDays(date, 1);
+  }
+  return "";
+}
+
+/** 从规则抄一条实例（今天要做的那条）。id / createdAt 留给上屏那边补。 */
+function instanceOfRule(rule, today, key) {
+  return {
+    id: "",
+    date: today,
+    time: rule.time || "",
+    text: rule.text || "",
+    done: false,
+    doneAt: null,
+    category: rule.category || "",
+    priority: rule.priority || "",
+    note: rule.note || "",
+    tags: Array.isArray(rule.tags) ? rule.tags.slice() : [],
+    // 清单抄一份过去，勾选从零开始（今天的勾不带到明天那条）。id 由调用方补。
+    subtasks: subTasksOf(rule).map((s) => ({ id: "", text: String(s.text || ""), done: false })),
+    belong: "plan",
+    genKey: key,
+    repeatId: rule.id,
+    imagePaths: [],          // 故意不继承图片：共用路径的话删今天是会误删规则那张
+    createdAt: "",
+  };
+}
+
+/**
+ * 对一遍表：给「今天」挑出该补的重复任务。
+ *
+ * 两道闸和 planGoalTasks 一个形状：
+ *   1. genKey（规则 id + 日期）—— 同一条规则同一天只生成一次；
+ *   2. rule.lastRun —— 今天已经对过表就不再补，所以你自己删掉的那条不会被加回来。
+ *
+ * 返回 { newTasks, markRun }：newTasks 交给调用方补 id / 时间再 push；
+ * markRun 那些规则要把 lastRun 记成今天。纯函数，不写盘、不改入参。
+ */
+export function planRepeatTasks(rules, tasks, today) {
+  const existing = new Set((tasks || []).map((t) => t && t.genKey).filter(Boolean));
+  const newTasks = [];
+  const markRun = [];
+  for (const rule of rules || []) {
+    if (!isRepeatRule(rule)) continue;
+    if (!repeatDueOn(rule, today)) continue;      // 今天不是它的日子
+    if (rule.lastRun === today) continue;         // 今天已经对过表了
+    const key = genKeyOf(rule, today);
+    if (!existing.has(key)) {
+      existing.add(key);
+      newTasks.push(instanceOfRule(rule, today, key));
+    }
+    markRun.push(rule.id);
+  }
+  return { newTasks, markRun };
 }

@@ -57,6 +57,10 @@ const DATA = {
   progress: [
     { id: "pr1", text: "把搜索池重写了一遍", date: "2026-10-09" },
   ],
+  workLogs: [
+    { id: "wl1", date: "2026-10-14", projectId: "p1", minutes: 90,
+      note: "把工时页画出来", tags: [] },
+  ],
   subjects: [
     { id: "s1", name: "高等数学（上）", source: "B 站", note: "每周三次", kind: "视频" },
   ],
@@ -341,6 +345,21 @@ eq(searchAll(REPEAT_DATA, "换跑鞋").length, 1, "搜子任务的文字能带�
 eq(searchAll(REPEAT_DATA, "换跑鞋")[0].text, "换跑鞋", "结果卡片上显示的是命中的那句子任务");
 eq(searchAll(REPEAT_DATA, "跑步").length, 1, "正文照样搜得到");
 eq(searchAll(REPEAT_DATA, "重复任务").length, 1, "搜「重复任务」也认得（同义词里加了这个词）");
+
+console.log("\n【工时也进搜索池（2026-10-14 加的）】");
+const WORK_DATA = {
+  projects: [{ id: "p1", name: "工作台改造" }],
+  workLogs: [{ id: "w1", date: "2026-10-14", projectId: "p1", minutes: 120,
+               note: "画工时页", tags: [] }],
+};
+eq(searchAll(WORK_DATA, "画工时页").length, 1, "备注也进匹配");
+eq(searchAll(WORK_DATA, "2026-10-14").length, 1, "日期也进匹配");
+eq(searchAll(WORK_DATA, "画工时页")[0].label, "工时", "卡片上那枚标签写着「工时」");
+eq(searchAll(WORK_DATA, "画工时页")[0].hash, "dev/hours", "点结果回工时页");
+eq(searchAll(WORK_DATA, "画工时页")[0].module, "dev", "归在开发工作这个模块下");
+// 搜项目名会同时命中「项目」那条本身，所以从命中里挑工时那一条来断言
+ok(searchAll(WORK_DATA, "工作台改造").some((h) => h.label === "工时"),
+  "搜项目名也能带出挂在它下面的工时");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

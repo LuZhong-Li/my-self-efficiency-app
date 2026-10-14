@@ -78,6 +78,14 @@ function accountField(row, data, key) {
   return a ? clean(a[key]) : "";
 }
 
+/** 工时只存 projectId，项目名要回 projects 表里找（和粉丝快照取账号名一个做法） */
+function projectName(row, data) {
+  const id = clean(row && row.projectId);
+  if (!id) return "没记项目";
+  const p = readTable(data, "projects").find((x) => x && clean(x.id) === id) || null;
+  return p ? clean(p.name) || "（没写名字）" : "（项目已删）";
+}
+
 /** 转账存的是 fromAccountId / toAccountId，账户名要回 finance.accounts 里找 */
 function financeAccountName(row, data, key) {
   const id = clean(row && row[key]);
@@ -119,6 +127,13 @@ export const SOURCE_SPECS = [
   { table: "progress", module: "dev", label: "进展", title: "text",
     alias: "开发工作",
     fields: ["text", "date"] },
+  // 工时（2026-10-14 加的）：开发工作底下「哪天在哪个项目上花了多久」。
+  // 项目名要回 projects 里取；点结果回 #dev/hours。
+  { table: "workLogs", module: "dev", hash: "dev/hours", label: "工时",
+    alias: "开发工作 工时 投入 花了多久",
+    title: (r, data) => [projectName(r, data), numText(r.minutes, " 分钟"), r.note]
+      .filter(Boolean).join(" · "),
+    fields: ["date", "note", (r, data) => projectName(r, data)] },
   { table: "subjects", module: "study", label: "学习对象", title: "name",
     alias: "学习工作",
     fields: ["name", "source", "note", "kind"] },

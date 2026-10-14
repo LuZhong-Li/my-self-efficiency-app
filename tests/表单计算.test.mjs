@@ -5,10 +5,11 @@
 import {
   FORMS, ITEM_TYPES, formOf, optionsOf, formHtml,
   defaultsOf, valuesOf, readValues, validate, applyValues, newRow, trashPlan, imagesOf,
-  parseSubtaskJson,
+  parseSubtaskJson, repeatRuleError,
   TASK_CATEGORIES, PRIORITIES, PROJECT_STATUSES, STUDY_KINDS, GAME_STATUSES, GAME_PLATFORMS,
 } from "../app/web/item-form.js";
 import { ATTACH_MODULES } from "../app/web/attachment-calc.js";
+import { isRepeatRule } from "../app/web/task-calc.js";
 
 let pass = 0;
 let fail = 0;
@@ -52,8 +53,8 @@ function ok(cond, label) {
 
 eqDeep(ITEM_TYPES,
   ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game",
-    "gamePlayRecord", "moduleGoal"],
-  "九个弹窗类型都在，按顺序（游玩记录与模块目标都是 2026-10-07 加的）");
+    "gamePlayRecord", "moduleGoal", "repeatRule"],
+  "十个弹窗类型都在，按顺序（重复任务是 2026-10-14 加的）");
 eq(formOf("devProject").table, "projects", "项目存 projects 表");
 eq(formOf("devProject").upload, "dev_project", "项目的图片单独一格");
 eq(formOf("game").table, "games", "游戏存 games 表");
@@ -62,6 +63,9 @@ eq(formOf("studyItem").table, "subjects", "学习对象存 subjects 表");
 eq(formOf("fitness").table, "workoutLogs", "训练打卡存 workoutLogs 表");
 eq(formOf("todayPlan").table, "tasks", "今日计划存 tasks 表");
 eq(formOf("devTodo").table, "tasks", "开发待办也存 tasks 表（靠 belong 区分）");
+eq(formOf("repeatRule").table, "tasks", "重复任务也存 tasks 表（靠 repeat 有内容区分）");
+ok(!formOf("repeatRule").upload,
+  "重复任务不带图片区（实例不继承图片，规则自己存图没地方用）");
 
 for (const type of ITEM_TYPES) {
   const spec = FORMS[type];
@@ -509,6 +513,42 @@ ok(validate("devTodo", { ...defaultsOf("devTodo"), text: "x", subtasks: manySubs
 eq(validate("devTodo", { ...defaultsOf("devTodo"), text: "x",
   subtasks: JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ id: "s" + i, text: "第" + i }))) }).ok,
   true, "刚好 30 条放行");
+
+/* ---------------- 重复任务表单（2026-10-14 加的） ---------------- */
+
+const ruleHtml = formHtml("repeatRule", defaultsOf("repeatRule", {}), {});
+ok(ruleHtml.indexOf('id="item-repeat"') >= 0, "画出了「重复」那一格");
+ok(ruleHtml.indexOf('data-rule-preview="repeat"') >= 0, "下面带着实时预览那行");
+ok(ruleHtml.indexOf('id="item-subtasks"') >= 0, "规则上面也能挂子任务清单");
+eq(defaultsOf("repeatRule", {}).repeat, "", "新增时重复规则是空的");
+eq(validate("repeatRule", { ...defaultsOf("repeatRule"), text: "散步", repeat: "" }).ok, false,
+  "不写重复规则过不了校验");
+eq(validate("repeatRule", { ...defaultsOf("repeatRule"), text: "散步", repeat: "随便写写" }).ok, false,
+  "写了但没写出哪几天，也过不了");
+ok(validate("repeatRule", { ...defaultsOf("repeatRule"), text: "散步", repeat: "随便写写" })
+  .error.indexOf("每周一") >= 0, "提示里给一个能抄的例子");
+eq(validate("repeatRule", { ...defaultsOf("repeatRule"), text: "散步", repeat: "每周一、三、五" }).ok,
+  true, "「每周一、三、五」放行");
+eq(validate("repeatRule", { ...defaultsOf("repeatRule"), text: "交房租", repeat: "每月 1 号" }).ok, true,
+  "「每月 1 号」也放行");
+eq(validate("repeatRule", { ...defaultsOf("repeatRule"), text: "散步", repeat: "每天跑步" }).ok, true,
+  "「每天」是合法的（有「每天」两个字就算写出了日子）");
+eq(repeatRuleError(""), "", "空串没有错误信息（必填那条交给 required 报）");
+eq(repeatRuleError("每周一、三、五"), "", "写清楚了就没毛病");
+ok(repeatRuleError("跑步").indexOf("哪几天") >= 0, "没写出哪几天时给的那句话");
+
+const ruleRow = newRow("repeatRule", { ...defaultsOf("repeatRule"), text: "跑步 5 公里",
+  repeat: "每周一、三、五", repeatUntil: "2026-12-31", time: "07:30", priority: "中",
+  category: "运动", tags: "运动, 每天", subtasks: '[{"text":"换跑鞋"}]' },
+  { uid: () => "t-rule-1", nowIso: () => "2026-10-14T10:00:00.000Z" });
+eq(ruleRow.date, "", "规则不占某一天（date 空着）");
+eq(ruleRow.belong, "plan", "规则落在今日计划这堆里");
+eq(ruleRow.repeat, "每周一、三、五", "规则原样存着");
+eq(ruleRow.repeatUntil, "2026-12-31", "「重复到哪天」原样存着");
+eq(ruleRow.lastRun, "", "lastRun 从空开始");
+eqDeep(ruleRow.tags, ["运动", "每天"], "标签照样能贴");
+eqDeep(ruleRow.subtasks.map((s) => s.text), ["换跑鞋"], "规则能带子任务清单");
+eq(isRepeatRule(ruleRow), true, "存下来的这条就是一条规则");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

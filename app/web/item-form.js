@@ -366,6 +366,60 @@ export const FORMS = {
       apply: () => {},   // 真正从桶里摘掉由调用方做（见 goals.js 的 deleteGoal）
     }),
   },
+
+  /* 重复任务（2026-10-14 加）：不是「某一天的一条待办」，而是一条规则 ——
+     到日子了自动在「今日计划」生成一条当天的实例。规则自己不占日期（date 空着），
+     认它的办法只有一条：repeat 有内容（见 task-calc.js 的 isRepeatRule）。
+     字段和今日计划那几个一样（生成出来的实例继承它们），只多两格：重复 / 重复到哪天。
+     故意不给图片区：实例不继承图片，规则自己存图没地方用（见设计文档 2.2.1）。 */
+  repeatRule: {
+    table: "tasks",
+    titleNew: "添加重复任务",
+    titleEdit: "修改重复任务",
+    hint: "写一句「什么时候做」，到那天会自动在今日计划生成一条当天的待办；规则本身不占日期。",
+    fields: [
+      { name: "text", label: "任务", kind: "text", required: true, maxlength: 200,
+        placeholder: "比如：跑步 5 公里" },
+      { name: "repeat", label: "重复", kind: "rule", required: true, maxlength: 200,
+        placeholder: "比如：每周一、三、五", check: repeatRuleError },
+      { name: "repeatUntil", label: "重复到哪天", kind: "date", half: true,
+        placeholder: "留空就一直重复" },
+      { name: "time", label: "计划时间", kind: "time", half: true },
+      { name: "priority", label: "优先级", kind: "select", list: PRIORITIES,
+        blank: "不标", default: "" },
+      { name: "category", label: "分类", kind: "select", list: TASK_CATEGORIES,
+        default: "工作" },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：运动、每天" },
+      { name: "subtasks", label: "子任务", kind: "subtasks",
+        placeholder: "生成出来的每一条都会带着这份清单" },
+      { name: "note", label: "备注", kind: "textarea", rows: 2, maxlength: 400,
+        placeholder: "备注（可不填）" },
+    ],
+    label: (row) => row.text || "（没写内容）",
+    create: (ctx) => ({
+      id: ctx.uid(),
+      date: "",                 // 规则不占某一天：它自己不是「今天要做的事」
+      time: "",
+      category: "工作",
+      priority: "",
+      done: false,
+      note: "",
+      repeat: "",
+      repeatUntil: "",
+      lastRun: "",
+      subtasks: [],
+      belong: "plan",
+      isTodayPlan: false,
+      createdAt: ctx.nowIso(),
+    }),
+    trashPlan: (row) => ({
+      label: row.text || "（没写内容）",
+      extra: 0,
+      items: [{ table: "tasks", row, label: row.text || "" }],
+      note: "只删除这条重复规则；它已经生成的那几条待办会留在「今日计划」里，不会跟着消失。",
+    }),
+  },
 };
 
 export const ITEM_TYPES = Object.keys(FORMS);
@@ -394,6 +448,25 @@ export function optionsOf(field, ctx = {}) {
 }
 
 /* ---------------- 画 ---------------- */
+
+/* ---------------- 重复规则那句话（2026-10-14 加的） ---------------- */
+
+/* 一句人话里有没有「哪几天」：和 goal-calc.js 里那套判据一个口径
+ * （周几 / 每天 / 每月几号）。这里再写一份，是为了在**保存之前**就拦住
+ * 「写了一句没日子的话」—— 不然它会被当成「每天」，天天生成一条。 */
+const HAS_TIME_TOKEN =
+  /(?:周|星期|礼拜)\s*[一二三四五六日天1-7]|每\s*(?:天|日)|天天|每\s*(?:个)?\s*月/;
+
+/** 重复规则那句话有没有毛病：返回空串表示没问题，否则是一句给人看的话。
+ *  「空着」交给 required 报，这里只管「写了但没写出哪几天」。 */
+export function repeatRuleError(text) {
+  const t = String(text == null ? "" : text).trim();
+  if (!t) return "";
+  if (!HAS_TIME_TOKEN.test(t)) {
+    return "这句话里没写出哪几天，比如：每周一、三、五 / 每月 1 号";
+  }
+  return "";
+}
 
 function fieldHtml(field, values, ctx) {
   const id = "item-" + field.name;
@@ -486,6 +559,17 @@ function fieldHtml(field, values, ctx) {
         `<input type="hidden" id="${id}" value="${esc(value)}">` +
         `<div class="dlg-sub-hint" data-sub-hint></div>` +
       `</div>`
+    );
+  }
+  // 一句人话的重复规则：文本框 + 下面那行实时预览（bindRulePreview 填）。
+  // 只做样子 —— 值就是一行文本，读 / 写和其它文本字段一模一样。
+  if (field.kind === "rule") {
+    return wrap(
+      label +
+      `<input id="${id}" type="text" maxlength="${field.maxlength || 200}"` +
+      ` value="${esc(value)}"` +
+      (field.placeholder ? ` placeholder="${esc(field.placeholder)}"` : "") +
+      `><div class="dlg-rule-preview" data-rule-preview="${esc(field.name)}"></div>`
     );
   }
   const attrs = [];

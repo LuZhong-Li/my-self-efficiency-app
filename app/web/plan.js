@@ -18,6 +18,7 @@ import { icon } from "./icons.js";
 import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
 import { syncGoalTasks, goalBriefHtml } from "./goals.js";
+import { syncRepeatTasks, repeatCardHtml, repeatAction } from "./repeat.js";
 import { recordsOn, durationText } from "./game-calc.js";
 import {
   planTasksOf, planStatsOf, overdueTasksOf, taskOwnerOf, devProjectOf, groupPlanTasks, dailyTargetsOf,
@@ -72,6 +73,8 @@ function renderTodayView(body) {
   const today = todayStr();
   // 先把今天该生成的目标待办补上，再照着最新的 tasks 画
   syncGoalTasks(today);
+  // 重复任务也对一遍表（同样是「静默保存」，不能在这儿触发重画）
+  syncRepeatTasks(today);
   const all = table("tasks");
   // 「今天的任务」= 日期是今天的 + 别的模块「加入今日计划」的（见 task-calc.js）
   const todayTasks = planTasksOf(all, today);
@@ -82,6 +85,7 @@ function renderTodayView(body) {
   body.innerHTML = `
     ${goalBriefHtml(today)}
     ${gameBriefHtml(today)}
+    ${repeatCardHtml(today)}
     <div class="plan-stack">
       ${overdueCardHTML(overdue)}
       <section class="card plan-card today-card">
@@ -242,6 +246,7 @@ async function onClick(e) {
   const act = btn.dataset.act;
   if (act === "toggle") return; // 勾选走 change
   if (handleSubtaskClick(e)) return;   // 行上那枚「2/5」：就地展开 / 收起
+  if (repeatAction(e)) return;         // 重复任务卡片上的那几个按钮
   if (act === "daily-plus") {
     bumpModuleProgress(btn.dataset.module, 1, todayStr());
     return;

@@ -3764,3 +3764,19 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .dlg-subtasks .sub-add { display: flex; gap: 8px; }
 .dlg-subtasks .sub-input { flex: 1 1 auto; min-width: 0; }
 .dlg-sub-hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* 重复任务那张卡片（2026-10-14 加） */
+.repeat-card.collapsed .plan-card-body { display: none; }
+.repeat-list { margin: 0; padding: 0; list-style: none; }
+.repeat-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-bottom: var(--bw) solid var(--line);
+}
+.repeat-item:last-child { border-bottom: 0; }
+.repeat-item .r-text { flex: 1 1 auto; min-width: 8em; word-break: break-word; }
+.dlg-rule-preview { margin-top: 6px; font-size: 13px; }
+.dlg-rule-ok { color: var(--muted); }

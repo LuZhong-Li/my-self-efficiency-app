@@ -20,8 +20,9 @@ import {
 } from "./attachment.js";
 import {
   formOf, formHtml, defaultsOf, valuesOf, readValues, validate, applyValues,
-  newRow, trashPlan, parseSubtaskJson, SUBTASK_LIMIT,
+  newRow, trashPlan, parseSubtaskJson, SUBTASK_LIMIT, repeatRuleError,
 } from "./item-form.js";
+import { ruleSummary } from "./goal-calc.js";
 
 /** 一条记录的删除计划（把要看的几张表读出来交给纯函数算） */
 function planOf(type, row, ctx = {}) {
@@ -191,6 +192,7 @@ export function openItemDialog(type, row, options = {}) {
   bindConditionalFields(dlg.el, spec);
   bindTagPreview(dlg.el, spec);
   bindSubtasks(dlg.el, spec);
+  bindRulePreview(dlg.el, spec);
   bindEnterToSave(dlg);
   const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
@@ -327,6 +329,32 @@ function bindSubtasks(el, spec) {
       addOne();
     });
     draw(read());   // 编辑老记录时进来就把已有的清单画出来
+  }
+}
+
+/**
+ * 重复规则下面那行实时预览：边打边看这句话翻译成「什么时候」，
+ * 顺手把「没写出哪几天」当场说出来（保存时 validate 还会再拦一道）。
+ * 只改这一小块，不重画弹窗 —— 重画会把已经填了一半的内容弄丢。
+ */
+function bindRulePreview(el, spec) {
+  for (const field of spec.fields.filter((f) => f.kind === "rule")) {
+    const input = el.querySelector("#item-" + field.name);
+    const box = el.querySelector(`[data-rule-preview="${field.name}"]`);
+    if (!input || !box) continue;
+    const sync = () => {
+      const text = String(input.value || "").trim();
+      if (!text) {
+        box.innerHTML = `<span class="dlg-tags-hint">写一句「什么时候做」，比如：每周一、三、五</span>`;
+        return;
+      }
+      const err = repeatRuleError(text);
+      box.innerHTML = err
+        ? `<span class="dlg-tags-err">${esc(err)}</span>`
+        : `<span class="dlg-rule-ok">到那天会生成：${esc(ruleSummary(text, {}))}</span>`;
+    };
+    input.addEventListener("input", sync);
+    sync();          // 编辑老规则时进来就先把这句话翻译一遍
   }
 }
 

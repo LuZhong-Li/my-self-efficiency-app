@@ -28,7 +28,7 @@ import {
   removePlatform,
   lastSnapshotOf,
   assetsOf, assetUsage, assetsOfContent, unlinkAsset,
-  ASSET_TABLES,
+  ASSET_KINDS, ASSET_TABLES,
   recentDays, parseSnapshotLines, applySnapshots,
   contentCsvRows, mediaCsv,
   ARCHIVED,
@@ -301,7 +301,8 @@ export function openAssetDialog(id, options = {}) {
       text: el.querySelector("#asset-text") ? el.querySelector("#asset-text").value : "",
       note: el.querySelector("#asset-note").value,
     };
-    kind = btn.dataset.kind === "link" ? "link" : "image";
+    // 三种类型都认（2026-10-14 加了「文本片段」）；认不出的兜回图片
+    kind = ASSET_KINDS.includes(btn.dataset.kind) ? btn.dataset.kind : "image";
     el.querySelector(".dlg-form").innerHTML = assetFormHtml(kind, keep);
     if (kind === "image") mountAttach(el.querySelector("#asset-attach"), attach);
   });

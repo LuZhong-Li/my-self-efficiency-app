@@ -61,6 +61,10 @@ const DATA = {
     { id: "wl1", date: "2026-10-14", projectId: "p1", minutes: 90,
       note: "把工时页画出来", tags: [] },
   ],
+  foods: [
+    { id: "fd1", name: "燕麦", unit: "100 克", kcal: 380, protein: 13, fat: 7,
+      carb: 66, tags: [] },
+  ],
   subjects: [
     { id: "s1", name: "高等数学（上）", source: "B 站", note: "每周三次", kind: "视频" },
   ],
@@ -360,6 +364,21 @@ eq(searchAll(WORK_DATA, "画工时页")[0].module, "dev", "归在开发工作这
 // 搜项目名会同时命中「项目」那条本身，所以从命中里挑工时那一条来断言
 ok(searchAll(WORK_DATA, "工作台改造").some((h) => h.label === "工时"),
   "搜项目名也能带出挂在它下面的工时");
+
+console.log("\n【菜谱与吃了什么也进搜索池（2026-10-14 加的）】");
+const NUTRITION_DATA = {
+  foods: [{ id: "f1", name: "米饭", unit: "碗", kcal: 200, protein: 4, fat: 0.5,
+            carb: 44, tags: [] }],
+  meals: [{ id: "m1", date: "2026-10-14", breakfast: "米饭 + 鸡蛋", lunch: "", dinner: "",
+            snack: "", items: [{ id: "i1", slot: "breakfast", name: "全麦面包",
+            unit: "片", amount: 2, kcal: 90, protein: 3, fat: 1, carb: 17 }] }],
+};
+eq(searchAll(NUTRITION_DATA, "米饭").length, 2, "菜谱一条 + 那天的饮食记录一条");
+eq(searchAll(NUTRITION_DATA, "全麦面包").length, 1, "搜条目里那样也能带出那天");
+eq(searchAll(NUTRITION_DATA, "全麦面包")[0].label, "饮食", "带出来的是「饮食」那条");
+const foodHits = searchAll(NUTRITION_DATA, "米饭").filter((h) => h.label === "菜谱");
+eq(foodHits.length, 1, "菜谱那一条在");
+eq(foodHits[0].hash, "diet/foods", "点菜谱回菜谱库");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

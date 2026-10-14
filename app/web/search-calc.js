@@ -148,8 +148,17 @@ export const SOURCE_SPECS = [
     // kg / bodyFat 是数据里真有的列；note 是备用形状，有就一起搜，没有就是空串
     fields: ["date", "note", (r) => numText(r.kg, " kg"), (r) => numText(r.bodyFat, "% 体脂")] },
   { table: "meals", module: "diet", label: "饮食", title: "date",
-    alias: "吃饭 三餐",
-    fields: ["breakfast", "lunch", "dinner", "snack", "date"] },
+    alias: "吃饭 三餐 热量 营养",
+    // 条目的名字也进匹配：搜「全麦面包」能带出那天
+    fields: ["breakfast", "lunch", "dinner", "snack", "date",
+             (r) => (Array.isArray(r.items) ? r.items : [])
+               .map((i) => String((i && i.name) || "")).filter(Boolean).join(" ")] },
+  // 菜谱库（2026-10-14 加）：一样东西每份多少热量 / 蛋白 / 脂肪 / 碳水
+  { table: "foods", module: "diet", hash: "diet/foods", label: "菜谱",
+    alias: "吃的 热量 营养 菜谱库",
+    title: (r) => [r.name, numText(r.kcal, " 千卡"), r.unit ? "每 " + r.unit : ""]
+      .filter(Boolean).join(" · "),
+    fields: ["name", "unit", "note", (r) => numText(r.kcal, " 千卡")] },
   { table: "water", module: "diet", label: "饮水", title: "date",
     alias: "喝水 饮食",
     // cups 是数据里真有的列；ml / time / note 是备用形状（老数据或导入的数据）

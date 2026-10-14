@@ -10,11 +10,11 @@
  * 在 game-calc.js 里，node tests\游戏计算.test.mjs 能一条条断言。
  */
 
-import { touch, table, esc, todayStr, shiftDate, moveToTrash } from "./store.js";
+import { touch, table, esc, todayStr, shiftDate, moveToTrash, uid } from "./store.js";
 import {
   sectionHead, emptyState, chip, bindFresh, pageHeader, tagChips, assetBadge,
 } from "./ui.js";
-import { askConfirm, toast } from "./dialog.js";
+import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
 import { imgBadge } from "./attachment.js";
 import { openItemDialog } from "./item-dialog.js";
@@ -22,7 +22,7 @@ import { GAME_STATUSES } from "./item-form.js";
 import {
   recordsOn, recordsOfGame, statsOf, topGames, filterRecords, hasFilter,
   durationText, hoursText, totalMinutesOfGame, elapsedMinutes, clockText, overTargetGames,
-  rangeText, dateSpan, gameMonthTrend,
+  rangeText, dateSpan, gameMonthTrend, parsePlayCsv, dupeOf, linkGameId,
 } from "./game-calc.js";
 import { lastMonths, barRowsOf, barFillHtml, trendChartHtml } from "./chart-calc.js";
 
@@ -88,6 +88,8 @@ function recordCardHtml({ dayRecords, history, stats }) {
               : `筛出 ${list.length} 条 / 共 ${stats.count} 条`
           }</span>
           <button class="btn primary small" data-act="gm-add">${icon("plus", 14)}添加游玩记录</button>
+          <button class="btn small" data-act="gm-import" title="选一份本地 CSV 导进来（不联网）">${
+            icon("import", 14)}导入记录</button>
         </div>
       </div>
 
@@ -340,6 +342,170 @@ function clearFilter() {
   filter.autoRange = false;
 }
 
+/* ---------------- 导入记录（本地 CSV，不联网） ----------------
+   写的就是现成的 gameRecords 表，所以游玩统计、TOP 排行、趋势图、全局搜索一行都不用改
+   就跟着变。解析（认列名、认时长、认日期）和去重都在 game-calc.js 里，
+   是纯函数，node 里能一条条断言；这里只管文件、预览和落库。
+
+   导入是**一次性动作**：不记得你导过什么、也不会自动更新 —— 想更新就再导出一份再导一遍，
+   所以「同一份导两遍」这件事必须靠 dupeOf 挡住（同游戏 + 同日期 + 同时长算重复）。 */
+const IMPORT_PREVIEW_ROWS = 5;   // 预览最多列几行：够看出「认对了没」就行，多了这弹窗也放不下
+
+function openImportDialog() {
+  const state = { fresh: [] };
+  const dlg = openDialog({
+    title: "导入游玩记录（本地 CSV）",
+    bodyHtml: `
+      <div class="gm-import">
+        <p class="hint">选一份本地 CSV（游戏名 / 时长 / 日期 / 备注 四列，列名认得常见的几种）。
+          <b>全程不联网</b> —— 只读你选的那个文件，确认之前一个字都不会写进数据。
+          导入是一次性动作，不会自动更新：想更新就再导出一份、再导一遍。</p>
+        <input id="import-file" type="file" accept=".csv,text/csv">
+        <div class="gm-import-preview"><p class="gm-import-empty">还没选文件。</p></div>
+      </div>`,
+    buttons: [
+      { id: "cancel", label: "取消" },
+      { id: "import", label: "导入 0 条", kind: "primary" },
+    ],
+    onAction: (act) => {
+      if (act !== "import") return;                 // 「取消」什么都不用做，默认就是关掉
+      if (!state.fresh.length) {
+        toast("没有新的记录可以导入", "err");
+        return false;                               // 别关：让人再看一眼预览，知道为什么一条都没有
+      }
+      const byName = gameIdMap(table("games"));
+      const stamp = new Date().toISOString();       // 一批共用一个时间戳：这次导入是一个动作
+      const records = table("gameRecords");
+      for (const row of state.fresh) records.push(importRow(row, byName, stamp));
+      touch(true);
+      toast(`导入了 ${state.fresh.length} 条游玩记录`);
+      redraw();   // 统计 / 排行 / 趋势图读的是同一张表，重画一次就全跟上了
+    },
+  });
+
+  const fileInput = dlg.el.querySelector("#import-file");
+  const preview = dlg.el.querySelector(".gm-import-preview");
+  const importBtn = dlg.el.querySelector('[data-dlg-act="import"]');
+  importBtn.disabled = true;                        // 没选文件 / 没有新记录时，按钮是灰的
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    let text = "";
+    try {
+      text = await readCsvFile(file);
+    } catch (err) {
+      preview.innerHTML = `<p class="gm-import-bad">这个文件读不出来：${
+        esc(err && err.message ? err.message : err)}</p>`;
+      return;
+    }
+    const parsed = parsePlayCsv(text);
+    const { fresh, dupes } = dupeOf(parsed.rows, table("gameRecords"));
+    state.fresh = fresh;
+    preview.innerHTML = importPreviewHtml(parsed, fresh.length, dupes.length);
+    importBtn.textContent = `导入 ${fresh.length} 条`;
+    importBtn.disabled = !fresh.length;
+  });
+}
+
+/**
+ * 读本地 CSV。浏览器 File API 全程只碰用户选的那一个文件，一个请求都不发。
+ * 先按 UTF-8 解；中文 Windows 上 Excel「另存为 CSV」出来的是 GBK，按 UTF-8 解会整份乱码，
+ * 所以解不动就退一步用 GBK 再解一遍 —— 不这么干，用户拿 Excel 导的 CSV 会一脸茫然
+ * （预览里全是问号，看着像解析器写坏了）。
+ */
+async function readCsvFile(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder("gbk").decode(buf);
+    } catch {
+      return new TextDecoder().decode(buf);   // 再退一步：按默认编码解，总比整份读不出来强
+    }
+  }
+}
+
+/**
+ * 一条导入的记录，形状和「手动记一条游玩记录」**完全一样**（字段表见 item-form.js 的
+ * gamePlayRecord）—— 少一个字段，统计 / 图表 / 搜索那头就可能认不出来。
+ * 截图那三栏给空数组：CSV 里没有图，要补图回头在记录上编辑。
+ * gameId 用现成的 linkGameId 按名字绑：清单里有这款就绑上，累计时长算得到它头上。
+ */
+function importRow(row, gameIdByName, stamp) {
+  return {
+    id: uid(),
+    gameId: linkGameId(row.gameName, gameIdByName),
+    gameName: row.gameName,
+    playDate: row.playDate,
+    durationMin: row.durationMin,
+    remark: row.remark,
+    createAt: stamp,
+    assetIds: [],
+    tags: [],
+    imagePaths: [],
+  };
+}
+
+/** 解析预览：认出来几行、跳过哪几行（连原因）、前几行长什么样、哪些会和库里重。 */
+function importPreviewHtml(parsed, freshCount, dupeCount) {
+  const rows = parsed.rows || [];
+  const skipped = parsed.skipped || [];
+  const parts = [];
+
+  parts.push(
+    `<p class="gm-import-sum">认出来 ${rows.length} 行` +
+      (skipped.length
+        ? ` · 跳过 ${skipped.length} 行（第 ${skipped.map((s) => s.line).join("、")} 行：${
+            [...new Set(skipped.map((s) => s.why))].join(" / ")}）`
+        : " · 一行没跳过") +
+      `</p>`
+  );
+
+  if (rows.length) {
+    parts.push(
+      `<table class="gm-import-table"><thead><tr><th>游戏名</th><th>日期</th>` +
+        `<th>时长</th><th>备注</th></tr></thead><tbody>` +
+        rows
+          .slice(0, IMPORT_PREVIEW_ROWS)
+          .map(
+            (r) =>
+              `<tr><td>${esc(r.gameName)}</td><td>${esc(r.playDate || "—")}</td>` +
+              `<td>${esc(durationText(r.durationMin))}</td><td>${esc(r.remark || "")}</td></tr>`
+          )
+          .join("") +
+        `</tbody></table>`
+    );
+    if (rows.length > IMPORT_PREVIEW_ROWS) {
+      parts.push(
+        `<p class="gm-import-more">还有 ${rows.length - IMPORT_PREVIEW_ROWS} 行没列出来，` +
+          "确认了会一起导进去。</p>"
+      );
+    }
+  } else {
+    parts.push(
+      `<p class="gm-import-bad">一行都没认出来。看看「时长」那一列是不是没写对` +
+        "（比如写成了「约两小时」），或者表头不是常见的几种列名。</p>"
+    );
+  }
+
+  if (dupeCount) {
+    parts.push(
+      `<p class="gm-import-dupe">其中 ${dupeCount} 行和现有记录一模一样` +
+        "（同游戏 + 同日期 + 同时长），会跳过。</p>"
+    );
+  }
+  if (parsed.headerBy === "position") {
+    parts.push(
+      `<p class="gm-import-pos">表头没认出来，按「游戏名 / 时长 / 日期 / 备注」的位置读的` +
+        " —— 对不上就在预览里改改文件再选一次。</p>"
+    );
+  }
+  if (rows.length && !freshCount) parts.push(`<p class="gm-import-more">没有新的行要导入。</p>`);
+  return parts.join("");
+}
+
 /**
  * 两个区间框里显示什么：在筛历史就显示真区间，没筛（在看某一天）就显示那一天。
  * 这样什么时候打开页面、什么时候翻完历史，框里都是一个真实日期 ——
@@ -528,6 +694,10 @@ async function onClick(e) {
   /* 游玩记录那一张 */
   if (act === "gm-add") {
     openRecordDialog(null);
+    return;
+  }
+  if (act === "gm-import") {
+    openImportDialog();
     return;
   }
   if (act === "gm-prev" || act === "gm-next" || act === "gm-today") {

@@ -3735,6 +3735,40 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 }
 .gm-plan-brief > span { flex: 1 1 auto; }
 
+/* 「导入记录」弹窗（2026-10-14 加）：说明 + 文件框 + 解析预览。
+   预览是拿解析结果现算的（认出来几行 / 跳过哪几行 / 前几行长什么样），
+   所以这几块的样式都跟着它走，改预览文案时样式不用动。 */
+.gm-import { display: flex; flex-direction: column; gap: 10px; }
+.gm-import .hint { margin: 0; }
+.gm-import input[type="file"] {
+  padding: 8px;
+  border: var(--bw) dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 13px;
+}
+.gm-import-preview { display: flex; flex-direction: column; gap: 8px; }
+.gm-import-preview p { margin: 0; font-size: 13px; }
+.gm-import-sum { font-weight: 600; }
+.gm-import-empty,
+.gm-import-more,
+.gm-import-pos { color: var(--muted); }
+.gm-import-dupe { color: var(--warn); }
+.gm-import-bad { color: var(--err); }
+.gm-import-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.gm-import-table th,
+.gm-import-table td {
+  padding: 6px 8px;
+  border-bottom: var(--bw) solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.gm-import-table th { color: var(--muted); font-weight: 500; }
+.gm-import-table td:first-child { font-weight: 600; }
+.gm-import-table tr:last-child td { border-bottom: none; }
+
 @media (max-width: 700px) {
   .gm-bar-gap { display: none; }
   .gm-stat > strong { font-size: 17px; }

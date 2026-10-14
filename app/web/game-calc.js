@@ -11,6 +11,7 @@
  */
 
 import { barRatioOf } from "./chart-calc.js";
+import { parseCsvText } from "./csv.js";
 
 /* 时长换算 / 显示 / 秒表搬到 time-calc.js 了（工时统计也要用同一套），这里只转出去：
    game.js、item-form.js、tests\游戏计算.test.mjs 一个字都不用改。
@@ -65,6 +66,135 @@ export function normalizeRecord(raw) {
    这里留个标记，免得下次有人在这一节里又写一份。 */
 
 /* ---------------- 记录 ↔ 清单游戏 ---------------- */
+
+/** 时长的几种写法 → 分钟。认不出给 0（导入那一行会被跳过）。 */
+export function parseDurationText(raw) {
+  const s = text(raw);
+  if (!s) return 0;
+  // 1:30 / 01:30:00（时:分[:秒]）
+  const clock = /^(\d{1,3}):([0-5]?\d)(?::([0-5]?\d))?$/.exec(s);
+  if (clock) {
+    const h = Number(clock[1]);
+    const m = Number(clock[2]);
+    const sec = Number(clock[3] || 0);
+    return h * 60 + m + (sec >= 30 ? 1 : 0);
+  }
+  const hours = /^(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours|小时|时)$/i.exec(s);
+  if (hours) return Math.round(Number(hours[1]) * 60);
+  const minutes = /^(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes|分钟|分)$/i.exec(s);
+  if (minutes) return Math.round(Number(minutes[1]));
+  // 光一个数字按分钟算（本 App 那格默认单位就是分钟），换算结果预览里会显示成人话
+  if (/^\d+(?:\.\d+)?$/.test(s)) return Math.round(Number(s));
+  return 0;
+}
+
+/**
+ * 日期的几种写法 → `YYYY-MM-DD`（认不出给空串）。
+ * 必须归一：本 App 里统计和筛选都是拿日期字符串直接比的（`date.slice(0, 7)`、
+ * `date >= week`），"2026/10/13" 这种写法进库就不会被算进那个月。
+ */
+export function parseDateText(raw) {
+  const s = text(raw);
+  if (!s) return "";
+  const m = /^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?$/.exec(s);
+  if (!m) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${m[1]}-${p(Number(m[2]))}-${p(Number(m[3]))}`;
+}
+
+/** 导入时认哪几列、各认哪些写法（小写比对，也认「游玩时长(分钟)」这种带尾巴的） */
+const IMPORT_COLUMNS = [
+  { key: "gameName", names: ["游戏名", "游戏名称", "名称", "游戏", "game", "title", "game name"] },
+  { key: "duration", names: ["时长", "游玩时长", "游戏时长", "time", "playtime", "duration",
+    "minutes", "hours"] },
+  { key: "playDate", names: ["日期", "游玩日期", "开始日期", "date", "play date", "playdate"] },
+  { key: "remark", names: ["备注", "说明", "note", "comment", "remark"] },
+];
+
+/** 表头一个格子认哪一列（认不出给空串） */
+function columnKeyOf(cell) {
+  const s = text(cell).toLowerCase();
+  if (!s) return "";
+  for (const col of IMPORT_COLUMNS) {
+    // 完全相等，或者「游玩时长(分钟)」这种带着尾巴的
+    if (col.names.some((n) => s === n || s.indexOf(n) >= 0)) return col.key;
+  }
+  return "";
+}
+
+/**
+ * 一份 CSV 文本 → 一条条游玩记录（离线导入用）。
+ *
+ * 表头先按名字认（中英文那几种写法都认）；一个都没认出来就**按位置兜底**
+ * （游戏名 / 时长 / 日期 / 备注），并在 headerBy 里说明是哪种，
+ * 好在界面上跟用户交代清楚「我是怎么认的」。
+ *
+ * 返回 { rows, skipped, headerBy }：
+ *   rows     [{ gameName, playDate, durationMin, remark }]（日期已归一，时长是分钟）
+ *   skipped  [{ line, why }]（第几行、为什么跳过 —— line 从 1 数，表头算第 1 行）
+ *   headerBy "name" | "position"
+ */
+export function parsePlayCsv(raw) {
+  const table = parseCsvText(raw);
+  if (!table.length) return { rows: [], skipped: [], headerBy: "name" };
+  const head = table[0] || [];
+  const map = {};   // 列名 → 第几列
+  head.forEach((cell, i) => {
+    const key = columnKeyOf(cell);
+    if (key && map[key] === undefined) map[key] = i;
+  });
+  const byName = map.gameName !== undefined && map.duration !== undefined;
+  const at = byName
+    ? map
+    : { gameName: 0, duration: 1, playDate: 2, remark: 3 };   // 位置兜底
+  const cellOf = (row, key) => {
+    const i = at[key];
+    return i === undefined ? "" : text(row[i]);
+  };
+  const rows = [];
+  const skipped = [];
+  for (let i = 1; i < table.length; i += 1) {
+    const line = i + 1;
+    const row = table[i] || [];
+    const gameName = cellOf(row, "gameName");
+    if (!gameName) {
+      skipped.push({ line, why: "没写游戏名" });
+      continue;
+    }
+    const durationMin = parseDurationText(cellOf(row, "duration"));
+    if (!durationMin) {
+      skipped.push({ line, why: "时长认不出" });
+      continue;
+    }
+    rows.push({
+      gameName,
+      playDate: parseDateText(cellOf(row, "playDate")),
+      durationMin,
+      remark: cellOf(row, "remark"),
+    });
+  }
+  return { rows, skipped, headerBy: byName ? "name" : "position" };
+}
+
+/**
+ * 挑出「库里已经有一模一样的」那几条：同游戏名 + 同日期 + 同时长。
+ * 同一份导出导两遍不该记两遍账；差一点（比如时长差 1 分钟）就不算重复 ——
+ * 那更可能是两次真的游玩。
+ */
+export function dupeOf(rows, existing) {
+  const keys = new Set((existing || []).map(dupeKeyOf));
+  const fresh = [];
+  const dupes = [];
+  for (const row of rows || []) {
+    (keys.has(dupeKeyOf(row)) ? dupes : fresh).push(row);
+  }
+  return { fresh, dupes };
+}
+
+function dupeKeyOf(row) {
+  return `${text(row && row.gameName)}|${text(row && row.playDate)}|` +
+    `${Math.max(0, num(row && row.durationMin))}`;
+}
 
 /** 游戏名 → 清单里的游戏 id（下拉里选过的名字能自动绑上） */
 export function linkGameId(name, map) {

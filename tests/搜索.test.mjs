@@ -329,5 +329,18 @@ eq(searchAll(ASSET_DATA, "竖版").length, 1, "说明里也搜得到");
 eq(searchAll(ASSET_DATA, "example.com").length, 1, "链接也进匹配");
 eq(searchAll(ASSET_DATA, "media_asset").length, 0, "图片路径本身不搜（搜文件名没意义）");
 
+console.log("\n【重复规则与子任务文字也进搜索池（2026-10-14 加的）】");
+const REPEAT_DATA = { tasks: [
+  { id: "t-rule-1", text: "跑步 5 公里", date: "", repeat: "每周一、三、五",
+    belong: "plan", tags: [],
+    subtasks: [{ id: "s1", text: "换跑鞋", done: false }] },
+] };
+eq(searchAll(REPEAT_DATA, "每周一").length, 1, "搜「每周一」找得到那条重复规则");
+eq(searchAll(REPEAT_DATA, "每周一")[0].label, "待办", "它还挂在「待办」这枚标签下");
+eq(searchAll(REPEAT_DATA, "换跑鞋").length, 1, "搜子任务的文字能带出父任务");
+eq(searchAll(REPEAT_DATA, "换跑鞋")[0].text, "换跑鞋", "结果卡片上显示的是命中的那句子任务");
+eq(searchAll(REPEAT_DATA, "跑步").length, 1, "正文照样搜得到");
+eq(searchAll(REPEAT_DATA, "重复任务").length, 1, "搜「重复任务」也认得（同义词里加了这个词）");
+
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

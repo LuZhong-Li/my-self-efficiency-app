@@ -12,6 +12,7 @@
 
 import { MODULES } from "./modules.js";
 import { normalizeTags } from "./tag-calc.js";
+import { subtaskTextOf } from "./task-calc.js";
 
 /** 把文本统一成「好比对」的样子：小写、换行和连续空格压成单个空格、掐掉首尾空白 */
 export function normalizeText(value) {
@@ -99,8 +100,10 @@ function financeAccountName(row, data, key) {
  */
 export const SOURCE_SPECS = [
   { table: "tasks", module: "plan", label: "待办", title: "text",
-    alias: "任务 今日计划",
-    fields: ["text", "note", "category", "belong"] },
+    alias: "任务 今日计划 重复任务",
+    // repeat 也进匹配：搜「每周」能捞出重复规则；子任务的文字也进
+    //（搜「改侧栏」带出挂它的那条父任务）—— 两样都长在一条待办身上。
+    fields: ["text", "note", "category", "belong", "repeat", (r) => subtaskTextOf(r)] },
   { table: "contents", module: "media", label: "自媒体", title: "title",
     alias: "作品 选题 发布",
     fields: ["title", "platform", "status", "note", "link"] },

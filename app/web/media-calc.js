@@ -557,3 +557,92 @@ export function contentCsvRows(contents, accounts, options = {}) {
 export function mediaCsv(rows) {
   return csvText(WORKS_CSV_HEAD, rows);
 }
+
+/* ---------------- 粉丝快照批量补录（2026-10-13 加的） ----------------
+   前几天忘了记，现在从平台后台翻出数字来一次补上。
+   一行一天「日期 粉丝数」；日期由界面替你预填（最近几天里还没记过的那几个），
+   你只填数字、没填的行跳过；同一天已经有的覆盖它；**未来的日期不收**。 */
+
+/** 最近 count 天（升序、含今天）。"2026-10-13" + 3 → 10-11 / 10-12 / 10-13 */
+export function recentDays(today, count = 7) {
+  const day = String(today == null ? "" : today).trim();
+  const n = Math.max(1, Math.floor(Number(count) || 1));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return [];
+  const out = [];
+  for (let i = n - 1; i >= 0; i -= 1) out.push(shiftDateStr(day, -i));
+  return out;
+}
+
+/**
+ * 把那段多行文本解析成「要记的快照」。
+ * 每行 `日期 粉丝数`（空格 / 逗号 / Tab 分开都行）：
+ *   · 只写了日期、没写数字 → **跳过**（不算错：预填的日期本来就等着你挑着填）
+ *   · 日期不认 / 日期不存在 / 是未来的日子 / 数字不是非负整数 → 记一条错误（带行号）
+ *   · 同一天写了两遍 → 后写的算数
+ * 返回 { rows: [{date, count}], skipped, errors: [{line, text, reason}] }。
+ */
+export function parseSnapshotLines(text, today) {
+  const day = String(today == null ? "" : today).trim();
+  const out = { rows: [], skipped: 0, errors: [] };
+  const byDate = new Map();
+  const lines = String(text == null ? "" : text).split(/\r?\n/);
+  lines.forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) return;
+    const parts = line.split(/[\s,，\t]+/).filter(Boolean);
+    const date = parts[0] || "";
+    const numberText = parts.slice(1).join("");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isRealDate(date)) {
+      out.errors.push({ line: i + 1, text: line, reason: "日期要写成 2026-10-10 这样" });
+      return;
+    }
+    if (!numberText) {
+      out.skipped += 1;
+      return;
+    }
+    if (!/^\d+$/.test(numberText)) {
+      out.errors.push({ line: i + 1, text: line, reason: "粉丝数要填一个整数" });
+      return;
+    }
+    if (date > day) {
+      out.errors.push({ line: i + 1, text: line, reason: "这是以后的日期，快照只能补到今天" });
+      return;
+    }
+    const count = Number(numberText);
+    byDate.set(date, { date, count });   // 同一天写两遍：后写的算数
+  });
+  out.rows = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+
+/** "2026-13-45" 这种格式对、日子不存在的也要拦下来 */
+function isRealDate(date) {
+  const [y, m, d] = date.split("-").map(Number);
+  if (m < 1 || m > 12 || d < 1) return false;
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
+/**
+ * 把解析出来的几天合并进快照表：同一天已有就覆盖那一天，没有就新加一条。
+ * 只动这个账号——别的账号哪怕同一天也一个字不动。返回 { list, added, updated }，
+ * **不改传进来的数组**（返回的是新数组）；新条目的 id 由调用方给（makeId）。
+ */
+export function applySnapshots(snapshots, accountId, rows, makeId) {
+  const id = String(accountId == null ? "" : accountId).trim();
+  const list = (snapshots || []).slice();
+  let added = 0;
+  let updated = 0;
+  for (const row of rows || []) {
+    if (!row || !row.date) continue;
+    const at = list.findIndex((s) => s && s.accountId === id && s.date === row.date);
+    if (at >= 0) {
+      list[at] = { ...list[at], count: row.count };
+      updated += 1;
+    } else {
+      list.push({ id: typeof makeId === "function" ? makeId() : "", accountId: id, date: row.date, count: row.count });
+      added += 1;
+    }
+  }
+  return { list, added, updated };
+}

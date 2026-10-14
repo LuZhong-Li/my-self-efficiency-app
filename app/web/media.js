@@ -23,6 +23,7 @@ import {
   addPlatform,
   removePlatform,
   lastSnapshotOf,
+  recentDays, parseSnapshotLines, applySnapshots,
   contentCsvRows, mediaCsv,
   ARCHIVED,
   statusesOf,
@@ -155,6 +156,8 @@ function accCard(a, st) {
       <span class="acc-tools">
         <button class="link" data-act="acc-snap" data-id="${esc(a.id)}"
           title="记一笔今天的粉丝数（趋势曲线以它为锚点）">记粉丝</button>
+        <button class="link" data-act="acc-snap-bulk" data-id="${esc(a.id)}"
+          title="前几天忘了记？一次补几天的数字">补几天</button>
         <button class="link" data-act="acc-edit" data-id="${esc(a.id)}">编辑</button>
       </span>
     </div>`;
@@ -846,6 +849,93 @@ function openPlatformDialog() {
   bind();
 }
 
+/**
+ * 「补几天」：前几天忘了记，从平台后台翻出数字来一次补上。
+ * 文本框里**日期已经预填好**（最近 7 天里还没记过的那几天），你只填数字；
+ * 没填的行会跳过，所以预填的日期不删也没关系。底下实时显示会记几天、跳过几行。
+ */
+function openBulkSnapshotDialog(id) {
+  const accounts = table("mediaAccounts");
+  const a = accounts.find((x) => x.id === id);
+  if (!a) return;
+  const today = todayStr();
+  const snapshots = table("mediaFollowers");
+  const days = recentDays(today, 7);
+  const has = new Set(
+    snapshots.filter((s) => s && s.accountId === a.id).map((s) => String(s.date || ""))
+  );
+  const blankDays = days.filter((d) => !has.has(d));
+  // 预填：只列还没记过的那几天（记过的再写一遍就是覆盖，别让人以为漏了）
+  const seed = (blankDays.length ? blankDays : days).map((d) => `${d} `).join("\n");
+  const { el, close } = openDialog({
+    title: `补几天 · ${a.name}`,
+    bodyHtml: `
+      <p class="fin-help">一行一天：<code>日期 粉丝数</code>。日期已经替你填好了，只填数字就行；
+        没填的行会跳过，所以用不上的日期留着不管也没事。同一天已经记过的会覆盖那一条。</p>
+      <textarea id="bulk-text" rows="8" spellcheck="false"
+        placeholder="2026-10-10 1200">${esc(seed)}</textarea>
+      <p class="fin-err" id="bulk-err" hidden></p>
+      <p class="fin-help" id="bulk-preview"></p>`,
+    buttons: [
+      { id: "cancel", label: "取消" },
+      { id: "save", label: "记下", kind: "primary" },
+    ],
+    onAction(act) {
+      if (act === "cancel") return;
+      const parsed = parseSnapshotLines(el.querySelector("#bulk-text").value, todayStr());
+      const err = el.querySelector("#bulk-err");
+      if (parsed.errors.length) {
+        err.textContent = parsed.errors
+          .slice(0, 4)
+          .map((e) => `第 ${e.line} 行：${e.reason}`)
+          .join("；");
+        err.hidden = false;
+        return false;   // 有错先改，别半截存进去让人以为都记上了
+      }
+      if (!parsed.rows.length) {
+        err.textContent = "先填上至少一天的粉丝数";
+        err.hidden = false;
+        return false;
+      }
+      const res = applySnapshots(table("mediaFollowers"), a.id, parsed.rows, uid);
+      store.data.mediaFollowers = res.list;
+      close();
+      touch(true);
+      toast(
+        `已记 ${parsed.rows.length} 天` +
+          (res.added && res.updated
+            ? `（新加 ${res.added} 天、改了 ${res.updated} 天）`
+            : res.updated ? `（都是改原来的）` : "")
+      );
+    },
+  });
+
+  // 边打边算：会记几天 / 跳过几行 / 哪几行有问题 —— 存之前先看得见
+  const paint = () => {
+    const parsed = parseSnapshotLines(el.querySelector("#bulk-text").value, todayStr());
+    const err = el.querySelector("#bulk-err");
+    const box = el.querySelector("#bulk-preview");
+    if (parsed.errors.length) {
+      box.textContent = "";
+      err.textContent = parsed.errors
+        .slice(0, 4)
+        .map((e) => `第 ${e.line} 行：${e.reason}`)
+        .join("；");
+      err.hidden = false;
+      return;
+    }
+    err.hidden = true;
+    box.textContent = parsed.rows.length
+      ? `会记 ${parsed.rows.length} 天（${parsed.rows[0].date} ~ ${
+          parsed.rows[parsed.rows.length - 1].date
+        }）${parsed.skipped ? `，跳过 ${parsed.skipped} 行没填的` : ""}`
+      : "还没填数字：一行一天，日期后面空一格写今天多少粉。";
+  };
+  el.querySelector("#bulk-text")?.addEventListener("input", paint);
+  paint();
+  setTimeout(() => el.querySelector("#bulk-text")?.focus(), 0);
+}
+
 function openSnapshotDialog(id) {
   const accounts = table("mediaAccounts");
   const a = accounts.find((x) => x.id === id);
@@ -1202,6 +1292,7 @@ async function onClick(e) {
   if (act === "acc-new") return openAccountDialog(null);
   if (act === "acc-edit") return openAccountDialog(id);
   if (act === "acc-snap") return openSnapshotDialog(id);
+  if (act === "acc-snap-bulk") return openBulkSnapshotDialog(id);
   if (act === "plat-manage") return openPlatformDialog();
   if (act === "csv") return openCsvDialog();
   if (act === "acc-open") {

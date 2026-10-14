@@ -10,6 +10,7 @@ import {
   PLATFORM_LIMIT, PLATFORM_MAX_CHARS, normalizePlatforms, platformsOf, addPlatform, removePlatform,
   lastSnapshotOf,
   WORKS_CSV_HEAD, contentCsvRows, mediaCsv,
+  recentDays, parseSnapshotLines, applySnapshots,
 } from "../app/web/media-calc.js";
 import { csvCell } from "../app/web/csv.js";
 
@@ -401,6 +402,62 @@ const W_NOTE = mediaCsv(contentCsvRows(
 eq(W_NOTE.indexOf('"带 ""引号, 逗号"" 的标题"') >= 0, true, "标题里的引号逗号都照顾到了");
 eq(W_NOTE.indexOf('"第一行\n第二行"') >= 0, true, "备注里换行也裹起来");
 eq(csvCell("普通"), "普通", "共用的那份拼格子还在（csv.js）");
+
+/* ---------------- 粉丝快照批量补录（2026-10-13 加的） ----------------
+   前几天忘了记，现在从平台后台翻出数字来一次补上。
+   一行一天「日期 粉丝数」；日期由界面替你预填（最近 7 天里还没记过的那几天），
+   你只填数字、没填的行跳过；同一天已经有的覆盖它；**未来的日期不收**。 */
+
+eqDeep(recentDays("2026-10-13", 3), ["2026-10-11", "2026-10-12", "2026-10-13"],
+  "最近三天（升序、含今天）");
+eqDeep(recentDays("2026-10-02", 3), ["2026-09-30", "2026-10-01", "2026-10-02"],
+  "跨月往回数也对");
+eqDeep(recentDays("2026-10-13", 1), ["2026-10-13"], "只要一天就是今天");
+eqDeep(recentDays("不是日期", 3), [], "认不出来给空数组");
+
+const P1 = parseSnapshotLines("2026-10-10 1200\n2026-10-11 1260\n2026-10-12", "2026-10-13");
+eqDeep(P1.rows, [{ date: "2026-10-10", count: 1200 }, { date: "2026-10-11", count: 1260 }],
+  "两行有数字的收下；只写了日期没写数字的那行跳过（不报错）");
+eq(P1.skipped, 1, "跳过的行数报出来");
+eqDeep(P1.errors, [], "没填数字不算错");
+
+const P2 = parseSnapshotLines("2026-10-10 1200\n乱写一行\n2026-13-45 100\n2026-10-20 900\n", "2026-10-13");
+eqDeep(P2.rows, [{ date: "2026-10-10", count: 1200 }], "只有那一条好行收下");
+eq(P2.errors.length, 3, "三行有问题：乱写的、日期不存在的、未来日期的");
+eq(P2.errors[0].line, 2, "错在哪一行也报出来（第一行是 1）");
+eq(P2.errors[0].reason.indexOf("日期") >= 0, true, "乱写那行说清是日期的毛病（" + P2.errors[0].reason + "）");
+eq(P2.errors[2].reason.indexOf("以后") >= 0, true, "未来日期单独说（" + P2.errors[2].reason + "）");
+
+const P3 = parseSnapshotLines("2026-10-10 1200\n2026-10-10 1300", "2026-10-13");
+eqDeep(P3.rows, [{ date: "2026-10-10", count: 1300 }], "同一天写两次：后写的算数");
+eq(P3.errors.length, 0, "这不算错");
+eqDeep(parseSnapshotLines("2026-10-10 -5", "2026-10-13").rows, [],
+  "负数不收（说清毛病）");
+eq(parseSnapshotLines("2026-10-10 -5", "2026-10-13").errors[0].reason.indexOf("整数") >= 0, true,
+  "负数那行给「要填整数」的提示（" + parseSnapshotLines("2026-10-10 -5", "2026-10-13").errors[0].reason + "）");
+eqDeep(parseSnapshotLines("2026-10-10 1,200", "2026-10-13").rows,
+  [{ date: "2026-10-10", count: 1200 }],
+  "带千分位也认（从平台后台复制的数字常带逗号）");
+eqDeep(parseSnapshotLines("", "2026-10-13").rows, [], "整段是空的：什么都不收，也不算错");
+eq(parseSnapshotLines(null, "2026-10-13").errors.length, 0, "传 null 也不炸");
+
+const EXIST = [
+  { id: "s1", accountId: "a1", date: "2026-10-10", count: 1000 },
+  { id: "s2", accountId: "a2", date: "2026-10-10", count: 500 },
+];
+const APPLY = applySnapshots(EXIST, "a1", P1.rows, () => "new-id");
+eq(APPLY.added, 1, "10-11 是新加的");
+eq(APPLY.updated, 1, "10-10 已经有 → 覆盖那一天");
+eq(APPLY.list.length, 3, "原来两条 + 新加一条");
+eq(APPLY.list.find((s) => s.accountId === "a1" && s.date === "2026-10-10").count, 1200,
+  "覆盖的是这个账号那天的数字");
+eq(APPLY.list.find((s) => s.accountId === "a2" && s.date === "2026-10-10").count, 500,
+  "别的账号同一天的快照一个字不动");
+eq(APPLY.list.find((s) => s.date === "2026-10-11").accountId, "a1", "新加那条挂在这个账号上");
+eq(APPLY.list.find((s) => s.date === "2026-10-11").id, "new-id", "新条目的 id 由调用方给");
+eq(EXIST.length, 2, "原数组没被改（返回的是新数组）");
+eqDeep(applySnapshots(null, "a1", [], () => "x"), { list: [], added: 0, updated: 0 },
+  "什么都没有时干净地给 0");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

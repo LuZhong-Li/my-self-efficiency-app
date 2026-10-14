@@ -6,6 +6,11 @@
 import { yuanToCents, yuanToCentsNonNeg, centsToYuan, fmtMoney } from "./money.js";
 import { csvCell, csvText } from "./csv.js";
 
+/* 月份序列（"2026-10" 往回数）搬到 chart-calc.js 了 —— 趋势图和支出日历都用它，
+   放在图表那个纯模块里两边才是一份实现。这里只转出去：
+   finance.js 和 tests\记账趋势.test.mjs 一个字都不用改。 */
+export { lastMonths } from "./chart-calc.js";
+
 /** "2026-10-07" → "2026-10" */
 export function monthKey(date) {
   return String(date || "").slice(0, 7);
@@ -609,21 +614,8 @@ export function addTemplate(list, tpl) {
 /* ---------------- 近 6 个月趋势（2026-10-13 加的） ----------------
    记账页一直是「一个月一个月」的：月历按月翻、概览和环形图只看当前那个月。
    这一组给趋势图备数据：最近几个月各是多少、柱高按什么比例算、合计与月均。
-   口径走现成的 monthTotals —— 图上和概览上的数永远是同一个来源。 */
-
-/** "2026-10" 往回数 → ["2026-05" … "2026-10"]（升序、含当月；跨年接得上） */
-export function lastMonths(month, count = 6) {
-  const m = /^(\d{4})-(\d{2})$/.exec(String(month == null ? "" : month).trim());
-  if (!m) return [];
-  const n = Math.max(1, Math.floor(Number(count) || 1));
-  const end = Number(m[1]) * 12 + (Number(m[2]) - 1);   // 以「0 年 1 月」为 0 的月序号
-  const out = [];
-  for (let i = n - 1; i >= 0; i -= 1) {
-    const at = end - i;
-    out.push(`${Math.floor(at / 12)}-${String((at % 12) + 1).padStart(2, "0")}`);
-  }
-  return out;
-}
+   口径走现成的 monthTotals —— 图上和概览上的数永远是同一个来源。
+   （月份序列 lastMonths 在上面转出，实现搬去了 chart-calc.js。） */
 
 /**
  * 每个月那一头的数 + 给画柱用的比例。

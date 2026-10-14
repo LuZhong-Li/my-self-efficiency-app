@@ -134,6 +134,13 @@ export const SOURCE_SPECS = [
     title: (r, data) => [projectName(r, data), numText(r.minutes, " 分钟"), r.note]
       .filter(Boolean).join(" · "),
     fields: ["date", "note", (r, data) => projectName(r, data)] },
+  // 笔记（2026-10-14 加的）：标题 / 正文都进匹配（标签走通用那一圈）；
+  // 点结果直接打开那一条，不是只到列表页
+  { table: "notes", module: "note", label: "笔记",
+    hash: (r) => "note/" + clean(r && r.id),
+    title: (r) => clean(r && r.title) || firstLineOf(r && r.body) || "（空笔记）",
+    alias: "随手记 想法 markdown",
+    fields: ["title", "body"] },
   { table: "subjects", module: "study", label: "学习对象", title: "name",
     alias: "学习工作",
     fields: ["name", "source", "note", "kind"] },
@@ -232,6 +239,12 @@ function fixedOrFn(value, row, data) {
 function clean(value) {
   if (value === undefined || value === null) return "";
   return String(value).trim();
+}
+
+/** 笔记没标题时，列表和搜索结果都用正文第一行顶上 */
+function firstLineOf(body) {
+  const line = String(body || "").split("\n").find((l) => l.trim()) || "";
+  return line.replace(/^#+\s*/, "").replace(/^[-*+]\s+/, "").trim().slice(0, 40);
 }
 
 /** 照着 "finance.transactions" 这种路径取表；取不到就返回空数组，绝不新建键 */

@@ -65,6 +65,10 @@ const DATA = {
     { id: "fd1", name: "燕麦", unit: "100 克", kcal: 380, protein: 13, fat: 7,
       carb: 66, tags: [] },
   ],
+  notes: [
+    { id: "nt1", title: "搜索池重写笔记", body: "- 把匹配字段写全\n- 标签也进池子",
+      tags: ["开发"], imagePaths: [] },
+  ],
   subjects: [
     { id: "s1", name: "高等数学（上）", source: "B 站", note: "每周三次", kind: "视频" },
   ],
@@ -379,6 +383,19 @@ eq(searchAll(NUTRITION_DATA, "全麦面包")[0].label, "饮食", "带出来的�
 const foodHits = searchAll(NUTRITION_DATA, "米饭").filter((h) => h.label === "菜谱");
 eq(foodHits.length, 1, "菜谱那一条在");
 eq(foodHits[0].hash, "diet/foods", "点菜谱回菜谱库");
+
+console.log("\n【笔记也进搜索池（2026-10-14 加的）】");
+const NOTE_DATA = {
+  notes: [{ id: "n1", title: "给工作台加笔记", body: "## 想法\n\n先做**列表 + 编辑**",
+            tags: ["想法"], imagePaths: [] }],
+};
+eq(searchAll(NOTE_DATA, "给工作台").length, 1, "标题搜得到");
+eq(searchAll(NOTE_DATA, "列表").length, 1, "正文搜得到");
+eq(searchAll(NOTE_DATA, "想法").length, 1, "标签也进池子");
+eq(searchAll(NOTE_DATA, "给工作台")[0].label, "笔记", "卡片上那枚标签写着「笔记」");
+eq(searchAll(NOTE_DATA, "给工作台")[0].hash, "note/n1", "点结果直接打开那一条");
+eq(searchAll({ notes: [{ id: "n2", title: "", body: "# 没标题的\n正文" }] }, "没标题的")[0].label,
+  "笔记", "没标题的笔记也搜得到（标题位用正文第一行兜底，不炸）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail > 0) process.exitCode = 1;

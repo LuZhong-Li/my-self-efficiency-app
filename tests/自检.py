@@ -50,8 +50,9 @@ def free_port() -> int:
     return port
 
 
-def call(port: int, path: str, method: str = "GET", body=None, origin: str | None = None):
-    """返回 (状态码, 解析后的内容)。"""
+def call(port: int, path: str, method: str = "GET", body=None, origin: str | None = None,
+         extra: dict | None = None):
+    """返回 (状态码, 解析后的内容)。extra 是额外请求头（数据集那道闸用它）。"""
     data = None
     headers = {}
     if body is not None:
@@ -59,6 +60,8 @@ def call(port: int, path: str, method: str = "GET", body=None, origin: str | Non
         headers["Content-Type"] = "application/json"
     if origin:
         headers["Origin"] = origin
+    if extra:
+        headers.update(extra)
     req = urllib.request.Request(
         "http://127.0.0.1:%d%s" % (port, path), data=data, headers=headers, method=method
     )
@@ -115,6 +118,150 @@ def fetch_raw(port: int, path: str):
         return exc.code, exc.read()
     except Exception as exc:  # 连不上之类
         return 0, str(exc).encode("utf-8")
+
+
+def start_temp_server(data_dir: Path, root: Path | None = None, expect_under: Path | None = None):
+    """起一个临时服务，返回 (进程, 端口, 它自己报的 health)。
+
+    给了 root 就走「根目录 + 数据集」那条新语义（XIAOLI_DATA_ROOT），
+    只给 data_dir 就走今天这条老语义（XIAOLI_DATA_DIR = 就是这一份）。
+    两个变量都要先清掉再按需要设：环境里留着上一个的话，这条测试就不是它想测的那件事了。
+    """
+    port = free_port()
+    env = dict(os.environ)
+    env.pop("XIAOLI_DATA_DIR", None)
+    env.pop("XIAOLI_DATA_ROOT", None)
+    if root is not None:
+        env["XIAOLI_DATA_ROOT"] = str(root)
+    else:
+        env["XIAOLI_DATA_DIR"] = str(data_dir)
+    proc = subprocess.Popen(
+        [sys.executable, str(SERVER), "--no-browser", "--port", str(port)],
+        cwd=str(ROOT),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    health = None
+    for _ in range(40):
+        time.sleep(0.25)
+        status, body = call(port, "/api/health")
+        if status == 200 and isinstance(body, dict):
+            health = body
+            break
+    # 安全网：临时服务必须真的用临时目录。万一哪个环境变量没被认出来（2026-10-14
+    # 就真发生过一次：XIAOLI_DATA_ROOT 还没实现，服务退回去用了项目里那份真实数据），
+    # 必须当场停掉、报一条失败 —— 绝不能继续对着真实数据跑下去。
+    if health is not None and expect_under is not None:
+        inside = str(expect_under) in str(health.get("dataFile", ""))
+        if not inside:
+            stop_server(proc)
+            check("临时服务用的是临时目录（不是项目里那份真实数据）", False,
+                  "它说数据文件在 " + str(health.get("dataFile")))
+            return proc, port, None
+        check("临时服务用的是临时目录（不是项目里那份真实数据）", True)
+    return proc, port, health
+
+
+def stop_server(proc) -> None:
+    if not proc:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        proc.kill()
+
+
+def dict_or(value) -> dict:
+    """接口返回的得是个字典；不是就当空字典（断言会因此报红，而不是把自检崩掉）"""
+    return value if isinstance(value, dict) else {}
+
+
+def read_text_or(path: Path, fallback: str = "") -> str:
+    """读一个小文本文件；文件不在就给 fallback。
+    断言里用它是为了「文件没生成」这条能报成一条失败，而不是把整段自检崩掉。"""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return fallback
+
+
+def check_datasets() -> None:
+    """数据集（多套数据文件）：老布局自动搬迁 / 列表 / 关掉功能的两种情形。
+
+    单开一份临时根目录 + 一个服务，不去碰上面那个 XIAOLI_DATA_DIR 的临时目录：
+    上面那一大段跑的是「就是这一份」的老语义，这里要的是「根目录 + 数据集」的新语义。
+    """
+    print("\n  数据集（多套数据文件）")
+    workdir = Path(tempfile.mkdtemp(prefix="xiaoli-ds-"))
+    root = workdir / "数据"
+    root.mkdir(parents=True, exist_ok=True)
+    # 老布局：数据直接躺在根目录下，还带着一张图片附件
+    (root / "数据.json").write_text(
+        json.dumps({"version": 1, "rev": 3, "memo": "老布局", "tasks": [], "settings": {}},
+                   ensure_ascii=False), encoding="utf-8")
+    (root / "attachments" / "finance").mkdir(parents=True, exist_ok=True)
+    (root / "attachments" / "finance" / "a.png").write_bytes(TINY_PNG)
+
+    proc = None
+    try:
+        proc, port, health = start_temp_server(None, root=root, expect_under=workdir)
+        check("数据集模式下服务起得来", bool(health))
+        if health:
+            check("老数据自动搬进 数据\\默认\\",
+                  (root / "默认" / "数据.json").exists() and not (root / "数据.json").exists())
+            check("图片附件也一起搬过去",
+                  (root / "默认" / "attachments" / "finance" / "a.png").exists())
+            check("当前数据集写进了 当前数据集.txt",
+                  read_text_or(root / "当前数据集.txt").strip() == "默认")
+            check("health 报出当前数据集和根目录",
+                  health.get("dataset") == "默认" and health.get("datasetsEnabled") is True
+                  and str(root) == str(health.get("dataRoot")),
+                  str({k: health.get(k) for k in ("dataset", "datasetsEnabled", "dataRoot")}))
+            check("搬迁之后数据文件路径指向 默认\\",
+                  str(root / "默认") in str(health.get("dataFile")), str(health.get("dataFile")))
+            check("老数据的内容一个字没动", call(port, "/api/data")[1].get("memo") == "老布局")
+            check("老数据里的修订号也没动", call(port, "/api/data")[1].get("rev") == 3)
+            items = dict_or(call(port, "/api/datasets")[1])
+            check("列表里有「默认」这一份，并标出它是当前那份",
+                  items.get("enabled") is True and items.get("current") == "默认"
+                  and [i["name"] for i in items["items"]] == ["默认"], str(items)[:90])
+            check("列表报出这份数据的条数",
+                  isinstance(items["items"][0].get("count"), int)
+                  and str(items["items"][0].get("dataFile", "")).endswith("数据.json"))
+            check("搬迁这件事写进了运行日志",
+                  (root / "默认" / "日志" / "运行.log").exists()
+                  and "老布局搬进" in read_text_or(root / "默认" / "日志" / "运行.log"),
+                  "日志里应该有一行「老布局搬进 默认\\」")
+    finally:
+        stop_server(proc)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    # 设了 XIAOLI_DATA_DIR：数据集功能整体关掉，行为回到今天这样
+    print("\n  XIAOLI_DATA_DIR 时：数据集功能关着")
+    workdir2 = Path(tempfile.mkdtemp(prefix="xiaoli-ds-off-"))
+    proc2 = None
+    try:
+        proc2, port2, health2 = start_temp_server(workdir2 / "数据", expect_under=workdir2)
+        check("关掉功能时服务照旧起得来", bool(health2))
+        if health2:
+            check("health 说数据集功能关着", health2.get("datasetsEnabled") is False,
+                  str(health2.get("datasetsEnabled")))
+            check("关掉时当前数据集是空串（状态栏不显示名字）",
+                  health2.get("dataset") == "")
+            off = dict_or(call(port2, "/api/datasets")[1])
+            check("关掉时列表是空的、enabled 为假",
+                  off.get("enabled") is False and off.get("items") == [], str(off)[:80])
+            check("关掉时数据文件就在指定的那个目录里（老语义不变）",
+                  str(workdir2 / "数据") in str(health2.get("dataFile")),
+                  str(health2.get("dataFile")))
+            check("关掉时不搞搬迁（根目录里不会被塞出一个 默认\\）",
+                  not (workdir2 / "数据" / "当前数据集.txt").exists()
+                  and not (workdir2 / "数据" / "默认").exists())
+    finally:
+        stop_server(proc2)
+        shutil.rmtree(workdir2, ignore_errors=True)
 
 
 def main() -> int:
@@ -770,6 +917,10 @@ def main() -> int:
         except Exception:
             proc.kill()
         shutil.rmtree(workdir, ignore_errors=True)
+
+    # 数据集（多套数据文件）那一块，单开一份临时根目录和一个服务；放在最后，
+    # 因为它和上面那一大段是两套数据目录语义，各跑各的、别互相影响
+    check_datasets()
 
     print("-" * 64)
     print("  通过 %d 项，失败 %d 项" % (len(ok_list), len(bad_list)))

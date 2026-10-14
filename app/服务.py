@@ -29,6 +29,7 @@ import uuid
 import urllib.parse
 import webbrowser
 import http.client
+import zipfile
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -42,24 +43,65 @@ SERVER_TOKEN = "XiaoLi/1.0"
 # 项目目录就是这个文件的上上级（比如 D:\小李）
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(BASE_DIR, "app", "web")
-# 想换数据位置（比如挪到别的盘），设环境变量 XIAOLI_DATA_DIR 就行。
-# 自检脚本就是靠它在一个临时目录里跑，绝不去碰你的真实数据。
-DATA_DIR = os.environ.get("XIAOLI_DATA_DIR") or os.path.join(BASE_DIR, "数据")
-DATA_FILE = os.path.join(DATA_DIR, "数据.json")
-BACKUP_DIR = os.path.join(DATA_DIR, "备份")
-EXPORT_DIR = os.path.join(DATA_DIR, "导出")
-LOG_DIR = os.path.join(DATA_DIR, "日志")
-LOG_FILE = os.path.join(LOG_DIR, "运行.log")
-PREV_FILE = os.path.join(BACKUP_DIR, "_最近一次.json")
-# 写入闸：同一时间只让一个进程写 数据.json。写的时候在这儿放一个标记文件，
+# 数据放哪儿，两种用法：
+#   1) 「一份数据一个文件夹，界面上换着用」（多数据集）—— 默认就是这一种。
+#      根目录 = 环境变量 XIAOLI_DATA_ROOT，默认 BASE_DIR\数据；
+#      里面一套数据一个子文件夹（默认\、工作\…），现在用哪一份记在 当前数据集.txt。
+#   2) 「就是这一份，别管别人」—— 设 XIAOLI_DATA_DIR，指哪用哪，数据集功能整个关掉。
+#      自检脚本、演示数据、以及自己把数据挪到别的盘的情况都走这一种。
+ENV_DIR = os.environ.get("XIAOLI_DATA_DIR")
+DATA_ROOT = os.path.abspath(os.environ.get("XIAOLI_DATA_ROOT")
+                            or os.path.join(BASE_DIR, "数据"))
+DATASETS_ENABLED = not ENV_DIR
+DEFAULT_DATASET = "默认"
+CURRENT_FILE = os.path.join(DATA_ROOT, "当前数据集.txt")
+
+# 数据集名字的规则。和前端 app/web/dataset-calc.js 那份必须一模一样
+# （tests\自检.py 里有一条盯着三张表对不对得上）。
+DATASET_NAME_MAX = 24
+DATASET_BAD_CHARS = '\\/:*?"<>|'
+DATASET_RESERVED = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
+# 下面九个路径全都按「当前那份数据的目录」算，derive_paths() 是唯一的入口。
+# 启动和运行期切换都走它 —— 换了一半（数据文件换了、附件目录没换）是最难查的那种错。
+DATA_DIR = ""
+DATA_FILE = ""
+BACKUP_DIR = ""
+EXPORT_DIR = ""
+LOG_DIR = ""
+LOG_FILE = ""
+PREV_FILE = ""
+LOCK_FILE = ""
+ATTACH_DIR = ""
+CURRENT_DATASET = ""     # 关掉数据集功能时是空串（health 里也这么报）
+
+
+def derive_paths(data_dir: str) -> None:
+    """把上面九个路径整体指向这个目录。派生规则只有这一份。"""
+    global DATA_DIR, DATA_FILE, BACKUP_DIR, EXPORT_DIR, LOG_DIR, LOG_FILE
+    global PREV_FILE, LOCK_FILE, ATTACH_DIR
+    DATA_DIR = data_dir
+    DATA_FILE = os.path.join(DATA_DIR, "数据.json")
+    BACKUP_DIR = os.path.join(DATA_DIR, "备份")
+    EXPORT_DIR = os.path.join(DATA_DIR, "导出")
+    LOG_DIR = os.path.join(DATA_DIR, "日志")
+    LOG_FILE = os.path.join(LOG_DIR, "运行.log")
+    PREV_FILE = os.path.join(BACKUP_DIR, "_最近一次.json")
+    LOCK_FILE = os.path.join(DATA_DIR, "数据.lock")
+    ATTACH_DIR = os.path.join(DATA_DIR, "attachments")
+
+
+# 写入闸：同一时间只让一个进程写 数据.json。写的时候在数据目录里放一个标记文件，
 # 写完删掉；被别人拿着的期间，另外那份的保存会被挡回去（不覆盖）。
 # 上次崩在写盘中途会留下残留，超过 LOCK_STALE_SECONDS 就当过期，清掉重来。
-LOCK_FILE = os.path.join(DATA_DIR, "数据.lock")
 LOCK_STALE_SECONDS = 10
 # 图片附件：单独一个文件夹，主数据文件里只存相对路径（attachments/模块/文件名）。
-# 放在 数据 目录下面是有意的——备份、搬到别的盘（XIAOLI_DATA_DIR）都是一整份走，
+# 放在数据目录下面是有意的——备份、整个搬到别的盘都是一整份走，
 # 而且 同步到小李.cmd / .gitignore 本来就不碰 数据 目录，图片不会跟着代码跑。
-ATTACH_DIR = os.path.join(DATA_DIR, "attachments")
 # 附件按模块分格；加新模块往这里补一个名字，前端 attachment-calc.js 也要跟着加
 ATTACH_MODULES = (
     "finance", "buglog", "progress",
@@ -215,6 +257,177 @@ def ensure_dirs() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(BACKUP_DIR, exist_ok=True)
     os.makedirs(ATTACH_DIR, exist_ok=True)
+
+
+# --------------------------------------------------------------------------
+# 数据集（多套数据文件）：一个数据集 = 一个文件夹
+# --------------------------------------------------------------------------
+
+class DatasetError(Exception):
+    """名字不合规 / 没有这份数据集 —— 都是「用户改一下就能过」的错，回 400。"""
+
+
+class DatasetBusy(Exception):
+    """正有人在写盘 —— 和写入闸一个口径，回 409 让前端说「稍后重试」。"""
+
+
+def dataset_dir(name: str) -> str:
+    return os.path.join(DATA_ROOT, name)
+
+
+def check_dataset_name(name: str, existing) -> str:
+    """名字合不合规：通过给空串，不通过给一句中文原因。
+
+    和前端 app/web/dataset-calc.js 的 checkDatasetName 是同一套规则、同一批文案：
+    服务端这份是权威（真拦），前端那份只为了当场把按钮灰掉 + 说清为什么。
+    调用方负责先去首尾空格（两边都这样，免得「尾部空格」在两边的表现不一样）。
+    """
+    if not name:
+        return "得给这份数据起个名字"
+    if len(name) > DATASET_NAME_MAX:
+        return "名字最多 %d 个字" % DATASET_NAME_MAX
+    for ch in name:
+        if ch in DATASET_BAD_CHARS:
+            return "名字里不能有 \\ / : * ? \" < > |"
+        if ord(ch) < 32:
+            return "名字里不能有控制字符"
+    if name == "." or name == ".." or name.startswith("."):
+        return "名字不能以点开头"
+    if name.endswith("."):
+        return "名字不能以点结尾"
+    if name.lower() in DATASET_RESERVED:
+        return "「%s」是系统保留的名字" % name
+    if name in (existing or []):
+        return "已经有一份叫「%s」的了" % name
+    return ""
+
+
+def dataset_names() -> list[str]:
+    """根目录下的数据集：认文件夹，跳过点开头的（隐藏 / 临时）、跳过名字不合规的。"""
+    out = []
+    try:
+        entries = os.listdir(DATA_ROOT)
+    except OSError:
+        return out
+    for name in entries:
+        if name.startswith(".") or not os.path.isdir(dataset_dir(name)):
+            continue
+        if check_dataset_name(name, []):     # 手建的怪名字当没看见，别让它进列表
+            continue
+        out.append(name)
+    return sorted(out)
+
+
+def read_current_dataset() -> str:
+    """现在用哪一份。文件读不到、写坏了、记的那份不在了 —— 一律兜回「默认」。
+
+    它写成纯文本就是为了「坏得起」：出什么岔子都还能起来，也还能拿记事本改。
+    """
+    name = ""
+    try:
+        with open(CURRENT_FILE, "r", encoding="utf-8") as f:
+            name = f.read().strip()
+    except OSError:
+        name = ""
+    if name and not check_dataset_name(name, []) and os.path.isdir(dataset_dir(name)):
+        return name
+    if name:
+        log_line("当前数据集「%s」找不到了，这次按默认来" % name)
+    return DEFAULT_DATASET
+
+
+def write_current_dataset(name: str) -> None:
+    """「现在用哪一份」先落盘再换路径：这个文件是权威，崩了下次也切过去了。"""
+    os.makedirs(DATA_ROOT, exist_ok=True)
+    with open(CURRENT_FILE, "w", encoding="utf-8") as f:
+        f.write(name + "\n")
+
+
+def migrate_legacy_layout() -> list[str]:
+    """老布局（数据直接躺在根目录下）一次性搬进 默认\\，返回搬了哪几样。
+
+    只在「根目录下有 数据.json」且「默认\\ 还没有数据」时动手。一样一样搬：
+    同一个盘里是改名不是复制，秒完、不多占空间；中途失败也只是没搬完，东西都还在原处。
+    内容一个字都不动（不读、不改、不重新序列化），所以 rev 和文件修改时间都是搬之前那样。
+    """
+    if not os.path.exists(os.path.join(DATA_ROOT, "数据.json")):
+        return []
+    if os.path.exists(os.path.join(dataset_dir(DEFAULT_DATASET), "数据.json")):
+        return []
+    target = dataset_dir(DEFAULT_DATASET)
+    os.makedirs(target, exist_ok=True)
+    moved = []
+    for name in sorted(os.listdir(DATA_ROOT)):
+        if name == DEFAULT_DATASET or name == os.path.basename(CURRENT_FILE):
+            continue
+        try:
+            shutil.move(os.path.join(DATA_ROOT, name), os.path.join(target, name))
+            moved.append(name)
+        except OSError as exc:
+            print("  ! 搬迁「%s」没成功（%s）：它还在原处，不影响用" % (name, exc))
+    if moved:
+        write_current_dataset(DEFAULT_DATASET)
+    return moved
+
+
+def boot_paths() -> None:
+    """启动时定下「当前是哪一份、九个路径指向哪儿」。"""
+    global CURRENT_DATASET
+    if not DATASETS_ENABLED:
+        # 老变量：就是这一份，数据集功能整体关掉
+        CURRENT_DATASET = ""
+        derive_paths(os.path.abspath(ENV_DIR))
+        return
+    moved = migrate_legacy_layout()
+    CURRENT_DATASET = read_current_dataset()
+    derive_paths(dataset_dir(CURRENT_DATASET))
+    if moved:
+        log_line("老布局搬进 %s\\：%s" % (DEFAULT_DATASET, "、".join(moved)))
+        print("  已把老布局的数据搬进 %s\\（%s）—— 内容一个字没动"
+              % (DEFAULT_DATASET, "、".join(moved)))
+
+
+def dataset_info(name: str) -> dict:
+    """列表里那一行：多少条、多大、什么时候动过。
+
+    读**别的**数据集只读那一份原始 JSON：不跑 migrate、不写盘 ——
+    看一眼列表不该改动别人的数据。
+    """
+    file = os.path.join(dataset_dir(name), "数据.json")
+    info = {
+        "name": name, "current": name == CURRENT_DATASET, "dataFile": file,
+        "bytes": 0, "rev": 0, "count": 0, "counts": {}, "updatedAt": "", "mtime": 0,
+        "bad": False,
+    }
+    if not os.path.exists(file):
+        return info
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if not isinstance(raw, dict):
+            raise ValueError("不是一份数据")
+    except Exception:
+        info["bad"] = True     # 读不出来就如实说，不拿「0 条」糊弄人
+        return info
+    counts = dict(summarize(raw))
+    info.update(
+        bytes=os.path.getsize(file), rev=int(raw.get("rev") or 0),
+        counts=counts, count=sum(counts.values()),
+        updatedAt=str(raw.get("updatedAt") or ""), mtime=os.path.getmtime(file),
+    )
+    return info
+
+
+def list_datasets() -> dict:
+    if not DATASETS_ENABLED:
+        return {"ok": True, "enabled": False, "current": "", "root": "", "items": []}
+    return {
+        "ok": True, "enabled": True, "current": CURRENT_DATASET, "root": DATA_ROOT,
+        "items": [dataset_info(n) for n in dataset_names()],
+    }
+
+
+boot_paths()
 
 
 # --------------------------------------------------------------------------
@@ -913,6 +1126,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({
                 "app": APP_NAME,
                 "version": APP_VERSION,
+                "dataset": CURRENT_DATASET,
+                "dataRoot": DATA_ROOT if DATASETS_ENABLED else "",
+                "datasetsEnabled": DATASETS_ENABLED,
                 "dataFile": DATA_FILE,
                 "backupDir": BACKUP_DIR,
                 "exportDir": EXPORT_DIR,
@@ -922,6 +1138,9 @@ class Handler(BaseHTTPRequestHandler):
                 "dataSize": os.path.getsize(DATA_FILE) if os.path.exists(DATA_FILE) else 0,
                 "serverTime": now_text(),
             })
+            return
+        if path == "/api/datasets":
+            self.send_json(list_datasets())
             return
         if path == "/api/data":
             self.send_json(load_data())
@@ -1446,6 +1665,8 @@ def main() -> int:
         log_line("每日自动备份：%s" % os.path.basename(backup))
 
     print("  数据文件：%s" % DATA_FILE)
+    if DATASETS_ENABLED:
+        print("  当前数据集：%s（根目录 %s）" % (CURRENT_DATASET, DATA_ROOT))
     if not existed:
         print("  首次运行，已生成一个空的数据文件。")
     print("  今日备份：%s" % (backup if backup else "已存在，不重复备份"))

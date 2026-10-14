@@ -63,7 +63,15 @@ def data_dir_of(explicit: str | None, want_running: bool) -> str:
     env = os.environ.get("XIAOLI_DATA_DIR")
     if env:
         return os.path.abspath(env)
-    return os.path.join(BASE_DIR, "数据")
+    root = os.environ.get("XIAOLI_DATA_ROOT") or os.path.join(BASE_DIR, "数据")
+    # 有多数据集的时候，数据在 「根目录\当前数据集\」 里（现在用哪一份记在 当前数据集.txt）。
+    # 不认得这一步的话，演示数据会写到根目录上、界面里一份都看不见（2026-10-14 补）。
+    try:
+        with open(os.path.join(root, "当前数据集.txt"), "r", encoding="utf-8") as f:
+            name = f.read().strip()
+    except OSError:
+        name = ""
+    return os.path.join(root, name) if name else root
 
 
 def data_file_of(data_dir: str) -> str:

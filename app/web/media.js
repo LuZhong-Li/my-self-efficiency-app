@@ -16,6 +16,10 @@ import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, dayLabel } from "./calendar.js";
 import { icon } from "./icons.js";
 import {
+  createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
+  purgeRowAttachments, attachUrl, rowPaths,
+} from "./attachment.js";
+import {
   PLATFORMS,
   PLATFORM_LIMIT,
   PLATFORM_MAX_CHARS,
@@ -23,6 +27,7 @@ import {
   addPlatform,
   removePlatform,
   lastSnapshotOf,
+  assetsOf, assetUsage, assetsOfContent, unlinkAsset,
   recentDays, parseSnapshotLines, applySnapshots,
   contentCsvRows, mediaCsv,
   ARCHIVED,
@@ -52,6 +57,202 @@ let listStatus = "all"; // all / 五个状态 / archived
 let listSort = "plan"; // plan（计划时间）/ created（创建时间）
 let listText = ""; // 列表关键词
 
+/* ---------------- 素材子页（2026-10-14 加的） ----------------
+   素材（脚本 / 封面 / 参考链接）单独一张 mediaAssets 表；「这条作品用了哪几份」
+   存在作品那一侧（contents[].assetIds），所以这里那句「用在 N 条作品上」是现算的。
+   图片走现成的附件组件、存 attachments/media_asset/；链接就是一段 URL。 */
+
+/** 素材子页：一行一份素材（图片给缩略图、链接给可点的链接） */
+function assetsView() {
+  const assets = assetsOf(store.data);
+  const usage = assetUsage(assets, table("contents"));
+  return `
+    <section class="card">
+      <div class="card-head">
+        <h2>${icon("folder", 18)}素材</h2>
+        <span class="hint">${assets.length ? assets.length + " 份" : ""}</span>
+      </div>
+      ${
+        assets.length
+          ? `<ul class="items">${assets.map((a) => assetRow(a, usage[a.id] || 0)).join("")}</ul>`
+          : emptyState(
+              "还没有素材",
+              "把脚本、封面、参考链接收进来，做作品的时候直接挑。",
+              "",
+              "folder"
+            )
+      }
+    </section>`;
+}
+
+function assetRow(a, used) {
+  const thumb =
+    a.kind === "image"
+      ? `<span class="asset-thumb">${
+          a.path ? `<img src="${esc(attachUrl(a.path))}" alt="">` : "🖼"
+        }</span>`
+      : `<span class="asset-thumb link">🔗</span>`;
+  const link =
+    a.kind === "link"
+      ? `<a class="link asset-url" href="${esc(a.url)}" target="_blank"
+           rel="noreferrer">${esc(a.url)}</a>`
+      : "";
+  return `
+    <li class="item asset-row" data-id="${esc(a.id)}">
+      ${thumb}
+      <span class="asset-main">
+        <span class="i-title">${esc(a.title)}</span>
+        ${link}
+        ${a.note ? `<span class="i-note">${esc(a.note)}</span>` : ""}
+      </span>
+      <span class="i-meta">${used ? `用在 ${used} 条作品上` : "还没被用过"}</span>
+      <span class="i-actions">
+        <button class="link" data-act="asset-edit">编辑</button>
+        <button class="link danger" data-act="asset-del">删除</button>
+      </span>
+    </li>`;
+}
+
+/** 素材弹窗里那段表单：初次渲染和「切换类型」都用它，一处定义 */
+function assetFormHtml(kind, values = {}) {
+  const v = {
+    title: String(values.title || ""),
+    url: String(values.url || ""),
+    note: String(values.note || ""),
+  };
+  return `
+    <label class="fin-label">类型</label>
+    <div class="fin-tabs">
+      <button type="button" class="fin-tab${kind === "image" ? " active" : ""}"
+        data-act="asset-kind" data-kind="image">图片</button>
+      <button type="button" class="fin-tab${kind === "link" ? " active" : ""}"
+        data-act="asset-kind" data-kind="link">链接</button>
+    </div>
+    <label class="fin-label" for="asset-title">标题 *</label>
+    <input id="asset-title" maxlength="60" placeholder="比如：封面 / 脚本 / 参考视频"
+      value="${esc(v.title)}">
+    ${
+      kind === "image"
+        ? `<p class="fin-help">一张素材一张图；竖版封面、脚本截图分开建两份就行。</p>`
+        : `<label class="fin-label" for="asset-url">链接 *</label>
+           <input id="asset-url" maxlength="300" placeholder="https://…" value="${esc(v.url)}">`
+    }
+    <label class="fin-label" for="asset-note">说明</label>
+    <input id="asset-note" maxlength="200" placeholder="给谁看的、哪里找的（可不填）"
+      value="${esc(v.note)}">
+    <p class="fin-err" id="asset-err" hidden></p>
+    ${kind === "image" ? `<div class="attach-host" id="asset-attach"></div>` : ""}`;
+}
+
+/**
+ * 删一份素材：**先把引用从各作品摘掉**（作品本身一个字不动），再挪进回收站。
+ * 返回 true 表示真删了（调用方照它决定要不要关弹窗 / 重画）。
+ */
+async function removeAsset(a) {
+  const used = assetUsage(assetsOf(store.data), table("contents"))[a.id] || 0;
+  const ok = await askConfirm({
+    title: `删除素材「${a.title}」？`,
+    message: used
+      ? `有 ${used} 条作品在用，删掉之后它们的素材里也会少这一份（作品本身不动）。`
+      : "还没有作品用它。会放进回收站，误删可找回。",
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!ok) return false;
+  store.data.contents = unlinkAsset(table("contents"), a.id);
+  moveToTrash("mediaAssets", a, a.title);
+  touch(true);
+  toast("已移入回收站");
+  return true;
+}
+
+/** 添加 / 编辑一份素材 */
+function openAssetDialog(id, options = {}) {
+  const a = id ? assetsOf(store.data).find((x) => x.id === id) : null;
+  let kind = a ? a.kind : "image";
+  const beforePaths = a && a.path ? [a.path] : [];
+  const attach = createAttach({ module: "media_asset", paths: beforePaths });
+  const { el, close } = openDialog({
+    title: a ? "编辑素材" : "添加素材",
+    bodyHtml: assetFormHtml(kind, a || {}),
+    buttons: [
+      ...(a ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
+      { id: "cancel", label: "取消" },
+      { id: "save", label: "保存", kind: "primary" },
+    ],
+    onClose: () => disposeAttach(attach),
+    onAction(act, dlg) {
+      const fail = (msg) => {
+        const box = dlg.querySelector("#asset-err");
+        box.textContent = msg;
+        box.hidden = false;
+        return false;   // 弹窗留着让人改
+      };
+      if (act === "cancel") return true;
+      if (act === "delete") {
+        (async () => {
+          if (!(await removeAsset(a))) return;
+          close();
+          if (options.onSaved) options.onSaved();
+        })();
+        return false;   // 确认框接管了这里
+      }
+      if (act !== "save") return false;
+      (async () => {
+        const title = dlg.querySelector("#asset-title").value.trim();
+        if (!title) return fail("标题不能是空的");
+        const note = dlg.querySelector("#asset-note").value.trim();
+        let path = "";
+        let url = "";
+        if (kind === "image") {
+          let uploaded = [];
+          try {
+            // 先把图写进 数据\attachments\media_asset\，再动 JSON（和记账一个顺序）
+            uploaded = await uploadPending(attach);
+          } catch (err) {
+            return fail("图片没存下：" + err.message);
+          }
+          commitUploads(attach, uploaded);
+          path = attach.paths[0] || "";
+          if (!path) return fail("先选一张图（或者在弹窗里按 Ctrl+V 贴一张）");
+        } else {
+          url = dlg.querySelector("#asset-url").value.trim();
+          if (!/^https?:\/\//i.test(url)) return fail("链接要以 http 开头");
+        }
+        if (a) Object.assign(a, { title, kind, path, url, note });
+        else {
+          table("mediaAssets").push({
+            id: uid(), title, kind, path, url, note, createdAt: nowText(),
+          });
+        }
+        touch(true);
+        dlg.close();
+        toast(a ? "素材已更新" : `已添加「${title}」`);
+        // 换成链接、或者换了一张图之后，原来那张图跟着设置走（默认保留）
+        const removed = beforePaths.filter((p) => p !== path);
+        if (removed.length) purgeRowAttachments({ imagePaths: removed });
+        if (options.onSaved) options.onSaved();
+      })();
+      return false;
+    },
+  });
+  if (kind === "image") mountAttach(el.querySelector("#asset-attach"), attach);
+  // 切换类型：把已填的值带上、重画那段表单、重新 mountAttach（和记账切支出/收入一个做法）
+  el.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-act="asset-kind"]');
+    if (!btn) return;
+    const keep = {
+      title: el.querySelector("#asset-title").value,
+      url: el.querySelector("#asset-url") ? el.querySelector("#asset-url").value : "",
+      note: el.querySelector("#asset-note").value,
+    };
+    kind = btn.dataset.kind === "link" ? "link" : "image";
+    el.querySelector(".dlg-form").innerHTML = assetFormHtml(kind, keep);
+    if (kind === "image") mountAttach(el.querySelector("#asset-attach"), attach);
+  });
+  setTimeout(() => el.querySelector("#asset-title")?.focus(), 0);
+}
+
 export function renderMedia(root, sub) {
   const today = todayStr();
   if (!selected) selected = today;
@@ -59,6 +260,8 @@ export function renderMedia(root, sub) {
   const accounts = table("mediaAccounts");
   // 从账号卡片点进来（#media/<账号id>）时，列表就按这个账号筛
   if (sub && accounts.some((a) => a.id === sub)) listAccount = sub;
+  // #media/assets 是「素材」子页；#media/<账号 id> 仍旧是按账号筛（两个不撞）
+  const onAssets = sub === "assets";
 
   const items = table("contents");
   const snapshots = table("mediaFollowers");
@@ -68,12 +271,23 @@ export function renderMedia(root, sub) {
   root.innerHTML = `
     ${pageHeader(
       "media",
-      `<span class="date-chip">共 ${items.length} 条</span>
-       <button class="btn small" data-act="csv" title="导成 CSV，拿去 Excel 看">导出 CSV</button>
-       <button class="btn small" data-act="plat-manage" title="改「平台」下拉里有哪些可选">${icon("settings", 16)}平台</button>
-       <button class="btn small" data-act="acc-new">${icon("settings", 16)}账号管理</button>`
+      onAssets
+        ? `<button class="btn primary small" data-act="asset-new">${icon("plus", 16)}添加素材</button>`
+        : `<span class="date-chip">共 ${items.length} 条</span>
+           <button class="btn small" data-act="csv" title="导成 CSV，拿去 Excel 看">导出 CSV</button>
+           <button class="btn small" data-act="plat-manage" title="改「平台」下拉里有哪些可选">${icon("settings", 16)}平台</button>
+           <button class="btn small" data-act="acc-new">${icon("settings", 16)}账号管理</button>`
     )}
 
+    <div class="fin-subtabs">
+      <a class="fin-subtab${onAssets ? "" : " active"}" href="#media">${icon("list", 16)}内容与账号</a>
+      <a class="fin-subtab${onAssets ? " active" : ""}" href="#media/assets">${icon("folder", 16)}素材</a>
+    </div>
+
+    ${
+      onAssets
+        ? assetsView()
+        : `
     <section class="card">
       <div class="card-head">
         <h2>${icon("media", 18)}自媒体账号</h2>
@@ -113,6 +327,8 @@ export function renderMedia(root, sub) {
     <section class="card">${dayCard(items, accounts, today)}</section>
 
     <section class="card">${listSection(accounts, items)}</section>
+    `
+    }
   `;
 
   bindFresh(root, { submit: onSubmit, click: onClick, change: onChange, input: onInput });
@@ -1293,6 +1509,16 @@ async function onClick(e) {
   if (act === "acc-edit") return openAccountDialog(id);
   if (act === "acc-snap") return openSnapshotDialog(id);
   if (act === "acc-snap-bulk") return openBulkSnapshotDialog(id);
+  if (act === "asset-new") return openAssetDialog(null, { onSaved: () => redraw() });
+  if (act === "asset-edit") return openAssetDialog(id, { onSaved: () => redraw() });
+  if (act === "asset-del") {
+    const a = assetsOf(store.data).find((x) => x.id === id);
+    if (!a) return;
+    (async () => {
+      if (await removeAsset(a)) redraw();
+    })();
+    return;
+  }
   if (act === "plat-manage") return openPlatformDialog();
   if (act === "csv") return openCsvDialog();
   if (act === "acc-open") {

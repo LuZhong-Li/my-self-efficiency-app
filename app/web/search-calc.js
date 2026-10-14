@@ -13,6 +13,7 @@
 import { MODULES } from "./modules.js";
 import { normalizeTags } from "./tag-calc.js";
 import { subtaskTextOf } from "./task-calc.js";
+import { assetsOf } from "./asset-calc.js";
 
 /** 把文本统一成「好比对」的样子：小写、换行和连续空格压成单个空格、掐掉首尾空白 */
 export function normalizeText(value) {
@@ -177,11 +178,13 @@ export const SOURCE_SPECS = [
     fields: ["mainTarget", "dailyRule", "remark", "moduleName", "cycle", "startDate", "endDate"] },
   // 粉丝快照自己只存 accountId，账号名 / 平台要回账号表里找 —— 搜「B站」也能
   // 带出那天的快照。点结果回自媒体页（快照没有自己的子地址）。
-  { table: "mediaAssets", module: "media", label: "素材",
-    alias: "自媒体 素材 脚本 封面 参考",
+  // 素材库（2026-10-14 升级成全站共用）：读顶层 assets（老的 mediaAssets 也认）。
+  // 文本片段的正文进匹配 —— 搜「你好，我是」也能把那段常用话术找出来。
+  // 图片路径本身不进匹配：搜一个附件文件名没意义，要的是按标题 / 说明 / 链接找到它。
+  { rows: (data) => assetsOf(data), module: "media", hash: "media/assets", label: "素材",
+    alias: "自媒体 素材 脚本 封面 参考 素材库",
     title: "title",
-    // 图片路径本身不进匹配：搜一个附件文件名没意义，要的是按标题 / 说明 / 链接找到它
-    fields: ["title", "note", "url"] },
+    fields: ["title", "note", "url", "text"] },
   { table: "mediaFollowers", module: "media", label: "粉丝",
     alias: "自媒体 粉丝快照 涨粉",
     title: (r, data) => {

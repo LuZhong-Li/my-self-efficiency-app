@@ -44,8 +44,10 @@ const DATA = {
     { id: "mf2", accountId: "ma1", date: "2026-10-04", count: 640 },
   ],
   // 素材也要在样例里有一条：上面那条「每个来源在池子里」的断言会挨个 spec 查
-  mediaAssets: [
+  assets: [
     { id: "as1", title: "样例素材", kind: "link", url: "https://example.com/a", note: "自检用" },
+    { id: "as2", title: "常用话术", kind: "text", text: "你好，我是小李，今天聊一聊",
+      note: "" },
   ],
   projects: [
     { id: "p1", name: "房间收纳改造", status: "进行中", intro: "把阳台用起来", description: "" },
@@ -327,19 +329,29 @@ eq(searchAll(TF_DATA, "招行卡 → 微信").length, 1, "没写备注的那条�
 /* ---------------- 素材（2026-10-14 加的） ---------------- */
 
 const ASSET_DATA = {
-  mediaAssets: [
+  assets: [
     { id: "as1", title: "封面：标签系统那期", kind: "image",
       path: "attachments/media_asset/1.png", note: "B 站竖版" },
     { id: "as2", title: "素材站参考", kind: "link", url: "https://example.com/ref",
+      note: "" },
+    { id: "as3", title: "常用话术", kind: "text", text: "你好，我是小李，今天聊一聊笔记系统",
       note: "" },
   ],
 };
 eq(searchAll(ASSET_DATA, "标签系统").length, 1, "按标题搜得到素材");
 eq(searchAll(ASSET_DATA, "标签系统")[0].label, "素材", "卡片上的标签是「素材」");
-eq(searchAll(ASSET_DATA, "标签系统")[0].hash, "media", "点结果回自媒体页");
+eq(searchAll(ASSET_DATA, "标签系统")[0].hash, "media/assets",
+  "点结果直接回素材库子页（2026-10-14 起）");
 eq(searchAll(ASSET_DATA, "竖版").length, 1, "说明里也搜得到");
 eq(searchAll(ASSET_DATA, "example.com").length, 1, "链接也进匹配");
 eq(searchAll(ASSET_DATA, "media_asset").length, 0, "图片路径本身不搜（搜文件名没意义）");
+
+console.log("\n【素材换成顶层表、文本片段也进匹配（2026-10-14 加的）】");
+eq(searchAll(ASSET_DATA, "常用话术").length, 1, "文本片段的标题搜得到");
+eq(searchAll(ASSET_DATA, "今天聊一聊").length, 1, "文本片段的正文也进匹配");
+eq(searchAll(ASSET_DATA, "今天聊一聊")[0].label, "素材", "带出来的是「素材」那条");
+eq(searchAll({ mediaAssets: [{ id: "old", title: "老素材" }] }, "老素材").length, 1,
+  "老表里的素材照样搜得到（搬家还没落盘那一刻）");
 
 console.log("\n【重复规则与子任务文字也进搜索池（2026-10-14 加的）】");
 const REPEAT_DATA = { tasks: [

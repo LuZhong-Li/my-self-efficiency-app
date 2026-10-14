@@ -20,6 +20,9 @@ export const store = {
   pendingForm: false, // 有表单填了一半还没提交（关窗口前要提醒）
   conflict: false,    // 撞上「别的窗口改过数据」：本窗口的改动先不往磁盘写（绝不覆盖）
   conflictRev: null,  // 冲突时磁盘上的修订号（弹窗提示用）
+  conflictKind: "conflict",  // 冲突是哪一种：conflict / disk / dataset（弹窗文案跟着变）
+  // 服务端那点信息（多数据集）：现在用的是哪一份、根目录在哪、功能开着没
+  server: { dataset: "", dataRoot: "", datasetsEnabled: false },
   timer: null,
   retryTimer: null,   // 撞上「文件正被写」时的重试闹钟
   retryCount: 0,
@@ -66,6 +69,30 @@ export async function initStore() {
   setupChannel();
   bindSystemTheme();
   return readFromDisk();
+}
+
+/* ---------------- 服务端那点信息（多数据集） ----------------
+ * 服务端可能同时管着好几份数据，所以每次保存都要告诉它「这份请求是替哪一份发的」：
+ * 切走之后旧窗口再存一次时，两份数据的修订号完全可能正好相等，光比 rev 挡不住 ——
+ * 只能靠这个名字（见 服务.py 的 api_save）。 */
+
+export function setServerInfo(info) {
+  if (!info || typeof info !== "object") return;
+  store.server = {
+    dataset: String(info.dataset || ""),
+    dataRoot: String(info.dataRoot || ""),
+    datasetsEnabled: Boolean(info.datasetsEnabled),
+  };
+}
+
+/** 重新问一遍服务端（处理冲突时用：数据集可能已经被换成别的了） */
+export async function refreshServerInfo() {
+  try {
+    const res = await fetch("/api/health", { cache: "no-store" });
+    setServerInfo(await res.json());
+  } catch {
+    /* 拿不到就先不改，真出问题还有保存那道闸兜着 */
+  }
 }
 
 export async function readFromDisk() {
@@ -128,15 +155,22 @@ async function saveNow() {
   }
   store.saving = true;
   try {
+    const headers = { "Content-Type": "application/json" };
+    // 带上「我是哪一份数据集」（服务端关掉数据集功能时这个值是空串，那就照旧不带）。
+    // 值必须百分号编码：HTTP 头的值只能是 latin-1，中文名字直接塞进去，
+    // 这一句就会抛编码错、连请求都发不出去（服务端那边对称地 unquote，见 api_save）。
+    if (store.server.dataset) {
+      headers["X-XiaoLi-Dataset"] = encodeURIComponent(store.server.dataset);
+    }
     const res = await fetch("/api/data", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(store.data),
     });
     const body = await res.json().catch(() => ({}));
 
-    // 409 有两种：①冲突（另一个窗口先改过了）②文件正被写（并发抢占）。
-    // 两种都不覆盖磁盘，本窗口的改动一律留着，交给用户决定。
+    // 409 有三种：①数据集被换掉了 ②冲突（另一个窗口先改过了）③文件正被写（并发抢占）。
+    // 前两种都不覆盖磁盘，本窗口的改动一律留着，交给用户决定。
     if (res.status === 409 && body.conflict) {
       markConflict(body);
       return;
@@ -147,6 +181,7 @@ async function saveNow() {
     }
     if (!res.ok || !body.ok) throw new Error(body.error || ("HTTP " + res.status));
     if (typeof body.rev === "number") store.data.rev = body.rev;
+    if (body.dataset) store.server.dataset = String(body.dataset);
     store.dirty = false;
     store.retryCount = 0;
     store.lastSavedAt = body.savedAt;
@@ -168,10 +203,19 @@ function markConflict(body) {
   store.dirty = true;         // 关键：绝不丢本窗口的改动
   store.conflict = true;
   store.conflictRev = typeof body.rev === "number" ? body.rev : null;
+  // 服务端说「数据集已经换了」也是 409，但和「别的窗口改过」不是一回事，
+  // 弹窗文案得分开说（见 conflict.js）
+  store.conflictKind = body.dataset ? "dataset" : "conflict";
   store.pendingSave = false;
   store.retryCount = 0;
-  setStatus("检测到数据冲突：别的窗口改过数据，本次没有保存", "err");
-  emitConflict({ kind: "conflict", rev: store.conflictRev });
+  setStatus(store.conflictKind === "dataset"
+    ? "数据集已经换了：这次没有保存（点这里可处理）"
+    : "检测到数据冲突：别的窗口改过数据，本次没有保存", "err");
+  emitConflict({
+    kind: store.conflictKind,
+    rev: store.conflictRev,
+    dataset: String(body.dataset || ""),
+  });
 }
 
 /** 磁盘正被另一次写占着（并发）：改动留着，过一会儿自己再试，不覆盖。 */
@@ -191,10 +235,13 @@ function retrySaveLater() {
 
 /* ---------------- 冲突处理（给 conflict.js 的弹窗用） ---------------- */
 
-/** 丢掉本窗口改动，读磁盘上最新那份（弹窗里的「刷新并加载最新数据」） */
+/** 丢掉本窗口改动，读磁盘上最新那份（弹窗里的「刷新并加载最新数据」）。
+ *  顺手重读一次 health：数据集可能已经被换成别的了 —— 那种情形下必须重读，
+ *  不然下一次保存还带着旧数据集名，会被一直挡回去。 */
 export async function discardAndReload() {
   clearTimeout(store.retryTimer);
   store.dirty = false;
+  await refreshServerInfo();
   await readFromDisk();      // 里面会把 conflict 清掉
   setStatus("已加载磁盘上的最新数据", "ok");
 }
@@ -207,7 +254,9 @@ export function holdLocalChanges() {
 
 /** 冲突还没处理完，想再打开一次那个弹窗（点状态栏会走这里） */
 export function reopenConflict() {
-  if (store.conflict) emitConflict({ kind: "conflict", rev: store.conflictRev });
+  if (store.conflict) {
+    emitConflict({ kind: store.conflictKind || "conflict", rev: store.conflictRev });
+  }
 }
 
 /** 把一段文本当文件下载下来（CSV、JSON 都走这一个）。

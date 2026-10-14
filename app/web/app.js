@@ -3,6 +3,7 @@
 import {
   store, initStore, onChange, onStatus, onTheme,
   cycleTheme, themeModeOf, themeOf, systemThemeSupported,
+  setServerInfo,
 } from "./store.js";
 import { THEME_MODE_LABEL, nextThemeMode } from "./theme.js";
 import { MODULES } from "./modules.js";
@@ -125,7 +126,12 @@ async function boot() {
   try {
     const res = await fetch("/api/health", { cache: "no-store" });
     const health = await res.json();
-    document.getElementById("foot-file").textContent = health.dataFile;
+    setServerInfo(health);
+    const footFile = document.getElementById("foot-file");
+    // 多数据集时把「现在用的是哪一份」写在路径前面：一眼看出自己在改哪份数据
+    footFile.textContent = health.datasetsEnabled && health.dataset
+      ? `数据集「${health.dataset}」 · ${health.dataFile}`
+      : health.dataFile;
     document.getElementById("foot-server").textContent =
       location.origin + (health.version ? " · " + health.version : "");
   } catch {

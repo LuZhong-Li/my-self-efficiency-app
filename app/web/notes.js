@@ -5,12 +5,14 @@
  * 渲染是纯逻辑（markdown.js），图片走现成的附件组件（目录 note，早就预留好了）。
  */
 
-import { touch, table, esc, uid, moveToTrash } from "./store.js";
+import { store, touch, table, esc, uid, moveToTrash } from "./store.js";
 import { pageHeader, bindFresh, emptyState } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { tagsOfRow, tagColor, normalizeTags, tagInputError } from "./tag-calc.js";
 import { renderMarkdown } from "./markdown.js";
+import { assetsOf, assetPickBoxHtml } from "./asset-calc.js";
+import { openAssetDialog } from "./media.js";
 import {
   createAttach, mountAttach, disposeAttach, uploadPending, commitUploads, rowPaths,
 } from "./attachment.js";
@@ -63,6 +65,26 @@ export function renderNote(root, sub = "") {
     if (attach) disposeAttach(attach);
     attach = null;
   }
+  // 素材那一块：勾 / 取消勾直接写进这条笔记（不用等保存按钮）；「＋ 新建素材」叠开素材弹窗
+  const assetBox = root.querySelector('[data-assets="note-assets"]');
+  if (assetBox) {
+    const write = () => {
+      const note = findNote(currentId);
+      if (!note) return;
+      note.assetIds = [...assetBox.querySelectorAll("[data-asset-pick]:checked")]
+        .map((i) => i.value);
+      stamp(note);
+      touch(true);
+    };
+    assetBox.addEventListener("change", (e) => {
+      if (e.target.closest("[data-asset-pick]")) write();
+    });
+    assetBox.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-asset-new]")) return;
+      // 建完重画一次，新素材马上能勾
+      openAssetDialog(null, { after: () => touch(true) });
+    });
+  }
   bindFresh(root, { click: onClick, input: onInput, change: onChange });
 }
 
@@ -108,6 +130,11 @@ function editorHtml(cur) {
     ${attach && attach.files.length
       ? `<button class="link" data-act="note-save-img">保存图片（${attach.files.length} 张还没存）</button>`
       : ""}
+    <label class="fin-label">素材</label>
+    <div class="dlg-assets" data-assets="note-assets">
+      ${assetPickBoxHtml(assetsOf(store.data),
+        new Set(Array.isArray(cur.assetIds) ? cur.assetIds : []))}
+    </div>
     <p class="note-hint">打字会自动存；离开输入框会刷新左边列表。</p>
   `;
 }

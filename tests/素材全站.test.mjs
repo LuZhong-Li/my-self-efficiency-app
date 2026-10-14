@@ -246,7 +246,10 @@ async function main() {
     JSON.stringify({
       version: 1, rev: 0, memo: "",
       assets: [], mediaAssets: [],
-      tasks: [], contents: [], trash: [], settings: {},
+      tasks: [], contents: [], notes: [], trash: [], settings: {},
+      finance: { accounts: [{ id: "acc-1", name: "现金", initialBalanceCents: 0 }],
+                 transactions: [], transfers: [], templates: [],
+                 budget: { monthlyTotalCents: 0, categoryCents: {} } },
     }),
     "utf8"
   );
@@ -376,18 +379,53 @@ async function main() {
     ok((await ev('document.querySelector(".asset-row .i-meta").title')).includes("待办 1"),
       "悬停提示里说清是「待办 1」");
 
-    /* 4) 删素材 → 任务上那个 id 被摘干净 */
+    /* 4) 记账的弹窗里也能勾素材（手写弹窗也接上了） */
+    console.log("\n记账的弹窗里也能勾素材");
+    await ev('location.hash = "#finance"');
+    await waitFor('!!document.querySelector(\'[data-act="add"]\')', 8000);
+    await ev('document.querySelector(\'[data-act="add"]\').click()');
+    ok(await waitFor('!!document.querySelector("[data-assets=\'tx-assets\']")', 5000),
+      "记账弹窗里有素材那一块");
+    await ev('(()=>{const b=document.querySelector(\'[data-assets="tx-assets"] [data-asset-pick]\');' +
+      'b.checked=true;b.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+    await setFields({ "tx-amount": "12", "tx-note": "带素材的一笔" });
+    await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
+    await sleep(600);
+    const tx = readData(dataFile).finance.transactions[0];
+    ok(Boolean(tx), "账目存下来了");
+    eqDeep(tx.assetIds, [asset.id], "账目上只存了那份素材的 id");
+
+    /* 5) 笔记编辑器里也能挂素材 */
+    console.log("\n笔记编辑器里也能挂素材");
+    await ev('location.hash = "#note"');
+    await waitFor('!!document.querySelector(\'[data-act="note-new"]\')', 8000);
+    await ev('document.querySelector(\'[data-act="note-new"]\').click()');
+    ok(await waitFor('!!document.querySelector("[data-assets=\'note-assets\']")', 5000),
+      "笔记编辑器里有素材那一块");
+    await ev('(()=>{const b=document.querySelector(\'[data-assets="note-assets"] [data-asset-pick]\');' +
+      'b.checked=true;b.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+    await sleep(500);
+    eqDeep(readData(dataFile).notes[0].assetIds, [asset.id], "笔记上只存了那份素材的 id");
+
+    /* 6) 删素材 → 各处的引用都被摘干净 */
     console.log("\n删素材：各处的引用跟着摘掉（记录本身不动）");
+    await ev('location.hash = "#media/assets"');
+    await waitFor('!!document.querySelector(".asset-row")', 8000);
+    eq(await ev('document.querySelector(".asset-row .i-meta").textContent'), "被 3 处引用",
+      "现在写着「被 3 处引用」（待办 + 账目 + 笔记）");
     await ev('document.querySelector(\'.asset-row [data-act="asset-del"]\').click()');
     await waitFor('!!document.querySelector(\'.dlg-backdrop [data-dlg="yes"]\')', 5000);
     const delMsg = await ev('document.querySelector(".dlg-copy p").textContent');
-    ok(delMsg.includes("被 1 处引用着") && delMsg.includes("待办 1"),
+    ok(delMsg.includes("被 3 处引用着") && delMsg.includes("待办 1")
+      && delMsg.includes("账目 1") && delMsg.includes("笔记 1"),
       "确认框里写明几处、在哪（" + delMsg.slice(0, 28) + "…）");
     await ev('document.querySelector(\'.dlg-backdrop [data-dlg="yes"]\').click()');
     await sleep(500);
     const after = readData(dataFile);
     eq(after.assets.length, 0, "素材删掉了（进回收站）");
     eqDeep(after.tasks[0].assetIds, [], "那条任务的引用被摘干净了");
+    eqDeep(after.finance.transactions[0].assetIds, [], "那笔账目的引用也被摘干净了");
+    eqDeep(after.notes[0].assetIds, [], "那篇笔记的引用也被摘干净了");
     ok(after.tasks[0].text === "引用一份素材", "任务本身一个字没动");
 
     /* ---- 全程不该冒 JS 报错 ---- */

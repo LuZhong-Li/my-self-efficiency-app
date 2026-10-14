@@ -28,6 +28,67 @@ function text(value) {
   return String(value == null ? "" : value).trim();
 }
 
+function esc(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/* ---------------- 选择素材那一块（弹窗与笔记编辑器共用一份 markup） ----------------
+   2026-10-14：先是只有 item-form 的控件在用，后来记账弹窗、笔记编辑器也要，
+   与其各写一份，把 markup 收在这儿（和 chart-calc.js 那些拼装函数一个路子）。 */
+
+/** 素材清单里一行怎么写：图片给缩略图，链接给地址，文本片段给前几十个字 */
+export function assetPickText(a) {
+  if (a.kind === "image") {
+    return `<img class="asset-pick-thumb" src="${esc(a.path)}" alt="">` +
+      `<span class="asset-pick-title">${esc(a.title || "（没写标题）")}</span>`;
+  }
+  if (a.kind === "text") {
+    const one = String(a.text || "").replace(/\s+/g, " ").slice(0, 40);
+    return `<span class="asset-pick-title">${esc(a.title || "（文本片段）")}</span>` +
+      `<span class="asset-pick-sub">${esc(one)}</span>`;
+  }
+  return `<span class="asset-pick-title">${esc(a.title || "（没写标题）")}</span>` +
+    `<span class="asset-pick-sub">${esc(a.url || "")}</span>`;
+}
+
+/**
+ * 素材清单的那几行（初次画、以及「新建素材」建完重画都要用）。
+ * picked 是已经勾上的 id 集合 / 数组。
+ */
+export function assetPickRowsHtml(list, picked) {
+  const rows = Array.isArray(list) ? list : [];
+  const pickedSet = picked instanceof Set ? picked : new Set(picked || []);
+  if (!rows.length) {
+    return `<li class="asset-pick-empty">素材库还是空的，点右边「＋ 新建素材」加一份</li>`;
+  }
+  return rows
+    .map(
+      (a) => `
+        <li class="asset-pick">
+          <label class="check"><input type="checkbox" data-asset-pick value="${esc(a.id)}"${
+        pickedSet.has(a.id) ? " checked" : ""
+      }></label>
+          <span class="asset-pick-main">${assetPickText(a)}</span>
+        </li>`
+    )
+    .join("");
+}
+
+/** 整个「素材」那一块（清单 + 说明 + 新建按钮）；页面把它塞进某个容器里就行 */
+export function assetPickBoxHtml(list, picked) {
+  return (
+    `<ul class="asset-pick-list">${assetPickRowsHtml(list, picked)}</ul>` +
+    `<div class="asset-pick-foot">` +
+      `<span class="dlg-tags-hint">记录里只存素材 id，不重复存图片 / 文字</span>` +
+      `<button type="button" class="link" data-asset-new>＋ 新建素材</button>` +
+    `</div>`
+  );
+}
+
 /** 照着 "finance.transactions" 这种路径取表；取不到就给空数组（绝不新建键） */
 function readTable(data, key) {
   if (!data) return [];

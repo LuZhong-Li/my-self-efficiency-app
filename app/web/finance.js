@@ -31,6 +31,10 @@ import {
   createAttach, mountAttach, disposeAttach, uploadPending, commitUploads,
   purgeRowAttachments, thumbsHtml, rowPaths,
 } from "./attachment.js";
+// 素材（2026-10-14 全站版加的）：记账弹窗里也能挂素材
+import { assetsOf, assetPickBoxHtml, assetPickRowsHtml } from "./asset-calc.js";
+import { parseAssetJson } from "./item-form.js";
+import { openAssetDialog } from "./media.js";
 
 let selected = null; // 月历上选中的那天
 let ringPick = null; // 环形图上点开的分类（展开明细用）
@@ -863,7 +867,18 @@ function openTxDialog(tx, options = {}) {
     title: editing
       ? (isTransfer ? "改这条转账" : "改一笔")
       : (type === "transfer" ? "转账" : "记一笔"),
-    bodyHtml: txFormHtml(v, type, f),
+    bodyHtml:
+      txFormHtml(v, type, f) +
+      // 素材（2026-10-14 全站版加的）：转账不挂素材，记支出 / 收入可以挂
+      (type === "transfer"
+        ? ""
+        : `<label class="fin-label">素材</label>
+           <div class="dlg-assets" data-assets="tx-assets">
+             ${assetPickBoxHtml(assetsOf(store.data), new Set(editing ? (tx.assetIds || []) : []))}
+             <input type="hidden" id="tx-assets" value="${esc(
+               JSON.stringify(editing ? (tx.assetIds || []) : [])
+             )}">
+           </div>`),
     buttons: [
       ...(editing ? [{ id: "delete", label: "删除", kind: "danger" }] : []),
       // 转账不做模板（它没分类，形状也对不上），所以只在支出 / 收入这两种里出现
@@ -1023,15 +1038,18 @@ function openTxDialog(tx, options = {}) {
           }
           commitUploads(attach, uploaded);
           const imagePaths = attach.paths.slice();
+          // 挂的素材（2026-10-14 全站版加的）：只存 id
+          const assetIds = parseAssetJson(dlg.el.querySelector("#tx-assets")?.value || "[]");
           if (editing) {
             Object.assign(tx, {
               type, amountCents: cents, date: next.date, category: v.category,
-              accountId: next.accountId, note: next.note, imagePaths,
+              accountId: next.accountId, note: next.note, imagePaths, assetIds,
             });
           } else {
             table("finance.transactions").push({
               id: uid(), type, amountCents: cents, date: next.date, category: v.category,
-              accountId: next.accountId, note: next.note, imagePaths, createdAt: nowText(),
+              accountId: next.accountId, note: next.note, imagePaths, assetIds,
+              createdAt: nowText(),
             });
           }
           selected = next.date; // 记完停在那一天，方便核对
@@ -1052,6 +1070,32 @@ function openTxDialog(tx, options = {}) {
   // 附件区挂在「备注」下面。切换支出/收入会把整个表单重画一遍，
   // 所以那边重画之后要再挂一次（state 没丢，缩略图照旧）。
   mountAttach(dlg.el.querySelector("#tx-attach"), attach);
+  // 素材那一块：勾 / 取消勾写进隐藏 input；「＋ 新建素材」叠开素材弹窗，建完重画这一块
+  const assetBox = dlg.el.querySelector('[data-assets="tx-assets"]');
+  if (assetBox) {
+    const hidden = assetBox.querySelector("#tx-assets");
+    const listEl = assetBox.querySelector(".asset-pick-list");
+    const sync = () => {
+      hidden.value = JSON.stringify(
+        [...assetBox.querySelectorAll("[data-asset-pick]:checked")].map((i) => i.value)
+      );
+    };
+    assetBox.addEventListener("change", (e) => {
+      if (e.target.closest("[data-asset-pick]")) sync();
+    });
+    assetBox.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-asset-new]")) return;
+      openAssetDialog(null, {
+        after: (newId) => {
+          const picked = new Set(parseAssetJson(hidden.value));
+          if (newId) picked.add(newId);
+          listEl.innerHTML = assetPickRowsHtml(assetsOf(store.data), picked);
+          hidden.value = JSON.stringify([...picked]);
+        },
+      });
+    });
+    sync();
+  }
 
   // 弹窗内部的交互（改类型、点分类）自己绑：openDialog 只认它自己的那几个按钮
   dlg.el.addEventListener("click", (e) => {

@@ -13,6 +13,10 @@ import { GOAL_CYCLES } from "./goal-calc.js";
 import { DURATION_UNITS, toMinutes, shownDuration } from "./time-calc.js";
 import { linkGameId } from "./game-calc.js";
 import { DIET_SLOTS } from "./diet-calc.js";
+import { assetPickBoxHtml, assetPickRowsHtml } from "./asset-calc.js";
+
+// 老的调用点（item-dialog.js）从这儿拿，搬家了但名字不变
+export { assetPickRowsHtml };
 
 /* ---------------- 素材字段：读值与编码（2026-10-14 全站版加的） ---------------- */
 
@@ -645,44 +649,6 @@ export function repeatRuleError(text) {
   return "";
 }
 
-/**
- * 素材清单的那几行（弹窗初次画、以及「新建素材」建完重画都要用）。
- * picked 是已经勾上的 id 集合 / 数组。
- */
-export function assetPickRowsHtml(list, picked) {
-  const rows = Array.isArray(list) ? list : [];
-  const pickedSet = picked instanceof Set ? picked : new Set(picked || []);
-  if (!rows.length) {
-    return `<li class="asset-pick-empty">素材库还是空的，点右边「＋ 新建素材」加一份</li>`;
-  }
-  return rows
-    .map(
-      (a) => `
-        <li class="asset-pick">
-          <label class="check"><input type="checkbox" data-asset-pick value="${esc(a.id)}"${
-          pickedSet.has(a.id) ? " checked" : ""
-        }></label>
-          <span class="asset-pick-main">${assetPickText(a)}</span>
-        </li>`
-    )
-    .join("");
-}
-
-/** 素材清单里一行怎么写：图片给缩略图，链接给标题 + 地址，文本片段给前几十个字 */
-function assetPickText(a) {
-  if (a.kind === "image") {
-    return `<img class="asset-pick-thumb" src="${esc(a.path)}" alt="">` +
-      `<span class="asset-pick-title">${esc(a.title || "（没写标题）")}</span>`;
-  }
-  if (a.kind === "text") {
-    const one = String(a.text || "").replace(/\s+/g, " ").slice(0, 40);
-    return `<span class="asset-pick-title">${esc(a.title || "（文本片段）")}</span>` +
-      `<span class="asset-pick-sub">${esc(one)}</span>`;
-  }
-  return `<span class="asset-pick-title">${esc(a.title || "（没写标题）")}</span>` +
-    `<span class="asset-pick-sub">${esc(a.url || "")}</span>`;
-}
-
 function fieldHtml(field, values, ctx) {
   const id = "item-" + field.name;
   const value = values[field.name] == null ? "" : String(values[field.name]);
@@ -785,11 +751,7 @@ function fieldHtml(field, values, ctx) {
     return wrap(
       label +
       `<div class="dlg-assets" data-assets="${esc(field.name)}">` +
-        `<ul class="asset-pick-list">${assetPickRowsHtml(list, picked)}</ul>` +
-        `<div class="asset-pick-foot">` +
-          `<span class="dlg-tags-hint">记录里只存素材 id，不重复存图片 / 文字</span>` +
-          `<button type="button" class="link" data-asset-new>＋ 新建素材</button>` +
-        `</div>` +
+        assetPickBoxHtml(list, picked) +
         `<input type="hidden" id="${id}" value="${esc(value)}">` +
       `</div>`
     );

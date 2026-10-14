@@ -47,12 +47,15 @@ export function sourceTag(task) {
  * 素材标记：这条记录挂了 N 份素材（2026-10-14 全站版加的）。
  * 只报个数，不查素材表 —— 行渲染不该为了一个小标记去读另一张表；
  * 想知道具体是哪几份，点开弹窗（或去素材库看「被 N 处引用」）。
+ *
+ * what 是那句悬停提示里的主语，默认「这条」。游戏清单那一行是拿它下面**游玩记录**
+ * 的素材聚合来的（游戏本身不带素材），所以那边传「这款游戏的游玩记录」。
  */
-export function assetBadge(row) {
+export function assetBadge(row, what = "这条") {
   const list = row && Array.isArray(row.assetIds) ? row.assetIds : [];
   const n = list.filter(Boolean).length;
   if (!n) return "";
-  return `<span class="chip asset-chip" title="这条挂了 ${n} 份素材，点弹窗里的「素材」看">素材 ${n}</span>`;
+  return `<span class="chip asset-chip" title="${what}挂了 ${n} 份素材，点弹窗里的「素材」看">素材 ${n}</span>`;
 }
 
 /**

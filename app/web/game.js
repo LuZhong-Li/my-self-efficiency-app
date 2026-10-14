@@ -289,6 +289,7 @@ function row(g, records) {
       <span class="i-meta">${esc(source)}</span>
       ${target ? `<span class="i-meta">目标 ${esc(target)} 小时/月</span>` : ""}
       ${tagChips(g)}
+      ${assetBadge(assetsRowOf(mine), "这款游戏的游玩记录")}
       <span class="i-note">${esc(g.progress || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="gm-history" data-name="${esc(g.name)}">看记录</button>
@@ -299,6 +300,21 @@ function row(g, records) {
 }
 
 /* ---------------- 弹窗：选项与打开 ---------------- */
+
+/**
+ * 这款游戏的记录上挂过的素材，包成「像一条记录那样」的形状好喂给 assetBadge
+ * （清单那一行自己不带素材，挂素材的是游玩记录）。
+ * 按 id 去重：同一份素材挂在两条记录上只算一份 —— 这一行要答的是「这游戏有多少素材」，
+ * 不是「记录上加起来多少条引用」。
+ */
+function assetsRowOf(myRecords) {
+  const ids = new Set();
+  for (const r of myRecords || []) {
+    if (!r || !Array.isArray(r.assetIds)) continue;
+    for (const id of r.assetIds) if (id) ids.add(id);
+  }
+  return { assetIds: [...ids] };
+}
 
 /** 「游戏名」那一格的候选项：在玩的排前面，想玩、已通关、弃坑跟在后面 */
 function gameChoices(games) {

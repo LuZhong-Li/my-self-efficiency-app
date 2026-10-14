@@ -80,6 +80,12 @@ export function normalizeIssue(row) {
     status: normalizeStatus(r.status),
     module: normalizeModule(r.module),
     imagePaths: rowPaths(r),
+    // 素材那一格（2026-10-14 接上的）：规整出来的副本也要带着，不然两件事都会坏 ——
+    // ①行上那个「素材 N」显示不出来（行渲染用的是这个副本）；
+    // ②改一个问题时素材清单回填成没勾选，一保存就把引用擦掉了。
+    assetIds: (Array.isArray(r.assetIds) ? r.assetIds : [])
+      .map((x) => String(x == null ? "" : x).trim())
+      .filter(Boolean),
     createdAt: String(r.createdAt || ""),
     fixedAt: String(r.fixedAt || ""),
     isArchived: archivedOf(r),

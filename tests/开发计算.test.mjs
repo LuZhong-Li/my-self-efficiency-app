@@ -84,6 +84,10 @@ eq(older.desc, "", "老条目没有详细描述 → 空串（不是 undefined）
 eq(older.module, "通用", "老条目没有关联模块 → 通用");
 eqDeep(older.imagePaths, [], "老条目没有图片 → 空数组");
 eq(older.createdAt, "", "老条目没有创建时间 → 空串");
+eqDeep(older.assetIds, [], "老条目没有素材 → 空数组（不是 undefined）");
+eqDeep(normalizeIssue({ assetIds: "写坏了" }).assetIds, [], "素材字段被写坏了也不是数组就空数组");
+eqDeep(normalizeIssue({ assetIds: ["a", "", null, " b "] }).assetIds, ["a", "b"],
+  "素材 id 里空的丢掉、两头的空格去掉");
 
 const full = normalizeIssue({
   id: "i2", projectId: "p1", title: "月历在小窗口下挤", desc: "复现步骤：\n1. 把窗口拉窄",

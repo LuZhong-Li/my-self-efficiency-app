@@ -190,7 +190,8 @@ async function ev(expr) {
   if (r.exceptionDetails) {
     const d = r.exceptionDetails;
     throw new Error(
-      "页面里的表达式报错了：" + ((d.exception && d.exception.description) || d.text || "?")
+      "页面里的表达式报错了：" + ((d.exception && d.exception.description) || d.text || "?") +
+      "\n      表达式：" + expr
     );
   }
   return r.result.value;
@@ -410,16 +411,85 @@ async function main() {
     eqDeep(readData(dataFile).notes[0].assetIds, [asset.id], "笔记上只存了那份素材的 id");
 
     /* 6) 删素材 → 各处的引用都被摘干净 */
+    /* 6) 开发工作那两处：项目卡片 + 问题行（问题弹窗是手写的，素材区是这一轮补上的） */
+    console.log("\n开发工作：项目卡片和问题行也要标出来");
+    await ev('location.hash = "#dev"');
+    ok(await waitFor('!!document.querySelector(\'[data-act="p-add"]\')', 8000), "项目列表起来了");
+    await ev('document.querySelector(\'[data-act="p-add"]\').click()');
+    ok(await waitFor('!!document.querySelector("[data-assets=\'assetIds\']")', 5000),
+      "添加项目的弹窗里有素材那一块");
+    await ev('(()=>{const b=document.querySelector(\'[data-assets="assetIds"] [data-asset-pick]\');' +
+      'b.checked=true;b.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+    await setFields({ "item-name": "带素材的项目" });
+    await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
+    ok(await waitFor('!!document.querySelector(".proj-card")', 8000), "项目卡片画出来了");
+    ok(await ev('document.querySelector(".proj-card").textContent.includes("素材 1")'),
+      "项目卡片上标着「素材 1」");
+    await sleep(700);        // 落盘是异步的（静默保存延迟 400ms），读文件前等一等
+    eqDeep(readData(dataFile).projects[0].assetIds, [asset.id], "项目上只存了那份素材的 id");
+
+    // 进这个项目 → 记一个问题（问题弹窗里那块素材是本轮新接的）
+    await ev('document.querySelector(".proj-card").click()');
+    ok(await waitFor('!!document.querySelector(\'[data-act="issue-add"]\')', 8000),
+      "进到了项目详情，有「记一个问题」");
+    await ev('document.querySelector(\'[data-act="issue-add"]\').click()');
+    ok(await waitFor('!!document.querySelector("[data-assets=\'issue-assets\']")', 5000),
+      "问题弹窗里有素材那一块（以前只有截图，没有素材）");
+    ok(await ev('document.querySelector(".asset-pick-list").textContent.includes("常用话术")'),
+      "那块清单里看得到刚建的素材");
+    await ev('(()=>{const b=document.querySelector(\'[data-assets="issue-assets"] [data-asset-pick]\');' +
+      'b.checked=true;b.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+    await setFields({ "issue-title": "带素材的问题" });
+    await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
+    await sleep(700);
+    eqDeep(readData(dataFile).issues[0].assetIds, [asset.id], "问题上只存了那份素材的 id");
+    ok(await ev('[...document.querySelectorAll(".issue-row")].some(li=>li.textContent.includes("素材 1"))'),
+      "问题行上标着「素材 1」");
+
+    // 改一次这个问题：素材清单得回填成「勾上的」，不然一保存就把引用擦掉了（本轮真踩到）
+    await ev('document.querySelector(\'.issue-row [data-act="issue-edit"]\').click()');
+    ok(await waitFor('!!document.querySelector("[data-assets=\'issue-assets\']")', 5000),
+      "编辑问题也开得出素材那一块");
+    eq(await ev('document.querySelectorAll(\'[data-assets="issue-assets"] [data-asset-pick]:checked\').length'),
+      1, "编辑时素材回填成已勾选");
+    await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
+    await sleep(700);
+    eqDeep(readData(dataFile).issues[0].assetIds, [asset.id], "改完保存，素材引用还在（没被擦掉）");
+
+    /* 7) 游戏清单行：素材挂在游玩记录上，清单行按记录聚合出来 */
+    console.log("\n游戏娱乐：清单行按它下面的游玩记录标出素材");
+    await ev('location.hash = "#game"');
+    ok(await waitFor('!!document.querySelector(\'[data-act="add"]\')', 8000), "游戏娱乐页起来了");
+    await ev('document.querySelector(\'[data-act="add"]\').click()');
+    await waitFor('!!document.getElementById("item-name")', 5000);
+    await setFields({ "item-name": "Hades" });
+    await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
+    await sleep(600);
+    await ev('document.querySelector(\'[data-act="gm-add"]\').click()');
+    ok(await waitFor('!!document.querySelector("[data-assets=\'assetIds\']")', 5000),
+      "游玩记录的弹窗里有素材那一块");
+    await ev('(()=>{const b=document.querySelector(\'[data-assets="assetIds"] [data-asset-pick]\');' +
+      'b.checked=true;b.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+    await setFields({ "item-gameName": "Hades", "item-duration": "30" });
+    await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
+    await sleep(700);
+    eqDeep(readData(dataFile).gameRecords[0].assetIds, [asset.id], "游玩记录上挂上了那份素材");
+    ok(await waitFor(
+      '[...document.querySelectorAll(".gm-list li.item")].some(li=>li.textContent.includes("Hades") && li.textContent.includes("素材 1"))',
+      8000
+    ), "游戏清单那一行标着「素材 1」（素材在记录上，清单行聚合出来）");
+
     console.log("\n删素材：各处的引用跟着摘掉（记录本身不动）");
     await ev('location.hash = "#media/assets"');
     await waitFor('!!document.querySelector(".asset-row")', 8000);
-    eq(await ev('document.querySelector(".asset-row .i-meta").textContent'), "被 3 处引用",
-      "现在写着「被 3 处引用」（待办 + 账目 + 笔记）");
+    eq(await ev('document.querySelector(".asset-row .i-meta").textContent'), "被 6 处引用",
+      "现在写着「被 6 处引用」（待办 + 账目 + 笔记 + 问题 + 项目 + 游玩记录）");
     await ev('document.querySelector(\'.asset-row [data-act="asset-del"]\').click()');
     await waitFor('!!document.querySelector(\'.dlg-backdrop [data-dlg="yes"]\')', 5000);
     const delMsg = await ev('document.querySelector(".dlg-copy p").textContent');
-    ok(delMsg.includes("被 3 处引用着") && delMsg.includes("待办 1")
-      && delMsg.includes("账目 1") && delMsg.includes("笔记 1"),
+    ok(delMsg.includes("被 6 处引用着") && delMsg.includes("待办 1")
+      && delMsg.includes("账目 1") && delMsg.includes("笔记 1")
+      && delMsg.includes("问题 1") && delMsg.includes("项目 1") && delMsg.includes("游玩记录 1"),
       "确认框里写明几处、在哪（" + delMsg.slice(0, 28) + "…）");
     await ev('document.querySelector(\'.dlg-backdrop [data-dlg="yes"]\').click()');
     await sleep(500);
@@ -428,6 +498,9 @@ async function main() {
     eqDeep(after.tasks[0].assetIds, [], "那条任务的引用被摘干净了");
     eqDeep(after.finance.transactions[0].assetIds, [], "那笔账目的引用也被摘干净了");
     eqDeep(after.notes[0].assetIds, [], "那篇笔记的引用也被摘干净了");
+    eqDeep(after.issues[0].assetIds, [], "那个问题的引用也被摘干净了");
+    eqDeep(after.projects[0].assetIds, [], "那个项目的引用也被摘干净了");
+    eqDeep(after.gameRecords[0].assetIds, [], "那条游玩记录的引用也被摘干净了");
     ok(after.tasks[0].text === "引用一份素材", "任务本身一个字没动");
 
     /* ---- 全程不该冒 JS 报错 ---- */

@@ -1,7 +1,7 @@
 /* 开发工作：项目列表 → 点进项目看待办 / 问题 / 进展 */
 
 import {
-  touch, uid, table, esc, todayStr, nowText, moveToTrash,
+  store, touch, uid, table, esc, todayStr, nowText, moveToTrash,
   autoArchiveTodoOf, autoArchiveIssueOf,
 } from "./store.js";
 import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip,
@@ -17,6 +17,8 @@ import {
   purgeRowAttachments, thumbsHtml, rowPaths, imgBadge, openPathViewer,
 } from "./attachment.js";
 import { openItemDialog, trashItem } from "./item-dialog.js";
+import { assetsOf, assetPickBoxHtml } from "./asset-calc.js";
+import { openAssetDialog } from "./media.js";
 import { PROJECT_STATUSES } from "./item-form.js";
 import {
   SEVERITY, ISSUE_STATUS, ISSUE_MODULES, DEFAULT_ISSUE_MODULE,
@@ -474,6 +476,7 @@ function projCard(p) {
       <div class="proj-top">
         <span class="proj-name">${esc(p.name)}</span>
         <span class="proj-top-right">
+          ${assetBadge(p)}
           ${paths.length ? imgBadge(paths, "图", { act: "p-img", id: p.id, title: "点这里看项目截图" }) : ""}
           ${chip(p.status)}
         </span>
@@ -856,6 +859,7 @@ function issueRow(i) {
         <span class="i-title">${esc(it.title)}</span>
       </span>
       ${imgBadge(it.imagePaths, "截图")}
+      ${assetBadge(it)}
       ${chip(it.status)}
       <span class="i-actions">
         ${closed
@@ -1105,6 +1109,10 @@ function issueFormHtml(v) {
     <label class="dlg-label" for="issue-desc">详细描述</label>
     <textarea id="issue-desc" rows="5" maxlength="2000"
       placeholder="复现步骤 / 预期行为 / 实际现象（可留空）">${esc(v.desc)}</textarea>
+    <label class="dlg-label">素材</label>
+    <div class="dlg-assets" data-assets="issue-assets">
+      ${assetPickBoxHtml(assetsOf(store.data), new Set(Array.isArray(v.assetIds) ? v.assetIds : []))}
+    </div>
     ${
       v.isArchived
         ? `<p class="dlg-hint">这条已经归档（归档于 ${esc(v.archivedAt || "—")}）。
@@ -1168,6 +1176,9 @@ function openIssueDialog(issue) {
           severity: el.querySelector("#issue-severity").value,
           status: el.querySelector("#issue-status").value,
           module: el.querySelector("#issue-module").value,
+          // 素材那块是手写的（问题不走 item-form 的字段表），所以在保存时统一读一遍勾选
+          assetIds: [...el.querySelectorAll('[data-assets="issue-assets"] [data-asset-pick]:checked')]
+            .map((i) => i.value),
         };
         if (!next.title) {
           toast("标题不能是空的", "err");
@@ -1219,8 +1230,34 @@ function openIssueDialog(issue) {
   });
 
   mountAttach(dlg.el.querySelector("#issue-attach"), attach);
+  mountIssueAssets(dlg.el);
   bindDialogEnter(dlg, "#issue-title");
   return dlg;
+}
+
+/**
+ * 问题弹窗里那块素材。为什么问题要单独接一块：这个弹窗是**手写**的（不走
+ * item-form 那张字段表），所以它一直只有截图没有素材 —— 不接上，问题行那个
+ * 「素材 N」永远显示不出来（问题本身早就在 asset-calc 的可挂表里了）。
+ *
+ * 勾选状态在点「保存」时统一读（不像笔记是即勾即存：这个弹窗有明确的保存按钮）；
+ * 「＋ 新建素材」叠开素材弹窗，建完把清单重画一遍并勾上新那份 ——
+ * 不重画的话，新素材得下次打开弹窗才看得见。
+ */
+function mountIssueAssets(dlg) {
+  const box = dlg.querySelector('[data-assets="issue-assets"]');
+  if (!box) return;
+  const render = (extraId = "") => {
+    const picked = new Set(
+      [...box.querySelectorAll("[data-asset-pick]:checked")].map((i) => i.value)
+    );
+    if (extraId) picked.add(extraId);
+    box.innerHTML = assetPickBoxHtml(assetsOf(store.data), picked);
+  };
+  box.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-asset-new]")) return;
+    openAssetDialog(null, { after: (newId) => render(newId) });
+  });
 }
 
 /* ---------------- 弹窗：待办 ----------------

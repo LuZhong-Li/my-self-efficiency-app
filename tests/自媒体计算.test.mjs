@@ -11,6 +11,7 @@ import {
   lastSnapshotOf,
   WORKS_CSV_HEAD, contentCsvRows, mediaCsv,
   recentDays, parseSnapshotLines, applySnapshots,
+  ASSET_KINDS, normalizeAsset, assetsOf, assetUsage, assetsOfContent, unlinkAsset,
 } from "../app/web/media-calc.js";
 import { csvCell } from "../app/web/csv.js";
 
@@ -458,6 +459,62 @@ eq(APPLY.list.find((s) => s.date === "2026-10-11").id, "new-id", "新条目的 i
 eq(EXIST.length, 2, "原数组没被改（返回的是新数组）");
 eqDeep(applySnapshots(null, "a1", [], () => "x"), { list: [], added: 0, updated: 0 },
   "什么都没有时干净地给 0");
+
+/* ---------------- 素材库（2026-10-14 加的） ----------------
+   自媒体要用的东西（脚本、封面、参考链接）收进一张 mediaAssets 表；
+   「这条作品用了哪几份」存在作品那一侧（contents[].assetIds）——
+   日常动作是「做这条作品 → 挑素材」，作品是主动方；素材页那句「用在 N 条作品上」
+   由作品侧现算，不会出现第二份真相。删素材时记得摘引用（unlinkAsset）。 */
+
+eqDeep(ASSET_KINDS, ["image", "link"], "素材就两种：图片 / 链接");
+
+eqDeep(normalizeAsset({ id: "a1", title: " 封面 ", kind: "link", url: " https://x ",
+  path: "attachments/media_asset/x.png", note: " 竖版 " }),
+  { id: "a1", title: "封面", kind: "link", path: "", url: "https://x", note: "竖版", createdAt: "" },
+  "链接素材：填 url、把 path 清掉（两种字段不混着留）");
+eqDeep(normalizeAsset({ title: "图", kind: "image", path: " attachments/media_asset/a.png ",
+  url: "https://忽略" }),
+  { id: "", title: "图", kind: "image", path: "attachments/media_asset/a.png", url: "",
+    note: "", createdAt: "" },
+  "图片素材：填 path、把 url 清掉");
+eq(normalizeAsset({ kind: "别的" }).kind, "image", "类型认不出当图片（界面里默认也是图片）");
+eq(normalizeAsset(null).title, "", "什么都没传也不炸");
+
+const ASSETS = [
+  { id: "a1", title: "封面", kind: "image", path: "attachments/media_asset/1.png" },
+  { id: "a2", title: "参考链接", kind: "link", url: "https://example.com" },
+  { id: "a3", title: "没人用的那份" },
+];
+eq(assetsOf({ mediaAssets: ASSETS }).length, 3, "三条都读出来");
+eq(assetsOf({}).length, 0, "老数据没这个键：空数组，不抛错");
+eq(assetsOf({ mediaAssets: "坏掉的" }).length, 0, "被手改成别的形状也当空");
+eq(assetsOf({ mediaAssets: [{ id: "a9", kind: "image" }] }).length, 0,
+  "标题、图片、链接全空的残渣丢掉（读出来也没法显示）");
+
+const WITH_USE = [
+  { id: "c1", title: "第一条", assetIds: ["a1", "a2"] },
+  { id: "c2", title: "第二条", assetIds: ["a1"] },
+  { id: "c3", title: "没用素材的" },
+];
+eqDeep(assetUsage(ASSETS, WITH_USE), { a1: 2, a2: 1, a3: 0 },
+  "a1 被两条作品用着、a2 一条、a3 没人用；没 assetIds 的作品不算");
+eqDeep(assetUsage(ASSETS, []), { a1: 0, a2: 0, a3: 0 }, "一条作品都没有：都是 0");
+eqDeep(assetUsage(ASSETS, [{ id: "c9", assetIds: ["a1", "a1"] }]), { a1: 1, a2: 0, a3: 0 },
+  "同一条作品里写了两遍同一个 id：只算一条");
+eqDeep(assetUsage(ASSETS, null), { a1: 0, a2: 0, a3: 0 }, "作品传 null 也不炸");
+
+eqDeep(assetsOfContent({ assetIds: ["a2", "a1"] }, ASSETS).map((a) => a.id), ["a1", "a2"],
+  "作品用了哪些素材：按素材库的顺序给回来（库里怎么排就怎么排）");
+eqDeep(assetsOfContent({ assetIds: ["a1", "没有这个"] }, ASSETS).map((a) => a.id), ["a1"],
+  "认不出的 id 直接跳过，不硬塞一个空壳");
+eqDeep(assetsOfContent({}, ASSETS), [], "作品没写 assetIds：空");
+
+const UNLINKED = unlinkAsset(WITH_USE, "a1");
+eqDeep(UNLINKED[0].assetIds, ["a2"], "第一条里的 a1 摘掉了");
+eqDeep(UNLINKED[1].assetIds, [], "第二条只剩它自己（空了就是空数组）");
+eqDeep(UNLINKED[2].assetIds, undefined, "本来没写 assetIds 的那条一个字不动");
+eqDeep(WITH_USE[0].assetIds, ["a1", "a2"], "原数组没被改（返回的是新数组）");
+eqDeep(unlinkAsset(null, "a1"), [], "传 null 也不炸");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

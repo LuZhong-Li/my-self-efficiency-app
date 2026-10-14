@@ -5,7 +5,7 @@ import {
   autoArchiveTodoOf, autoArchiveIssueOf,
 } from "./store.js";
 import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip,
-  tagChips, subtaskBadge, sectionHead } from "./ui.js";
+  tagChips, subtaskBadge, sectionHead, assetBadge } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
 import { inTodayPlan } from "./task-calc.js";
@@ -629,6 +629,7 @@ function todoRow(t) {
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
       ${tagChips(t)}
+      ${assetBadge(t)}
       ${subtaskBadge(t)}
       ${imgBadge(t.imagePaths, "图")}
       <span class="t-note">${esc(t.note || "")}</span>

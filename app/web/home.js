@@ -15,7 +15,9 @@ import {
   HOME_TASK_LIMIT, progressOf, overdueTasks, cardsFor, otherVisibleIn,
   financeBriefOf, financeTextOf,
 } from "./home-view.js";
-import { bindFresh, emptyState, priorityChip, sourceTag, tagChips, subtaskBadge } from "./ui.js";
+import {
+  bindFresh, emptyState, priorityChip, sourceTag, tagChips, subtaskBadge, assetBadge,
+} from "./ui.js";
 import { icon } from "./icons.js";
 import {
   updateTaskStatus, bumpModuleProgress, handleSubtaskChange, handleSubtaskClick,
@@ -359,6 +361,7 @@ function row(t) {
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
       ${tagChips(t)}
+      ${assetBadge(t)}
       ${sourceTag(t)}
       ${subtaskBadge(t)}
       ${t.category ? `<span class="t-cat">${esc(t.category)}</span>` : ""}

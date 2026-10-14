@@ -6,7 +6,7 @@
  */
 
 import { store, table, todayStr, nowText, uid, touch, esc, moveToTrash, downloadText } from "./store.js";
-import { pageHeader, bindFresh, emptyState, options } from "./ui.js";
+import { pageHeader, bindFresh, emptyState, options, assetBadge } from "./ui.js";
 import { icon } from "./icons.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { monthGridHtml, calendarAction, currentMonth, showMonth, dayLabel } from "./calendar.js";
@@ -444,6 +444,7 @@ function txRow(t, withDate = false) {
         ${thumbsHtml(rowPaths(t))}
       </span>
       ${withDate ? `<span class="i-meta">${esc(String(t.date || "").slice(5))}</span>` : ""}
+      ${assetBadge(t)}
       ${accountName ? `<span class="i-meta">${esc(accountName)}</span>` : ""}
       <span class="fin-amount ${t.type === "income" ? "income" : "expense"}">
         ${t.type === "income" ? "+" : "-"}${fmtMoney(t.amountCents)}

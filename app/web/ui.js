@@ -44,6 +44,18 @@ export function sourceTag(task) {
 }
 
 /**
+ * 素材标记：这条记录挂了 N 份素材（2026-10-14 全站版加的）。
+ * 只报个数，不查素材表 —— 行渲染不该为了一个小标记去读另一张表；
+ * 想知道具体是哪几份，点开弹窗（或去素材库看「被 N 处引用」）。
+ */
+export function assetBadge(row) {
+  const list = row && Array.isArray(row.assetIds) ? row.assetIds : [];
+  const n = list.filter(Boolean).length;
+  if (!n) return "";
+  return `<span class="chip asset-chip" title="这条挂了 ${n} 份素材，点弹窗里的「素材」看">素材 ${n}</span>`;
+}
+
+/**
  * 标签胶囊：一条记录贴的标签画成小胶囊，最多画 max 个，剩下的收成 +N
  * （鼠标移上去 title 里能看到全部）。没标签就返回空串，不占位。
  * 颜色由名字哈希取（tag-calc.js 的 tagColor），不落盘、不用配。

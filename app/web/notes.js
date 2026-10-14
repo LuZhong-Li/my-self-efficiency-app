@@ -6,7 +6,7 @@
  */
 
 import { store, touch, table, esc, uid, moveToTrash } from "./store.js";
-import { pageHeader, bindFresh, emptyState } from "./ui.js";
+import { pageHeader, bindFresh, emptyState, assetBadge } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { tagsOfRow, tagColor, normalizeTags, tagInputError } from "./tag-calc.js";
@@ -170,6 +170,7 @@ function noteRow(n) {
     <li class="item note-row${n.id === currentId ? " active" : ""}"
         data-act="note-pick" data-id="${esc(n.id)}">
       <span class="i-title nr-title">${esc(title)}</span>
+      ${assetBadge(n)}
       <span class="i-note nr-sub">${esc(subText(n))}</span>
       ${chips}
     </li>`;

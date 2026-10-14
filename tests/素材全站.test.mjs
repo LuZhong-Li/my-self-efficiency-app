@@ -369,6 +369,8 @@ async function main() {
     await ev('document.querySelector(\'[data-dlg-act="save"]\').click()');
     await sleep(600);
     eqDeep(readData(dataFile).tasks[0].assetIds, [asset.id], "任务上只存了那份素材的 id");
+    ok(await ev('[...document.querySelectorAll(".task")].some(li=>li.textContent.includes("素材 1"))'),
+      "今日计划那一行上带着「素材 1」的标记");
 
     /* 3) 回素材库看「被 1 处引用」 */
     console.log("\n回素材库：那句引用计数是跨表现算的");

@@ -3907,6 +3907,7 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .asset-pick-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .asset-pick-empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
 .asset-pick-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.asset-chip { color: var(--accent); }
 
 /* 笔记（2026-10-14 加，第 11 个模块） */
 .note-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; }

@@ -10,7 +10,7 @@ import {
   planShowGameOf, setPlanShowGame,
 } from "./store.js";
 import {
-  bindFresh, pageHeader, markEnter, priorityChip, sourceTag, tagChips, subtaskBadge,
+  bindFresh, pageHeader, markEnter, priorityChip, sourceTag, tagChips, subtaskBadge, assetBadge,
 } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { renderCalendar } from "./calendar.js";
@@ -217,6 +217,7 @@ function row(t) {
       <span class="t-text">${esc(t.text)}</span>
       ${priorityChip(t.priority)}
       ${tagChips(t)}
+      ${assetBadge(t)}
       ${subtaskBadge(t)}
       ${imgBadge(t.imagePaths, "图")}
       ${sourceTag(t)}

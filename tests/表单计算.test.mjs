@@ -5,7 +5,7 @@
 import {
   FORMS, ITEM_TYPES, formOf, optionsOf, formHtml,
   defaultsOf, valuesOf, readValues, validate, applyValues, newRow, trashPlan, imagesOf,
-  parseSubtaskJson, repeatRuleError,
+  parseSubtaskJson, repeatRuleError, parseAssetJson,
   TASK_CATEGORIES, PRIORITIES, PROJECT_STATUSES, STUDY_KINDS, GAME_STATUSES, GAME_PLATFORMS,
 } from "../app/web/item-form.js";
 import { ATTACH_MODULES } from "../app/web/attachment-calc.js";
@@ -148,7 +148,7 @@ ok(projHtml.includes("<textarea"), "详细描述是多行");
 
 eqDeep(defaultsOf("devProject"),
   { name: "", status: "进行中", startDate: "", intro: "", description: "", expectEndDate: "",
-    tags: "" },
+    assetIds: "[]", tags: "" },
   "新增项目的默认值（状态默认进行中，其它空着）");
 eq(valuesOf("devProject", { name: "木头", status: "废弃", description: "先放着" }).status, "废弃",
   "编辑时状态回填");
@@ -177,7 +177,8 @@ eq(valuesOf("fitness", null, { date: "2026-10-01" }).date, "2026-10-01", "extra 
 
 const bag = { text: "  写方案  ", minutes: "", category: "生活" };
 eqDeep(readValues("todayPlan", (name) => bag[name]),
-  { text: "  写方案  ", time: "", category: "生活", priority: "", tags: "", subtasks: "", note: "" },
+  { text: "  写方案  ", time: "", category: "生活", priority: "", assetIds: "",
+    tags: "", subtasks: "", note: "" },
   "读表单：没填的字段回空串，不去动两头的空格（校验和写回各管各的）");
 
 /* ---------------- 校验 ---------------- */
@@ -219,7 +220,7 @@ eqDeep(todo, {
   id: "id-1", date: "", time: "", category: "工作", done: false, note: "",
   priority: "高", belong: "dev:demo-p1", createdAt: "2026-10-07T10:00:00.000Z",
   isTodayPlan: false,
-  text: "把月历氛围底调淡", tags: [], subtasks: [], imagePaths: [],
+  text: "把月历氛围底调淡", assetIds: [], tags: [], subtasks: [], imagePaths: [],
 }, "新增一条开发待办：空壳 + 表单值 + imagePaths: []");
 
 const plan = newRow("todayPlan", { text: "写方案", time: "09:00", category: "工作", note: "" }, ctx);
@@ -248,7 +249,7 @@ const proj = newRow("devProject",
 eqDeep(proj, {
   id: "id-1", name: "小李", status: "进行中", intro: "本机小工具",
   description: "把十个模块串起来", startDate: "2026-10-03", expectEndDate: "2026-12-31",
-  tags: [], imagePaths: [],
+  assetIds: [], tags: [], imagePaths: [],
 }, "新增项目：空壳 + 七个字段 + 空图片数组");
 
 /* ---------------- 删除计划 ---------------- */
@@ -378,8 +379,8 @@ ok(goalTrash.note.includes("待办会留"), "提示里说清「已生成的待�
 eq(formOf("gamePlayRecord").table, "gameRecords", "游玩记录存 gameRecords 表");
 eq(formOf("gamePlayRecord").upload, "game_record", "游玩记录的图片单独一格");
 eqDeep(formOf("gamePlayRecord").fields.map((f) => f.name),
-  ["gameName", "playDate", "duration", "durationUnit", "tags", "remark"],
-  "游玩记录六个字段：游戏名 / 日期 / 时长 / 单位 / 标签 / 备注");
+  ["gameName", "playDate", "duration", "durationUnit", "assetIds", "tags", "remark"],
+  "游玩记录七个字段：游戏名 / 日期 / 时长 / 单位 / 素材 / 标签 / 备注");
 eq(formOf("gamePlayRecord").fields[0].kind, "combo",
   "游戏名是「下拉 + 手打」两用（清单里有就选，没有就自己打）");
 eq(formOf("gamePlayRecord").fields[0].required, true, "游戏名必填");
@@ -428,7 +429,7 @@ const playNew = newRow("gamePlayRecord",
   { uid: () => "id-9", nowIso: () => "2026-10-06T20:00:00.000Z", date: "2026-10-07" });
 eqDeep(playNew, {
   id: "id-9", gameId: "", gameName: "只狼", playDate: "2026-10-06", durationMin: 90,
-  remark: "", createAt: "2026-10-06T20:00:00.000Z", tags: [], imagePaths: [],
+  remark: "", createAt: "2026-10-06T20:00:00.000Z", assetIds: [], tags: [], imagePaths: [],
 }, "新增游玩记录：空壳 + 表单值（时长拧成分钟）+ 空图片数组");
 
 const playTrash = trashPlan("gamePlayRecord", { id: "r1", gameName: "只狼", playDate: "2026-10-07" });
@@ -627,6 +628,40 @@ const mealPlan = trashPlan("mealItem", itemRow, {}, { meal: bucket });
 eqDeep(mealPlan.items, [], "删除计划不走回收站");
 mealPlan.apply();
 eq(bucket.items.length, 0, "apply 把它从那一餐里摘掉");
+
+/* ---------------- 素材字段（2026-10-14 全站版加的） ----------------
+   表单里它是一块可勾选的素材清单，底下藏着一条隐藏 input（id 数组的 JSON）——
+   读值 / 写回走表单那一套，和子任务那个控件一个路子。 */
+
+for (const type of ["todayPlan", "devTodo", "studyRecord", "studyItem", "fitness",
+                    "gamePlayRecord", "devProject"]) {
+  const field = formOf(type).fields.find((f) => f.name === "assetIds");
+  ok(Boolean(field), `${type} 挂了素材字段`);
+  eq(field && field.kind, "assets", `${type} 的素材字段是 assets 控件`);
+}
+
+const assetHtml = formHtml("todayPlan", { assetIds: "[]" },
+  { assets: [{ id: "a1", title: "封面", kind: "image", path: "attachments/media_asset/x.png" },
+             { id: "a2", title: "常用话术", kind: "text", text: "你好，我是小李" }] });
+ok(assetHtml.indexOf('data-assets="assetIds"') >= 0, "弹窗里画出了素材那一块");
+ok(assetHtml.indexOf('id="item-assetIds"') >= 0, "底下那条隐藏 input 在");
+ok(assetHtml.indexOf("封面") >= 0 && assetHtml.indexOf("常用话术") >= 0,
+  "素材清单里两种类型都列出来了");
+ok(assetHtml.indexOf('value="a1"') >= 0, "每份素材一个勾选框，value 是它的 id");
+ok(assetHtml.indexOf("data-asset-new") >= 0, "带着「新建素材」那个入口");
+eq(defaultsOf("todayPlan", {}).assetIds, "[]", "新增时给空数组的 JSON");
+eq(valuesOf("todayPlan", { id: "t1", assetIds: ["a1"] }, {}).assetIds, '["a1"]',
+  "编辑时把已挂的 id 编码成 JSON 回填");
+eq(valuesOf("todayPlan", { id: "t1" }, {}).assetIds, "[]", "老记录没这一格 → 空数组的 JSON");
+eqDeep(parseAssetJson('["a1","a1",""]'), ["a1"], "读值：去掉重复和空的");
+eqDeep(parseAssetJson("这不是 JSON"), [], "坏 JSON 当空的，不抛错");
+
+const assetRow = newRow("todayPlan", { ...defaultsOf("todayPlan"), text: "写素材库",
+  assetIds: '["a1","a2"]' }, { uid: () => "t-assets", nowIso: () => "x", date: "2026-10-14" });
+eqDeep(assetRow.assetIds, ["a1", "a2"], "写回记录时是字符串数组");
+const clearedAssets = { id: "t2", text: "老记录", assetIds: ["a1"] };
+applyValues("todayPlan", clearedAssets, { ...defaultsOf("todayPlan"), text: "x", assetIds: "[]" });
+eqDeep(clearedAssets.assetIds, [], "全不勾 = 清成空数组（不是留着旧值）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

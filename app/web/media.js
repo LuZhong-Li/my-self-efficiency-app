@@ -120,6 +120,7 @@ function assetFormHtml(kind, values = {}) {
   const v = {
     title: String(values.title || ""),
     url: String(values.url || ""),
+    text: String(values.text || ""),
     note: String(values.note || ""),
   };
   return `
@@ -129,6 +130,8 @@ function assetFormHtml(kind, values = {}) {
         data-act="asset-kind" data-kind="image">图片</button>
       <button type="button" class="fin-tab${kind === "link" ? " active" : ""}"
         data-act="asset-kind" data-kind="link">链接</button>
+      <button type="button" class="fin-tab${kind === "text" ? " active" : ""}"
+        data-act="asset-kind" data-kind="text">文本片段</button>
     </div>
     <label class="fin-label" for="asset-title">标题 *</label>
     <input id="asset-title" maxlength="60" placeholder="比如：封面 / 脚本 / 参考视频"
@@ -136,6 +139,10 @@ function assetFormHtml(kind, values = {}) {
     ${
       kind === "image"
         ? `<p class="fin-help">一张素材一张图；竖版封面、脚本截图分开建两份就行。</p>`
+        : kind === "text"
+        ? `<label class="fin-label" for="asset-text">正文 *</label>
+           <textarea id="asset-text" rows="5" maxlength="2000"
+             placeholder="一小段常用文字：常用话术、脚本模板、一段代码…">${esc(v.text)}</textarea>`
         // 提示语刻意不写带 :/ / 的字面地址：自检有一条「界面文件里不许出现外部链接」在扫
         : `<label class="fin-label" for="asset-url">链接 *</label>
            <input id="asset-url" maxlength="300" placeholder="把链接粘进来（要 http 开头）"
@@ -176,8 +183,12 @@ async function removeAsset(a) {
   return true;
 }
 
-/** 添加 / 编辑一份素材 */
-function openAssetDialog(id, options = {}) {
+/**
+ * 添加 / 编辑一份素材。
+ * `options.after(newId)`：存完之后叫一下 —— 别的弹窗里「＋ 新建素材」就是靠它
+ * 把新素材填回自己的清单（2026-10-14 全站版加的）。
+ */
+export function openAssetDialog(id, options = {}) {
   const a = id ? assetsOf(store.data).find((x) => x.id === id) : null;
   let kind = a ? a.kind : "image";
   const beforePaths = a && a.path ? [a.path] : [];
@@ -214,6 +225,7 @@ function openAssetDialog(id, options = {}) {
         const note = dlg.querySelector("#asset-note").value.trim();
         let path = "";
         let url = "";
+        let bodyText = "";
         if (kind === "image") {
           let uploaded = [];
           try {
@@ -225,15 +237,24 @@ function openAssetDialog(id, options = {}) {
           commitUploads(attach, uploaded);
           path = attach.paths[0] || "";
           if (!path) return fail("先选一张图（或者在弹窗里按 Ctrl+V 贴一张）");
+        } else if (kind === "text") {
+          // 文本片段（2026-10-14 全站版加的）：一小段常用文字，不碰网络
+          bodyText = dlg.querySelector("#asset-text").value.trim();
+          if (!bodyText) return fail("写一段文字");
         } else {
           url = dlg.querySelector("#asset-url").value.trim();
           if (!/^https?:\/\//i.test(url)) return fail("链接要以 http 开头");
         }
-        if (a) Object.assign(a, { title, kind, path, url, note });
+        let savedId = a ? a.id : "";
+        if (a) Object.assign(a, { title, kind, path, url, text: bodyText, note });
         else {
-          table("mediaAssets").push({
-            id: uid(), title, kind, path, url, note, createdAt: nowText(),
-          });
+          const row = {
+            id: uid(), title, kind, path, url, text: bodyText, note,
+            tags: [], createdAt: nowText(),
+          };
+          // 2026-10-14 起素材住在顶层 assets 表（老表 mediaAssets 读的时候会被并过来）
+          table("assets").push(row);
+          savedId = row.id;
         }
         touch(true);
         close();   // 注意：onAction 的第二个参数是弹窗根元素，不是 {el, close}，别写成 dlg.close()
@@ -242,6 +263,8 @@ function openAssetDialog(id, options = {}) {
         const removed = beforePaths.filter((p) => p !== path);
         if (removed.length) purgeRowAttachments({ imagePaths: removed });
         if (options.onSaved) options.onSaved();
+        // 在别的弹窗里「＋ 新建素材」时，建完要能找到它（回填清单用）
+        if (typeof options.after === "function") options.after(savedId);
       })();
       return false;
     },
@@ -254,6 +277,7 @@ function openAssetDialog(id, options = {}) {
     const keep = {
       title: el.querySelector("#asset-title").value,
       url: el.querySelector("#asset-url") ? el.querySelector("#asset-url").value : "",
+      text: el.querySelector("#asset-text") ? el.querySelector("#asset-text").value : "",
       note: el.querySelector("#asset-note").value,
     };
     kind = btn.dataset.kind === "link" ? "link" : "image";

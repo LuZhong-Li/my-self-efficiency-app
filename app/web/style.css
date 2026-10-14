@@ -3897,6 +3897,17 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .nu-goal { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
 .nu-goal input { width: 64px; }
 
+/* 素材选择器（2026-10-14 全站版加的） */
+.dlg-assets { margin-top: 4px; }
+.asset-pick-list { margin: 6px 0; padding: 0; list-style: none; max-height: 220px; overflow: auto; }
+.asset-pick { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.asset-pick-main { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.asset-pick-thumb { width: 34px; height: 34px; border-radius: var(--r-sm); object-fit: cover; }
+.asset-pick-title { font-size: 13px; }
+.asset-pick-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.asset-pick-empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+.asset-pick-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
 /* 笔记（2026-10-14 加，第 11 个模块） */
 .note-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; }
 .note-side { align-self: start; }

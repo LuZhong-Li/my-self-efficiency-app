@@ -444,7 +444,8 @@ async function main() {
     const imgRow = view.rows.find((r) => r.title === "封面：第一期");
     ok(Boolean(imgRow), "图片那份在列表里");
     eq(imgRow.img, true, "它画出了缩略图（说明真有图）");
-    const saved = readData(dataFile).mediaAssets.find((a) => a.title === "封面：第一期");
+    // 2026-10-14 晚：素材搬去顶层 assets 表了（全站版），这里跟着改键名
+    const saved = readData(dataFile).assets.find((a) => a.title === "封面：第一期");
     ok(saved.path.startsWith("attachments/media_asset/"), "路径落在新目录里（" + saved.path + "）");
     ok(fs.existsSync(path.join(dataDir, saved.path)), "那个文件真的写进数据目录了");
 
@@ -495,7 +496,7 @@ async function main() {
     ok(plainMsg.includes("还没有作品用它"), "确认框里说清没人用它（" + plainMsg.slice(0, 30) + "…）");
     await ev("document.querySelector('.dlg-backdrop [data-dlg=\"yes\"]').click()");
     await sleep(400);
-    eq(readData(dataFile).mediaAssets.length, 1, "数据里只剩一份素材");
+    eq(readData(dataFile).assets.length, 1, "数据里只剩一份素材");
 
     /* ---- 删掉被作品用着的那份：引用要跟着摘掉 ---- */
     console.log("\n删掉被用着的那份：确认框写明，删完作品还在、引用摘掉");
@@ -511,7 +512,7 @@ async function main() {
     await ev("document.querySelector('.dlg-backdrop [data-dlg=\"yes\"]').click()");
     await sleep(400);
     const after = readData(dataFile);
-    eq(after.mediaAssets.length, 0, "素材全删完了");
+    eq(after.assets.length, 0, "素材全删完了");
     eq(after.contents.length, 1, "作品还在（删素材不动作品）");
     eq(after.contents[0].assetIds.length, 0, "作品里的引用被摘掉了");
     eq((await assetsNow()).empty, true, "素材页回到空状态");

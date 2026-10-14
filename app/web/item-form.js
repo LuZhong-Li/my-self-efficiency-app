@@ -13,6 +13,25 @@ import { GOAL_CYCLES } from "./goal-calc.js";
 import { DURATION_UNITS, toMinutes, shownDuration } from "./time-calc.js";
 import { linkGameId } from "./game-calc.js";
 import { DIET_SLOTS } from "./diet-calc.js";
+
+/* ---------------- 素材字段：读值与编码（2026-10-14 全站版加的） ---------------- */
+
+/** 隐藏 input 里的 id 数组 JSON → 干净的字符串数组（坏 JSON 当空的、去重、去空） */
+export function parseAssetJson(raw) {
+  let list;
+  try {
+    list = JSON.parse(String(raw == null ? "" : raw) || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.map((x) => String(x == null ? "" : x).trim()).filter(Boolean))];
+}
+
+/** 反过来：编回那条隐藏 input 的值 */
+function encodeAssets(list) {
+  return JSON.stringify(parseAssetJson(JSON.stringify(Array.isArray(list) ? list : [])));
+}
 import { normalizeTags, tagInputError, tagsText } from "./tag-calc.js";
 // 子任务的条数上限（30）只在 task-calc.js 定义一份：这里再写一个数字，迟早两边不一样
 import { SUBTASK_LIMIT } from "./task-calc.js";
@@ -76,6 +95,7 @@ export const FORMS = {
         maxlength: 2000, placeholder: "目标、规划、怎么算做完（可不填）" },
       { name: "expectEndDate", label: "预计结束日期", kind: "date",
         placeholder: "打算什么时候收尾（可不填）" },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
     ],
@@ -106,6 +126,7 @@ export const FORMS = {
         half: true, default: "工作" },
       { name: "priority", label: "优先级", kind: "select", list: PRIORITIES,
         blank: "不标", default: "" },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
       { name: "subtasks", label: "子任务", kind: "subtasks",
@@ -139,6 +160,7 @@ export const FORMS = {
         placeholder: "这个项目要做什么…" },
       { name: "priority", label: "优先级", kind: "select", list: PRIORITIES,
         half: true, blank: "不标", default: "" },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
       { name: "subtasks", label: "子任务", kind: "subtasks",
@@ -173,6 +195,7 @@ export const FORMS = {
         half: true },
       { name: "minutes", label: "时长（分钟）", kind: "number", min: 0, step: 5,
         placeholder: "比如 45" },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
       { name: "content", label: "学了什么", kind: "text", maxlength: 120,
@@ -208,6 +231,7 @@ export const FORMS = {
         half: true, default: "书" },
       { name: "source", label: "作者 / 平台", kind: "text", maxlength: 60,
         half: true, placeholder: "中信出版 / B 站…" },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
@@ -230,6 +254,7 @@ export const FORMS = {
       { name: "date", label: "打卡日期", kind: "date", required: true, half: true },
       { name: "moves", label: "训练内容", kind: "textarea", rows: 4, maxlength: 600,
         required: true, placeholder: "深蹲 3×12 / 硬拉 3×8，或者跑步 5 km" },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
@@ -292,6 +317,7 @@ export const FORMS = {
       { name: "durationUnit", label: "时长单位", kind: "select", list: DURATION_UNITS,
         half: true, default: "分钟",
         fromRow: (row) => shownDuration(row && row.durationMin).unit },
+      { name: "assetIds", label: "素材", kind: "assets" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
       { name: "remark", label: "备注", kind: "textarea", rows: 4, maxlength: 600,
@@ -619,6 +645,44 @@ export function repeatRuleError(text) {
   return "";
 }
 
+/**
+ * 素材清单的那几行（弹窗初次画、以及「新建素材」建完重画都要用）。
+ * picked 是已经勾上的 id 集合 / 数组。
+ */
+export function assetPickRowsHtml(list, picked) {
+  const rows = Array.isArray(list) ? list : [];
+  const pickedSet = picked instanceof Set ? picked : new Set(picked || []);
+  if (!rows.length) {
+    return `<li class="asset-pick-empty">素材库还是空的，点右边「＋ 新建素材」加一份</li>`;
+  }
+  return rows
+    .map(
+      (a) => `
+        <li class="asset-pick">
+          <label class="check"><input type="checkbox" data-asset-pick value="${esc(a.id)}"${
+          pickedSet.has(a.id) ? " checked" : ""
+        }></label>
+          <span class="asset-pick-main">${assetPickText(a)}</span>
+        </li>`
+    )
+    .join("");
+}
+
+/** 素材清单里一行怎么写：图片给缩略图，链接给标题 + 地址，文本片段给前几十个字 */
+function assetPickText(a) {
+  if (a.kind === "image") {
+    return `<img class="asset-pick-thumb" src="${esc(a.path)}" alt="">` +
+      `<span class="asset-pick-title">${esc(a.title || "（没写标题）")}</span>`;
+  }
+  if (a.kind === "text") {
+    const one = String(a.text || "").replace(/\s+/g, " ").slice(0, 40);
+    return `<span class="asset-pick-title">${esc(a.title || "（文本片段）")}</span>` +
+      `<span class="asset-pick-sub">${esc(one)}</span>`;
+  }
+  return `<span class="asset-pick-title">${esc(a.title || "（没写标题）")}</span>` +
+    `<span class="asset-pick-sub">${esc(a.url || "")}</span>`;
+}
+
 function fieldHtml(field, values, ctx) {
   const id = "item-" + field.name;
   const value = values[field.name] == null ? "" : String(values[field.name]);
@@ -709,6 +773,24 @@ function fieldHtml(field, values, ctx) {
         `</div>` +
         `<input type="hidden" id="${id}" value="${esc(value)}">` +
         `<div class="dlg-sub-hint" data-sub-hint></div>` +
+      `</div>`
+    );
+  }
+  // 素材：一块可勾选的清单（图片给缩略图、链接给地址、文本片段给前面几十个字），
+  // 底下藏着一条隐藏 input（id 数组的 JSON）。值不走别的路 —— 读值、写回还是表单那一套
+  // （见 parseAssetJson / applyValues）。
+  if (field.kind === "assets") {
+    const list = Array.isArray(ctx.assets) ? ctx.assets : [];
+    const picked = new Set(parseAssetJson(value));
+    return wrap(
+      label +
+      `<div class="dlg-assets" data-assets="${esc(field.name)}">` +
+        `<ul class="asset-pick-list">${assetPickRowsHtml(list, picked)}</ul>` +
+        `<div class="asset-pick-foot">` +
+          `<span class="dlg-tags-hint">记录里只存素材 id，不重复存图片 / 文字</span>` +
+          `<button type="button" class="link" data-asset-new>＋ 新建素材</button>` +
+        `</div>` +
+        `<input type="hidden" id="${id}" value="${esc(value)}">` +
       `</div>`
     );
   }
@@ -804,6 +886,8 @@ export function defaultsOf(type, extra = {}) {
     // 子任务在表单里是一条 JSON 字符串：给空数组的 JSON，
     // 底下那块就不必再判「空白」和「空数组」两种空。
     else if (field.kind === "subtasks") out[field.name] = "[]";
+    // 素材同理：表单里是 id 数组的 JSON
+    else if (field.kind === "assets") out[field.name] = "[]";
     else out[field.name] = field.default ?? "";
   }
   return { ...out, ...extra };
@@ -829,6 +913,10 @@ export function valuesOf(type, row, extra = {}) {
     }
     if (field.kind === "subtasks") {
       out[field.name] = encodeSubtasks(v);
+      continue;
+    }
+    if (field.kind === "assets") {
+      out[field.name] = encodeAssets(v);
       continue;
     }
     if (v === undefined || v === null || v === "") continue;
@@ -887,6 +975,7 @@ export function applyValues(type, row, values, ctx = {}) {
     if (field.kind === "static") continue;   // 只读字段不回写，免得把它冲成空
     const raw = String(values[field.name] ?? "").trim();
     if (field.kind === "subtasks") row[field.name] = parseSubtaskJson(raw);
+    else if (field.kind === "assets") row[field.name] = parseAssetJson(raw);
     else if (field.kind === "tags") row[field.name] = normalizeTags(raw);
     else if (field.kind === "switch") row[field.name] = Boolean(raw) && raw !== "off";
     else row[field.name] = field.kind === "number" ? Number(raw) || 0 : raw;

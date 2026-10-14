@@ -21,8 +21,10 @@ import {
 import {
   formOf, formHtml, defaultsOf, valuesOf, readValues, validate, applyValues,
   newRow, trashPlan, parseSubtaskJson, SUBTASK_LIMIT, repeatRuleError,
+  parseAssetJson, assetPickRowsHtml,
 } from "./item-form.js";
 import { ruleSummary } from "./goal-calc.js";
+import { assetsOf } from "./asset-calc.js";
 
 /** 一条记录的删除计划（把要看的几张表读出来交给纯函数算） */
 function planOf(type, row, ctx = {}) {
@@ -87,6 +89,10 @@ export function openItemDialog(type, row, options = {}) {
   // 有它才能「打个字就把以前用过的标签补出来」，不用记着自己起过什么名。
   if (spec.fields.some((f) => f.kind === "tags")) {
     ctx.tagOptions = allTags(store.data).map((t) => t.name);
+  }
+  // 素材那一格：候选就是全站素材库（2026-10-14 起是全站共用的）
+  if (spec.fields.some((f) => f.kind === "assets")) {
+    ctx.assets = assetsOf(store.data);
   }
   // 从「某一天」点进来的（今日计划、学习记录、训练打卡、游玩记录），那一天的日期要预填上。
   // 字段名默认叫 date，游玩记录那边叫 playDate，所以让字段表自己声明（spec.dateField）。
@@ -195,6 +201,7 @@ export function openItemDialog(type, row, options = {}) {
   bindSubtasks(dlg.el, spec);
   bindRulePreview(dlg.el, spec);
   bindAutoFill(dlg.el, spec, ctx);
+  bindAssets(dlg.el, spec);
   bindEnterToSave(dlg);
   const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
@@ -357,6 +364,50 @@ function bindRulePreview(el, spec) {
     };
     input.addEventListener("input", sync);
     sync();          // 编辑老规则时进来就先把这句话翻译一遍
+  }
+}
+
+/* 「＋ 新建素材」按下去要开的那个弹窗，由外面注入 ——
+   素材弹窗在 media.js 里，从这里 import 会绕成环（media.js → item-dialog.js），
+   所以 app.js 启动时把 media.js 的 openAssetDialog 塞进来。 */
+let newAssetHandler = null;
+
+/** app.js 启动时调一次：告诉这个模块「新建素材」该开哪个弹窗 */
+export function setNewAssetHandler(fn) {
+  newAssetHandler = typeof fn === "function" ? fn : null;
+}
+
+/**
+ * 素材那一块：勾一份就把 id 写进底下那条隐藏 input（JSON）；
+ * 「＋ 新建素材」叠开素材弹窗，建完把清单重画一遍（新素材马上能勾上）。
+ */
+function bindAssets(el, spec) {
+  for (const field of spec.fields.filter((f) => f.kind === "assets")) {
+    const host = el.querySelector(`[data-assets="${field.name}"]`);
+    if (!host) continue;
+    const hidden = host.querySelector("#item-" + field.name);
+    const listEl = host.querySelector(".asset-pick-list");
+    if (!hidden || !listEl) continue;
+    const sync = () => {
+      hidden.value = JSON.stringify(
+        [...host.querySelectorAll("[data-asset-pick]:checked")].map((i) => i.value)
+      );
+    };
+    host.addEventListener("change", (e) => {
+      if (e.target.closest("[data-asset-pick]")) sync();
+    });
+    host.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-asset-new]")) return;
+      if (!newAssetHandler) return;
+      newAssetHandler((newId) => {
+        // 建完：把清单重画一遍（新素材马上能勾），顺手把它勾上
+        const picked = new Set(parseAssetJson(hidden.value));
+        if (newId) picked.add(newId);
+        listEl.innerHTML = assetPickRowsHtml(assetsOf(store.data), picked);
+        hidden.value = JSON.stringify([...picked]);
+      });
+    });
+    sync();
   }
 }
 

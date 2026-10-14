@@ -18,6 +18,8 @@ import { renderGame } from "./game.js";
 import { renderNote } from "./notes.js";
 import { renderSettings } from "./settings.js";
 import { initSearch } from "./search.js";
+import { setNewAssetHandler } from "./item-dialog.js";
+import { openAssetDialog } from "./media.js";
 import { icon } from "./icons.js";
 import { markEnter } from "./ui.js";
 import { toast } from "./dialog.js";
@@ -112,6 +114,9 @@ async function boot() {
   onTheme(renderThemeButton);
   initSearch();
   setupConflict();
+  // 「＋ 新建素材」：任何弹窗里点它都开媒体那个素材弹窗（建完把新素材填回那一格）。
+  // 用注入的办法接，免得 item-dialog.js 反过来 import media.js 绕成环。
+  setNewAssetHandler((after) => openAssetDialog(null, { after }));
   themeBtn.addEventListener("click", () => {
     const mode = cycleTheme();
     if (store.loaded) toast(`明暗已切到「${THEME_MODE_LABEL[mode]}」`);

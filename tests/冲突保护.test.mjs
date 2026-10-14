@@ -58,7 +58,8 @@ let disk = {
   tasks: [], settings: { theme: "light", themeMode: "light" },
 };
 let busyOnce = false;   // 装一次「另一个进程正拿着写入闸」
-let getCount = 0;
+let getCount = 0;       // 只数「读数据」那一下（/api/data 的 GET）
+let serverDataset = ""; // 服务端报的「现在用的是哪一份」（多数据集那一套）
 const posts = [];
 
 /** 装成「另一个窗口刚保存过」：磁盘上已经换成新的一份、修订号也涨了 */
@@ -92,6 +93,17 @@ globalThis.fetch = async (url, opts) => {
     return {
       ok: true, status: 200,
       json: async () => ({ ok: true, rev: serverRev, savedAt: "刚刚" }),
+    };
+  }
+  if (String(url).includes("/api/health")) {
+    // readFromDisk() 会先问一次 health（对齐「现在用的是哪一份」再读数据），
+    // 这一发不算「读了一份磁盘数据」，所以单独回它、也不进 getCount
+    return {
+      ok: true, status: 200,
+      json: async () => ({
+        app: "小李", version: "", dataset: serverDataset, dataRoot: "",
+        datasetsEnabled: Boolean(serverDataset), dataFile: "数据.json",
+      }),
     };
   }
   getCount += 1;
@@ -178,9 +190,11 @@ eq(disk.memo, "并发时改的", "重试这一次真的写进去了");
 
 console.log("另一个窗口保存了、本窗口没什么要留的 → 直接跟上，不用问");
 anotherWindowSaved(9, "别的窗口第三版");
+serverDataset = "工作";        // 顺手看一下：跟随时会不会把「现在用哪一份」也对齐
 const getsBefore = getCount;
 await channels[0].onmessage({ data: { type: "saved", rev: 9 } });
 eq(getCount, getsBefore + 1, "重新读了一份磁盘数据");
+eq(store.server.dataset, "工作", "顺手把「现在用的是哪一份」也对齐了（不然下次保存会带错名字）");
 eq(store.data.memo, "别的窗口第三版", "界面换成了最新那份");
 eq(store.data.rev, 9, "修订号也跟上了");
 eq(conflictEvents.length, 2, "没打扰用户（没有新的弹窗事件）");

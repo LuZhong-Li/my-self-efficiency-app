@@ -22,7 +22,7 @@ export const store = {
   conflictRev: null,  // 冲突时磁盘上的修订号（弹窗提示用）
   conflictKind: "conflict",  // 冲突是哪一种：conflict / disk / dataset（弹窗文案跟着变）
   // 服务端那点信息（多数据集）：现在用的是哪一份、根目录在哪、功能开着没
-  server: { dataset: "", dataRoot: "", datasetsEnabled: false },
+  server: { dataset: "", dataRoot: "", datasetsEnabled: false, dataFile: "" },
   timer: null,
   retryTimer: null,   // 撞上「文件正被写」时的重试闹钟
   retryCount: 0,
@@ -82,6 +82,7 @@ export function setServerInfo(info) {
     dataset: String(info.dataset || ""),
     dataRoot: String(info.dataRoot || ""),
     datasetsEnabled: Boolean(info.datasetsEnabled),
+    dataFile: String(info.dataFile || store.server.dataFile || ""),
   };
 }
 
@@ -98,6 +99,10 @@ export async function refreshServerInfo() {
 export async function readFromDisk() {
   setStatus("正在从磁盘读取…");
   try {
+    // 先对齐「现在用的是哪一份」，再读数据 —— 这个顺序是故意的（fail-safe）：
+    // 万一中途别人又切了一次，本窗口拿到的是「旧名字 + 新数据」，保存时会被服务端
+    // 按名字挡回去（安全）；反过来「新名字 + 旧数据」就会把旧数据写进新数据集（丢数据）。
+    await refreshServerInfo();
     const res = await fetch("/api/data", { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     store.data = await res.json();
@@ -236,13 +241,12 @@ function retrySaveLater() {
 /* ---------------- 冲突处理（给 conflict.js 的弹窗用） ---------------- */
 
 /** 丢掉本窗口改动，读磁盘上最新那份（弹窗里的「刷新并加载最新数据」）。
- *  顺手重读一次 health：数据集可能已经被换成别的了 —— 那种情形下必须重读，
+ *  readFromDisk() 里会重读一次 health：数据集可能已经被换成别的了 —— 必须重读，
  *  不然下一次保存还带着旧数据集名，会被一直挡回去。 */
 export async function discardAndReload() {
   clearTimeout(store.retryTimer);
   store.dirty = false;
-  await refreshServerInfo();
-  await readFromDisk();      // 里面会把 conflict 清掉
+  await readFromDisk();      // 里面会把 conflict 清掉、把数据集名对齐
   setStatus("已加载磁盘上的最新数据", "ok");
 }
 
@@ -338,6 +342,10 @@ function setupChannel() {
     channel = new BroadcastChannel("xiaoli");
     channel.onmessage = async (e) => {
       const msg = e.data || {};
+      if (msg.type === "dataset") {
+        await onOtherWindowSwitched(msg.dataset || "");
+        return;
+      }
       if (msg.type !== "saved") return;
       if (msg.rev === (store.data && store.data.rev)) return;
       // 本窗口还有没落盘的内容（改过、表单填了一半、正存着、或已经在冲突里）：
@@ -359,12 +367,45 @@ function setupChannel() {
   }
 }
 
+/**
+ * 另一个窗口换了数据集（它是这次切换的发起者）。两件事：
+ *   1. 本窗口有没落盘的东西（改过 / 正存着 / 表单填了一半 / 已经在冲突里）→ 不擅自刷新，
+ *      弹那个处理窗，让人自己决定（和「别的窗口保存过」一个规矩）；
+ *   2. 没有 → 跟着读一遍新数据集，页面自动落到新那份上。
+ *
+ * **顺序是这条的头等大事**：这一步绝不能先把 store.server.dataset 换成新名字。
+ * 换早了，本窗口手里还是旧数据集的数据、却会拿新名字去保存 —— 服务端那道按名字比的闸
+ * 就放行了，等于把旧数据写进新数据集（真丢数据）。名字只能跟着数据一起换，
+ * 而「换名字」这件事被收在 readFromDisk() 里（它先对齐名字再读数据）。
+ */
+async function onOtherWindowSwitched(dataset) {
+  if (!dataset || dataset === store.server.dataset) return;
+  if (store.conflict || store.dirty || store.saving || store.pendingForm) {
+    // 本窗口不能再往磁盘写了：手里这份属于旧数据集，写过去就是串数据
+    store.conflict = true;
+    store.conflictKind = "dataset";
+    store.conflictRev = null;
+    setStatus(`数据集已经换成「${dataset}」：本窗口的改动还没保存（点这里可处理）`, "err");
+    emitConflict({ kind: "dataset", dataset, rev: null });
+    return;
+  }
+  await readFromDisk();
+  setStatus(`数据集已经换成「${dataset}」，已经跟着切过去了`, "ok");
+}
+
 function broadcast(msg) {
   try {
     if (channel) channel.postMessage(msg);
   } catch {
     /* 通道不可用就算了，不影响保存 */
   }
+}
+
+/** 告诉别的窗口「数据集换成这个了」。切换的那个窗口自己不用听（它会整页重载），
+ *  听的是另外开着的窗口 —— 它们手里那份已经不是当前数据集了，早点知道才不会被
+ *  「下次保存突然被挡回去」吓一跳。 */
+export function announceDataset(dataset) {
+  broadcast({ type: "dataset", dataset: String(dataset || "") });
 }
 
 /* ---------------- 回收站 ----------------

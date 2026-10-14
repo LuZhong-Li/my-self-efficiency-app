@@ -112,6 +112,7 @@ async function boot() {
   renderTopGreet();
   onStatus(setStatus);
   onChange(render);
+  onChange(paintFootFile);   // 数据集换了（别的窗口切了）时，状态栏那行也要跟着换
   onTheme(renderThemeButton);
   initSearch();
   setupConflict();
@@ -127,11 +128,7 @@ async function boot() {
     const res = await fetch("/api/health", { cache: "no-store" });
     const health = await res.json();
     setServerInfo(health);
-    const footFile = document.getElementById("foot-file");
-    // 多数据集时把「现在用的是哪一份」写在路径前面：一眼看出自己在改哪份数据
-    footFile.textContent = health.datasetsEnabled && health.dataset
-      ? `数据集「${health.dataset}」 · ${health.dataFile}`
-      : health.dataFile;
+    paintFootFile();
     document.getElementById("foot-server").textContent =
       location.origin + (health.version ? " · " + health.version : "");
   } catch {
@@ -149,6 +146,20 @@ async function boot() {
   }
 
   window.addEventListener("hashchange", render);
+}
+
+/**
+ * 状态栏那行：多数据集时把「现在用的是哪一份」写在路径前面，一眼看出自己在改哪份数据。
+ * 订阅变化是因为数据集可能在别的窗口被切掉 —— 那时候本窗口会跟着切过去，
+ * 状态栏不能还写着旧名字。
+ */
+function paintFootFile() {
+  const el = document.getElementById("foot-file");
+  if (!el) return;
+  const s = store.server || {};
+  el.textContent = s.datasetsEnabled && s.dataset
+    ? `数据集「${s.dataset}」 · ${s.dataFile}`
+    : (s.dataFile || "—");
 }
 
 boot();

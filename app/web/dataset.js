@@ -7,7 +7,7 @@
  * 名字那一套规则在 dataset-calc.js 里（和服务端同一份口径）：这里用它当场挡住坏名字。
  */
 
-import { store, touch, esc } from "./store.js";
+import { store, touch, esc, announceDataset } from "./store.js";
 import { askConfirm, openDialog, toast } from "./dialog.js";
 import {
   DATASET_NAME_MAX, checkDatasetName, sortDatasets, datasetMetaText,
@@ -142,6 +142,7 @@ async function useDataset(name) {
     toast(body.error || "切换失败", "err");
     return;
   }
+  announceDataset(body.dataset || name);   // 别的窗口早点知道，别等下次保存才被挡回去
   toast(`已切到「${name}」，正在重载…`);
   location.reload();
 }

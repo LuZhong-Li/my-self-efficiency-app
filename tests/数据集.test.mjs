@@ -157,8 +157,9 @@ class CDP {
 
 let cdp = null;
 
-async function ev(expr) {
-  const r = await cdp.send("Runtime.evaluate", {
+/** 往某个页面上跑一段表达式（多窗口测试要指定是哪个窗口） */
+async function evOn(client, expr) {
+  const r = await client.send("Runtime.evaluate", {
     expression: expr,
     awaitPromise: true,
     returnByValue: true,
@@ -167,18 +168,21 @@ async function ev(expr) {
   if (r.exceptionDetails) {
     const d = r.exceptionDetails;
     throw new Error(
-      "页面里的表达式报错了：" + ((d.exception && d.exception.description) || d.text || "?")
+      "页面里的表达式报错了：" + ((d.exception && d.exception.description) || d.text || "?") +
+      "\n      表达式：" + expr
     );
   }
   return r.result.value;
 }
 
-async function waitFor(expr, timeoutMs = 8000) {
+const ev = (expr) => evOn(cdp, expr);
+
+async function waitForOn(client, expr, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     let got = false;
     try {
-      got = Boolean(await ev(expr));
+      got = Boolean(await evOn(client, expr));
     } catch {
       got = false;
     }
@@ -186,6 +190,52 @@ async function waitFor(expr, timeoutMs = 8000) {
     if (Date.now() > deadline) return false;
     await sleep(100);
   }
+}
+
+const waitFor = (expr, timeoutMs = 8000) => waitForOn(cdp, expr, timeoutMs);
+
+/** 再开一个窗口（同一个浏览器、同一个 origin），返回它的 targetId */
+async function openSecondWindow(debugPort, url) {
+  const ver = await (await fetch("http://127.0.0.1:" + debugPort + "/json/version")).json();
+  const ws = new WebSocket(ver.webSocketDebuggerUrl);
+  await new Promise((res, rej) => {
+    ws.addEventListener("open", res, { once: true });
+    ws.addEventListener("error", rej, { once: true });
+  });
+  const targetId = await new Promise((resolve, reject) => {
+    ws.addEventListener("message", (e) => {
+      const m = JSON.parse(e.data);
+      if (m.id === 1) (m.error ? reject(new Error(JSON.stringify(m.error))) : resolve(m.result.targetId));
+    });
+    ws.send(JSON.stringify({ id: 1, method: "Target.createTarget", params: { url } }));
+  });
+  ws.close();
+  return targetId;
+}
+
+/** 连上某个窗口自己的调试地址（每个页面一个，互不干扰） */
+async function attachPage(debugPort, targetId) {
+  for (let i = 0; i < 80; i += 1) {
+    try {
+      const list = await (await fetch("http://127.0.0.1:" + debugPort + "/json/list")).json();
+      const t = list.find((x) => x.id === targetId && x.webSocketDebuggerUrl);
+      if (t) {
+        const ws = new WebSocket(t.webSocketDebuggerUrl);
+        await new Promise((res, rej) => {
+          ws.addEventListener("open", res, { once: true });
+          ws.addEventListener("error", rej, { once: true });
+        });
+        const client = new CDP(ws);
+        await client.send("Runtime.enable");
+        await client.send("Page.enable");
+        return client;
+      }
+    } catch {
+      /* 还没出来，接着等 */
+    }
+    await sleep(250);
+  }
+  return null;
 }
 
 const readData = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
@@ -494,10 +544,59 @@ async function main() {
       "状态栏还写着「默认」（页面也没被重载）"
     );
 
+    /* 8) 另一个窗口：这边切数据集，那边要跟着走（不用等下次保存被挡回去） */
+    console.log("\n多窗口：一个窗口切了数据集，另一个窗口跟着走");
+    const id2 = await openSecondWindow(debugPort, base + "#plan");
+    const cdp2 = await attachPage(debugPort, id2);
+    ok(Boolean(cdp2), "第二个窗口开起来了");
+    ok(await waitForOn(cdp2, '!!document.querySelector(\'[data-act="add"]\')', 15000),
+      "第二个窗口也进了今日计划");
+    ok(await evOn(cdp2,
+      '(document.getElementById("foot-file").textContent||"").includes("数据集「默认」")'),
+      "第二个窗口状态栏也写着「默认」");
+    ok(await evOn(cdp2, 'document.querySelectorAll(".task").length === 1'),
+      "它看得见「默认」里那条待办");
+
+    // 第一个窗口切到「私人」（新建出来那份、空的）
+    await ev('document.querySelector(\'[data-ds-act="use"][data-ds-name="私人"]\').click()');
+    await waitFor('!!document.querySelector(\'.dlg-backdrop [data-dlg="yes"]\')', 5000);
+    await ev('document.querySelector(\'.dlg-backdrop [data-dlg="yes"]\').click()');
+    await waitReload(
+      '(document.getElementById("foot-file")||{textContent:""}).textContent.includes("数据集「私人」")',
+      "第一个窗口切到了「私人」"
+    );
+    ok(await waitForOn(cdp2,
+      '(document.getElementById("foot-file")||{textContent:""}).textContent.includes("数据集「私人」")',
+      15000), "第二个窗口**自己**跟到了「私人」（没等下次保存被挡）");
+    ok(await waitForOn(cdp2, 'document.querySelectorAll(".task").length === 0', 8000),
+      "它那边也换成了「私人」那份数据（空的）");
+    // 用 waitForOn 而不是读一次：状态栏那行比页脚晚更新几微秒，读一次会碰运气
+    ok(await waitForOn(cdp2,
+      'document.getElementById("status").textContent.includes("跟着切过去")', 8000),
+      "状态栏说明了「已经跟着切过去」");
+
+    // 关键一步：跟过去之后在第二个窗口里写字，得落进「私人」那份（
+    // 名字要是没跟着数据一起换，这条就会写进旧数据集或者被服务端挡回去）
+    await evOn(cdp2, 'document.querySelector(\'[data-act="add"]\').click()');
+    await waitForOn(cdp2, '!!document.getElementById("item-text")', 5000);
+    await evOn(cdp2, '(()=>{const el=document.getElementById("item-text");el.value="第二个窗口写的";return true;})()');
+    await evOn(cdp2, 'document.querySelector(\'[data-dlg-act="save"]\').click()');
+    ok(await waitForOn(cdp2, 'document.querySelectorAll(".task").length === 1', 8000),
+      "第二个窗口里记上了");
+    await sleep(700);
+    eq(readData(path.join(root, "私人", "数据.json")).tasks.length, 1,
+      "那条落进了「私人」的数据文件");
+    eq(readData(path.join(root, "私人", "数据.json")).tasks[0].text, "第二个窗口写的",
+      "就是它写的那条");
+    ok(!JSON.stringify(readData(fileY)).includes("第二个窗口写的"),
+      "「默认」那份一个字都没沾上");
+
     /* ---- 全程不该冒 JS 报错 ---- */
     const errors = cdp.pageErrors.filter((t) => !/favicon/i.test(t));
-    eq(errors.length, 0, "整个过程页面里没冒出 JS 报错");
+    const errors2 = (cdp2 && cdp2.pageErrors ? cdp2.pageErrors : []).filter((t) => !/favicon/i.test(t));
+    eq(errors.length + errors2.length, 0, "两个窗口全程都没冒出 JS 报错");
     if (errors.length) console.log("      " + errors.slice(0, 3).join("\n      "));
+    if (errors2.length) console.log("      " + errors2.slice(0, 3).join("\n      "));
   } finally {
     stopTree(edge);
     stopTree(server);

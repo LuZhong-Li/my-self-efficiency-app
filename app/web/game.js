@@ -20,8 +20,11 @@ import { GAME_STATUSES } from "./item-form.js";
 import {
   recordsOn, recordsOfGame, statsOf, topGames, filterRecords, hasFilter,
   durationText, hoursText, totalMinutesOfGame, elapsedMinutes, clockText, overTargetGames,
-  rangeText, dateSpan,
+  rangeText, dateSpan, gameMonthTrend,
 } from "./game-calc.js";
+import { lastMonths, barRowsOf, barFillHtml, trendChartHtml } from "./chart-calc.js";
+
+const TREND_MONTHS = 6;   // 游玩趋势看几个月（和记账那张图一个尺度，好对照）
 
 let viewDate = null;                              // 游玩记录卡片在看哪一天（默认今天）
 // 历史筛选（点清单里的「看记录」也会写进来）。autoRange 记着起止日期是哪来的：
@@ -45,11 +48,13 @@ export function renderGame(root) {
   const stats = statsOf(records, today);
   const top = topGames(records, games, 3);
   const over = overTargetGames(records, games, today.slice(0, 7));
+  // 图上的数据也走 game-calc（和上面那排数字同源），页面不自己汇总
+  const trend = gameMonthTrend(records, lastMonths(today.slice(0, 7), TREND_MONTHS));
 
   root.innerHTML = `
     ${pageHeader("game", `<span class="date-chip">共 ${games.length} 款 · 今日 ${esc(durationText(stats.todayMin))}</span>`)}
     ${recordCardHtml({ dayRecords, history, stats })}
-    ${statsCardHtml(stats, top, over)}
+    ${statsCardHtml(stats, top, over, trend)}
     ${listCardHtml(games, records)}
   `;
 
@@ -149,7 +154,7 @@ function recordRow(r, withDate) {
 
 /* ---------------- 卡片二：游玩统计 ---------------- */
 
-function statsCardHtml(stats, top, over) {
+function statsCardHtml(stats, top, over, trend) {
   const cells = [
     ["今日", stats.todayMin],
     ["本周", stats.weekMin],
@@ -157,6 +162,9 @@ function statsCardHtml(stats, top, over) {
     ["全年", stats.yearMin],
     ["累计", stats.allMin],
   ];
+  // 榜单的条长按第一名算（barRowsOf 会给每行补一个 ratio；并列第一都满格）
+  const bars = barRowsOf(top, "minutes");
+  const trendTotal = (trend || []).reduce((sum, r) => sum + r.minutes, 0);
   return `
     <section class="card gm-stats">
       <div class="card-head">
@@ -180,8 +188,21 @@ function statsCardHtml(stats, top, over) {
       ${sectionHead("玩得最多的游戏 TOP3", top.length, top.length ? "点一条看它的全部记录" : "")}
       ${
         top.length
-          ? `<ul class="items">${top.map(topRow).join("")}</ul>`
+          ? `<ul class="items">${bars.map(topRow).join("")}</ul>`
           : `<p class="empty">还没有游玩记录，上面记一条就会出现排行。</p>`
+      }
+      ${
+        // 一张图都没有的时候不画空图（和别的卡片一个规矩：没内容就不占地方）
+        trendTotal
+          ? `${sectionHead(`近 ${TREND_MONTHS} 个月`, undefined, `共 ${esc(durationText(trendTotal))}`)}
+             ${trendChartHtml(trend, {
+               value: (r) => r.minutes,
+               label: (r) => Number(r.month.slice(5)) + "月",
+               valueText: (v) => hoursText(v),
+               title: (r) => `${r.month} · ${durationText(r.minutes)}`,
+               ariaLabel: `近 ${TREND_MONTHS} 个月游玩时长`,
+             })}`
+          : ""
       }
       ${
         over.length
@@ -196,6 +217,7 @@ function statsCardHtml(stats, top, over) {
 function topRow(g, index) {
   return `
     <li class="item gm-top" data-name="${esc(g.name)}">
+      ${barFillHtml(g.ratio, { title: `条长按玩得最多的那款算（这款占 ${Math.round(g.ratio * 100)}%）` })}
       <span class="gm-rank">${index + 1}</span>
       <span class="i-title">${esc(g.name)}</span>
       <span class="chip">${esc(durationText(g.minutes))}</span>

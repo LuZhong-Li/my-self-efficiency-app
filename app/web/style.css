@@ -3780,3 +3780,25 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .repeat-item .r-text { flex: 1 1 auto; min-width: 8em; word-break: break-word; }
 .dlg-rule-preview { margin-top: 6px; font-size: 13px; }
 .dlg-rule-ok { color: var(--muted); }
+
+/* 图表：行背景横条 + 柱状图（2026-10-14 加） */
+.bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.1;
+  border-radius: inherit;
+  pointer-events: none;      /* 只是背景，别挡住行上的按钮 */
+}
+.gm-top { position: relative; }
+.gm-top > *:not(.bar-fill) { position: relative; }   /* 文字压在这条背景上面 */
+
+.chart-trend { display: block; width: 100%; height: auto; margin-top: 4px; }
+.chart-trend .chart-base { stroke: var(--line); stroke-width: 1; }
+.chart-trend .chart-trend-bar rect { fill: var(--accent); opacity: 0.7; }
+.chart-trend .chart-trend-bar.now rect { opacity: 1; }
+.chart-trend .chart-trend-num { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-trend .chart-trend-label { fill: var(--muted); font-size: 11px; }
+.chart-trend .chart-trend-bar.now .chart-trend-label { fill: var(--ink); }

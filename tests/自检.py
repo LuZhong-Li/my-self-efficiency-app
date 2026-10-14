@@ -423,6 +423,16 @@ def main() -> int:
         # 跨模块联动那个「加入今日计划」开关也是后加的，老任务补 False
         check("老任务读出来补齐「加入今日计划」开关（默认关）",
               back2["tasks"][0].get("isTodayPlan") is False)
+        # 重复任务与子任务（2026-10-14 新增）：规则带 repeat / repeatUntil / lastRun 三格，
+        # 每条待办带一个 subtasks 数组。老数据一律补齐，形状统一，页面就不用到处判空。
+        check("老任务读出来带上重复规则那三格（默认空）",
+              back2["tasks"][0].get("repeat") == ""
+              and back2["tasks"][0].get("repeatUntil") == ""
+              and back2["tasks"][0].get("lastRun") == "",
+              str({k: back2["tasks"][0].get(k)
+                   for k in ("repeat", "repeatUntil", "lastRun")}))
+        check("老任务读出来带上空的子任务清单", back2["tasks"][0].get("subtasks") == [],
+              str(back2["tasks"][0].get("subtasks")))
         check("老任务读出来也补齐归档标记（默认没归档）",
               back2["tasks"][0].get("isArchived") is False
               and back2["tasks"][0].get("archivedAt") == "",
@@ -433,6 +443,19 @@ def main() -> int:
               back2["games"][0].get("targetHours") == 0
               and back2["games"][0].get("finishDate") == "",
               str({k: back2["games"][0].get(k) for k in ("targetHours", "finishDate")}))
+        # 手改过 / 别处写进来的子任务：形状补齐（缺 id 的补一个），文字一个字节都不动
+        cur_st = call(port, "/api/data")[1]
+        cur_st["tasks"] = [{"id": "t-sub", "text": "带子任务的老待办", "date": "2026-10-07",
+                            "belong": "plan",
+                            "subtasks": [{"text": "改侧栏", "done": True},
+                                         {"id": "st-keep", "text": "改首页", "done": False}]}]
+        call(port, "/api/data", "POST", cur_st)
+        back_st = call(port, "/api/data")[1]["tasks"][0]["subtasks"]
+        check("手写的子任务补齐 id / done，文字不动",
+              back_st[0].get("text") == "改侧栏" and back_st[0].get("done") is True
+              and bool(back_st[0].get("id"))
+              and back_st[1].get("id") == "st-keep" and back_st[1].get("done") is False,
+              str(back_st))
         check("没有 gameRecords 的老数据读出来补成空表",
               back2.get("gameRecords") == [], str(back2.get("gameRecords")))
 

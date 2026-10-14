@@ -562,6 +562,29 @@ def migrate(data: dict) -> dict:
             row.setdefault("isArchived", False)
             row.setdefault("archivedAt", "")
             row.setdefault("isTodayPlan", False)
+            # 重复任务（2026-10-14 新增）：repeat = 一句人话规则（「每周一、三、五」），
+            # repeatUntil = 到哪天为止，lastRun = 今天对过表了没有（你自己删掉的那条别补回来）。
+            # 生成出来的实例带 genKey / repeatId，那两格不在这儿补
+            # （补了反而让老数据看着像生成物）。
+            row.setdefault("repeat", "")
+            row.setdefault("repeatUntil", "")
+            row.setdefault("lastRun", "")
+            # 子任务（2026-10-14 新增）：一条待办底下的清单，每条 { id, text, done }。
+            # 只补形状、不动文字：缺 id 的补一个（页面上那个勾选框要靠 id 认人），
+            # 不是字典的条目扔掉，不是数组的整个当空的。
+            subs = row.get("subtasks")
+            if not isinstance(subs, list):
+                subs = []
+            fixed = []
+            for sub in subs:
+                if not isinstance(sub, dict):
+                    continue
+                if not sub.get("id"):
+                    sub["id"] = "st-" + uuid.uuid4().hex[:8]
+                sub.setdefault("text", "")
+                sub.setdefault("done", False)
+                fixed.append(sub)
+            row["subtasks"] = fixed
     # 项目也扩了字段：详细描述、预计结束日期、图片
     # （「一句话简介」是老字段 intro，名字不动，老数据零成本）
     for row in data.get("projects") or []:

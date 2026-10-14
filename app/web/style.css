@@ -3822,3 +3822,36 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .hm-l4 { background: var(--err); opacity: 0.9; }
 .hm-cell.out { opacity: 0.35; }       /* 本周还没到的日子 */
 .hm-cell.today { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+/* 工时统计（2026-10-14 加） */
+.dev-subtabs { display: inline-flex; gap: 6px; margin-right: 10px; }
+.dev-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: 13px;
+}
+.dev-subtab:hover { color: var(--accent); }
+.dev-subtab.active { background: var(--hover); color: var(--ink); }
+
+.wk-timer { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); }
+.wk-timer b { font-variant-numeric: tabular-nums; }
+.wk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.wk-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--hover);
+}
+.wk-stat span { color: var(--muted); font-size: 12px; }
+.wk-stat strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.wk-stat small { color: var(--muted); font-size: 12px; }
+.wk-hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+.wk-by-row { position: relative; }
+.wk-by-row > *:not(.bar-fill) { position: relative; }
+.wk-row .wk-date { flex: 0 0 84px; color: var(--muted); font-size: 13px; }

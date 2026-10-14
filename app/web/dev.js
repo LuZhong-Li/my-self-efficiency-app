@@ -5,7 +5,7 @@ import {
   autoArchiveTodoOf, autoArchiveIssueOf,
 } from "./store.js";
 import { emptyLine, emptyState, chip, options, bindFresh, pageHeader, priorityChip,
-  tagChips, subtaskBadge } from "./ui.js";
+  tagChips, subtaskBadge, sectionHead } from "./ui.js";
 import { askConfirm, toast, openDialog } from "./dialog.js";
 import { icon } from "./icons.js";
 import { inTodayPlan } from "./task-calc.js";
@@ -24,6 +24,11 @@ import {
   isIssueClosed, issueStats, matchIssue, archivedOf, splitByArchive,
   cycleDays, progressSorted,
 } from "./dev-calc.js";
+import {
+  workStatsOf, monthMinutesOf, byProjectOf, collapseRows, projectLabelOf, normalizeWorkLog,
+} from "./work-calc.js";
+import { hoursText, durationText, clockText, elapsedMinutes } from "./time-calc.js";
+import { lastMonths, trendChartHtml, barFillHtml } from "./chart-calc.js";
 
 let sorter = null;  // 项目卡片的拖拽实例（每次重画都要重建）
 let hostRoot = null;
@@ -59,11 +64,17 @@ function todoStateOptions(current) {
 
 export function renderDev(root, sub) {
   hostRoot = root;
-  const project = table("projects").find((p) => p.id === sub);
-  if (sub && project) renderDetail(root, project);
-  else {
-    archive.open = false;   // 抽屉只属于项目详情页，回列表就收起来
-    renderList(root);
+  if (sub === "hours") {
+    // 工时统计：第二个子页（和项目列表一个层级的入口，见上面那排子 Tab）
+    archive.open = false;
+    renderHours(root);
+  } else {
+    const project = table("projects").find((p) => p.id === sub);
+    if (sub && project) renderDetail(root, project);
+    else {
+      archive.open = false;   // 抽屉只属于项目详情页，回列表就收起来
+      renderList(root);
+    }
   }
 
   bindFresh(root, { click: onClick, change: onChange, input: onInput });
@@ -135,6 +146,243 @@ function todoList(projectId) {
   return table("tasks").filter((t) => t.belong === "dev:" + projectId);
 }
 
+/* ---------------- 子页：工时统计（2026-10-14 加） ----------------
+   开发工作这一块原来只有「做了什么」（项目 / 待办 / 问题 / 进展），答不了「花了多少时间」。
+   这一页就是那个账：记一笔（哪天、哪个项目、多久）、跑秒表、看四档汇总与两处分布。
+   纯计算在 work-calc.js，时长换算与秒表在 time-calc.js，
+   柱状图与横条复用 chart-calc.js（上一轮做的）。 */
+
+const HOURS_TREND_MONTHS = 6;      // 趋势看几个月（和记账、游戏一个尺度，好对照）
+const HOURS_TOP = 6;               // 分布最多画几个项目，剩下的收成一行
+const WORK_TIMER_KEY = "xiali-work-timer";
+const workTimer = { startedAt: 0, tick: null };
+
+/** 项目列表 / 工时统计 这一对子页的页签（照记账那排子 Tab 的做法） */
+function subTabsHtml(onHours) {
+  return `<a class="dev-subtab${onHours ? "" : " active"}" href="#dev">${icon("list", 16)}项目列表</a>
+          <a class="dev-subtab${onHours ? " active" : ""}" href="#dev/hours">${icon("clock", 16)}工时统计</a>`;
+}
+
+/** 秒表照着游戏页那套：记在 sessionStorage 里，切到别的模块再回来还在计 */
+function workTimerStartedAt() {
+  if (workTimer.startedAt) return workTimer.startedAt;
+  try {
+    workTimer.startedAt = Number(sessionStorage.getItem(WORK_TIMER_KEY)) || 0;
+  } catch {
+    workTimer.startedAt = 0;   // 隐私模式之类读不到 sessionStorage，就当没在计时
+  }
+  return workTimer.startedAt;
+}
+
+function startWorkTimer() {
+  workTimer.startedAt = Date.now();
+  try {
+    sessionStorage.setItem(WORK_TIMER_KEY, String(workTimer.startedAt));
+  } catch {
+    /* 存不下就只在这次会话里计着，不影响用 */
+  }
+}
+
+function stopWorkTimer() {
+  const minutes = elapsedMinutes(workTimerStartedAt(), Date.now());
+  workTimer.startedAt = 0;
+  try {
+    sessionStorage.removeItem(WORK_TIMER_KEY);
+  } catch {
+    /* 上面没存下，这里也没什么好删的 */
+  }
+  return minutes;
+}
+
+/** 每秒把「00:12:34」刷一下。只改那一行字，不重画整页，免得一闪一闪 */
+function startWorkTicker() {
+  if (workTimer.tick || !workTimerStartedAt()) return;
+  workTimer.tick = setInterval(() => {
+    const box = document.getElementById("wk-timer");
+    if (!box) {
+      clearInterval(workTimer.tick);
+      workTimer.tick = null;
+      return;
+    }
+    const num = box.querySelector("b");
+    if (num) num.textContent = clockText(workTimerStartedAt(), Date.now());
+  }, 1000);
+}
+
+/** 「项目」那一格的候选项：projects 表 → [[id, 名称], …]（和「学习对象」那格一个做法） */
+function projectChoices() {
+  return table("projects").map((p) => [p.id, p.name || "（没写名字）"]);
+}
+
+function openWorkDialog(row, defaults) {
+  return openItemDialog("workLog", row, {
+    date: todayStr(),
+    defaults,
+    ctx: { projects: projectChoices() },
+    onSaved: () => redraw(),
+  });
+}
+
+/** 分布那一行：横条铺整行背景 + 项目名 + 时长 + 条数 + 占比 */
+function byRow(r) {
+  return `
+    <li class="item wk-by-row" data-name="${esc(r.name)}">
+      ${barFillHtml(r.ratio, { title: `占全部工时的 ${Math.round(r.share * 100)}%` })}
+      <span class="i-title">${esc(r.name)}</span>
+      <span class="chip">${esc(hoursText(r.minutes))}</span>
+      <span class="i-note">${r.count} 条 · 占 ${Math.round(r.share * 100)}%</span>
+    </li>`;
+}
+
+/** 记录列表里的一行 */
+function workRow(r, projects) {
+  return `
+    <li class="item wk-row" data-id="${esc(r.id)}">
+      <span class="wk-date">${esc(r.date || "没写日期")}</span>
+      <span class="i-title">${esc(projectLabelOf(r.projectId, projects))}</span>
+      <span class="chip">${esc(durationText(r.minutes))}</span>
+      ${tagChips(r)}
+      <span class="i-note">${esc(r.note || "")}</span>
+      <span class="i-actions">
+        ${iconAct("wk-edit", "pencil", "编辑")}
+        ${iconAct("wk-del", "trash", "删除", true)}
+      </span>
+    </li>`;
+}
+
+function renderHours(root) {
+  const logs = table("workLogs");
+  const today = todayStr();
+  const stats = workStatsOf(logs, today);
+  const trend = monthMinutesOf(logs, lastMonths(today.slice(0, 7), HOURS_TREND_MONTHS));
+  const trendTotal = trend.reduce((sum, r) => sum + r.minutes, 0);
+  const byProject = byProjectOf(logs, table("projects"));
+  const { shown, rest, restMinutes } = collapseRows(byProject, HOURS_TOP);
+  const running = Boolean(workTimerStartedAt());
+  const projects = table("projects");
+  // 列表按日期倒序；同一天新记的排前面（createdAt 大的在前）
+  const list = logs
+    .map((r) => normalizeWorkLog(r))
+    .sort((a, b) => (a.date === b.date
+      ? (a.createdAt < b.createdAt ? 1 : -1)
+      : (a.date < b.date ? 1 : -1)));
+
+  root.innerHTML = `
+    ${pageHeader("dev", `<span class="dev-subtabs">${subTabsHtml(true)}</span>
+       <span class="date-chip">本周 ${esc(hoursText(stats.weekMin))}</span>`)}
+    <section class="card wk-stats">
+      <div class="card-head">
+        <h2>工时</h2>
+        <div class="card-tools">
+          ${
+            running
+              ? `<span class="wk-timer" id="wk-timer">${icon("clock", 14)}<b>${esc(
+                  clockText(workTimerStartedAt(), Date.now())
+                )}</b></span>
+                 <button class="btn small primary" data-act="wk-timer-stop">停止并记录</button>
+                 <button class="link" data-act="wk-timer-cancel">取消计时</button>`
+              : `<button class="btn small" data-act="wk-timer-start">${icon("clock", 14)}开始计时</button>`
+          }
+          <button class="btn primary small" data-act="wk-add">${icon("plus", 14)}记一笔工时</button>
+        </div>
+      </div>
+      <div class="wk-grid">
+        ${[["今日", stats.todayMin], ["本周", stats.weekMin], ["本月", stats.monthMin],
+           ["累计", stats.allMin]]
+          .map(
+            ([label, minutes]) => `
+          <div class="wk-stat">
+            <span>${label}</span>
+            <strong>${esc(hoursText(minutes))}</strong>
+            <small>${esc(minutes ? `${minutes} 分钟` : "—")}</small>
+          </div>`
+          )
+          .join("")}
+      </div>
+      ${
+        trendTotal
+          ? `${sectionHead(`近 ${HOURS_TREND_MONTHS} 个月`, undefined, `共 ${esc(hoursText(trendTotal))}`)}
+             ${trendChartHtml(trend, {
+               value: (r) => r.minutes,
+               label: (r) => Number(r.month.slice(5)) + "月",
+               valueText: (v) => hoursText(v),
+               title: (r) => `${r.month} · ${durationText(r.minutes)}`,
+               ariaLabel: `近 ${HOURS_TREND_MONTHS} 个月工时`,
+             })}`
+          : `<p class="empty">还没有工时记录，点右上角「开始计时」或者「记一笔工时」。</p>`
+      }
+      <p class="wk-hint">共 ${stats.count} 条 · 记过 ${stats.days} 天</p>
+    </section>
+    <section class="card wk-by">
+      ${sectionHead("按项目", byProject.length, byProject.length ? "条长按第一名算" : "")}
+      ${
+        shown.length
+          ? `<ul class="items">${shown.map(byRow).join("")}</ul>`
+          : `<p class="empty">还没有工时，分布要等记过几笔才看得出来。</p>`
+      }
+      ${rest ? `<p class="wk-hint">还有 ${rest} 个项目 · 合计 ${esc(hoursText(restMinutes))}</p>` : ""}
+    </section>
+    <section class="card wk-list">
+      ${sectionHead("工时记录", logs.length, logs.length ? "点行尾改或删" : "")}
+      ${
+        list.length
+          ? `<ul class="items">${list.map((r) => workRow(r, projects)).join("")}</ul>`
+          : `<p class="empty wk-empty">还没记过工时。点上面「开始计时」跑着干，或者「记一笔工时」事后补。</p>`
+      }
+    </section>
+  `;
+  startWorkTicker();
+}
+
+/** 工时页上那几个按钮（返回 true 表示这个事件归它管） */
+function hoursAction(e, act) {
+  if (act === "wk-add") {
+    openWorkDialog(null, null);
+    return true;
+  }
+  if (act === "wk-timer-start") {
+    startWorkTimer();
+    toast("开始计时，忙完点「停止并记录」");
+    redraw();
+    return true;
+  }
+  if (act === "wk-timer-cancel") {
+    stopWorkTimer();
+    toast("已取消计时");
+    redraw();
+    return true;
+  }
+  if (act === "wk-timer-stop") {
+    const minutes = stopWorkTimer();
+    redraw();
+    // 计出来的分钟直接填进弹窗，确认一下（想挑项目、补备注都在这里）
+    openWorkDialog(null, { duration: minutes, durationUnit: "分钟" });
+    return true;
+  }
+  if (act === "wk-edit" || act === "wk-del") {
+    const li = e.target.closest("[data-id]");
+    const row = li ? table("workLogs").find((w) => w.id === li.dataset.id) : null;
+    if (!row) return true;
+    if (act === "wk-edit") openWorkDialog(row, null);
+    else deleteWorkLog(row);
+    return true;
+  }
+  return false;
+}
+
+async function deleteWorkLog(row) {
+  const ok = await askConfirm({
+    title: "删掉这笔工时？",
+    message: `${row.note || row.date || "这笔工时"}\n\n会放进回收站，误删可以去「数据与设置」找回。`,
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!ok) return;
+  moveToTrash("workLogs", row, row.note || row.date || "");
+  touch(true);
+  toast("已移入回收站");
+}
+
 function issueList(projectId) {
   return table("issues").filter((i) => i.projectId === projectId);
 }
@@ -150,7 +398,8 @@ function renderList(root) {
   const list = visibleProjects();
   const filtering = Boolean(filterText.trim()) || filterStatus !== "all";
   root.innerHTML = `
-    ${pageHeader("dev", `<span class="date-chip">${all.length} 个项目</span>`)}
+    ${pageHeader("dev", `<span class="dev-subtabs">${subTabsHtml(false)}</span>
+       <span class="date-chip">${all.length} 个项目</span>`)}
     <section class="card">
       <div class="card-head">
         <h2>项目</h2>
@@ -1119,6 +1368,7 @@ async function onClick(e) {
     return;
   }
   const act = btn.dataset.act;
+  if (hoursAction(e, act)) return;        // 工时统计那页上的按钮
   if (act === "todo-toggle") return; // 走 change
   const li = btn.closest("[data-id]");
   const id = li ? li.dataset.id : "";

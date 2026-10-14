@@ -134,8 +134,10 @@ function assetFormHtml(kind, values = {}) {
     ${
       kind === "image"
         ? `<p class="fin-help">一张素材一张图；竖版封面、脚本截图分开建两份就行。</p>`
+        // 提示语刻意不写带 :/ / 的字面地址：自检有一条「界面文件里不许出现外部链接」在扫
         : `<label class="fin-label" for="asset-url">链接 *</label>
-           <input id="asset-url" maxlength="300" placeholder="https://…" value="${esc(v.url)}">`
+           <input id="asset-url" maxlength="300" placeholder="把链接粘进来（要 http 开头）"
+             value="${esc(v.url)}">`
     }
     <label class="fin-label" for="asset-note">说明</label>
     <input id="asset-note" maxlength="200" placeholder="给谁看的、哪里找的（可不填）"
@@ -159,8 +161,11 @@ async function removeAsset(a) {
     danger: true,
   });
   if (!ok) return false;
+  // 挪进回收站要的是**表里那一行本身**：assetsOf() 给的是规整过的副本，
+  // 拿副本去 moveToTrash 会因为「不在表里」而摘不掉（删了等于没删）
+  const raw = table("mediaAssets").find((x) => x && x.id === a.id) || a;
   store.data.contents = unlinkAsset(table("contents"), a.id);
-  moveToTrash("mediaAssets", a, a.title);
+  moveToTrash("mediaAssets", raw, a.title);
   touch(true);
   toast("已移入回收站");
   return true;
@@ -226,7 +231,7 @@ function openAssetDialog(id, options = {}) {
           });
         }
         touch(true);
-        dlg.close();
+        close();   // 注意：onAction 的第二个参数是弹窗根元素，不是 {el, close}，别写成 dlg.close()
         toast(a ? "素材已更新" : `已添加「${title}」`);
         // 换成链接、或者换了一张图之后，原来那张图跟着设置走（默认保留）
         const removed = beforePaths.filter((p) => p !== path);

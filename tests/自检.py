@@ -456,6 +456,19 @@ def main() -> int:
               and bool(back_st[0].get("id"))
               and back_st[1].get("id") == "st-keep" and back_st[1].get("done") is False,
               str(back_st))
+        # 工时（2026-10-14 新增）：开发工作底下「哪天在哪个项目上花了多久」。
+        # 老数据没有这个键就补一张空表；有的逐条补齐字段，一条都不丢。
+        check("没有 workLogs 的老数据读出来补成空表",
+              back2.get("workLogs") == [], str(back2.get("workLogs")))
+        cur_wl = call(port, "/api/data")[1]
+        cur_wl["workLogs"] = [{"date": "2026-10-14", "minutes": 90, "note": "手写的一条"}]
+        call(port, "/api/data", "POST", cur_wl)
+        back_wl = call(port, "/api/data")[1]["workLogs"][0]
+        check("手写的工时补齐 id / 项目 / 标签，分钟与备注不动",
+              bool(back_wl.get("id")) and back_wl.get("minutes") == 90
+              and back_wl.get("note") == "手写的一条" and back_wl.get("projectId") == ""
+              and back_wl.get("tags") == [],
+              str(back_wl))
         check("没有 gameRecords 的老数据读出来补成空表",
               back2.get("gameRecords") == [], str(back2.get("gameRecords")))
 

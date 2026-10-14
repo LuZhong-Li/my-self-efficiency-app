@@ -167,6 +167,8 @@ def default_data() -> dict:
         "projects": [],
         "issues": [],
         "progress": [],
+        # 工时：开发工作底下「哪天在哪个项目上花了多久」（2026-10-14 新增）
+        "workLogs": [],
         "subjects": [],   # 学习对象：书 / 课程 / 视频 / 技能
         "studies": [],    # 学习记录：哪天、学什么、多久、心得
         # 模块目标：健身 / 学习 / 饮食三个模块的长期目标，按模块 id 分桶（见 migrate）
@@ -522,6 +524,18 @@ def migrate(data: dict) -> dict:
     for row in data.get("progress") or []:
         if isinstance(row, dict) and not isinstance(row.get("imagePaths"), list):
             row["imagePaths"] = []
+    # 工时（2026-10-14 新增）：老数据没有这个键就补一张空表；有的逐条补齐字段。
+    # 只补不改：分钟和备注一个字都不动（分钟的取整是前端 work-calc.js 的事）。
+    if not isinstance(data.get("workLogs"), list):
+        data["workLogs"] = []
+    for row in data["workLogs"]:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("id"):
+            row["id"] = "w-" + uuid.uuid4().hex[:8]
+        for key in ("date", "projectId", "note", "createdAt"):
+            row.setdefault(key, "")
+        row.setdefault("minutes", 0)
     # 2026-10-07 第二批：今日计划、开发待办、学习记录、学习对象、训练打卡、游戏
     # 也都能带图片备注了，老记录一律补一个空数组（补了才动，有了不动）
     for key in ("tasks", "studies", "subjects", "workoutLogs", "games"):
@@ -599,7 +613,7 @@ def migrate(data: dict) -> dict:
     # 已经是数组的原样留着（不清洗、不排序、不去重 —— 那是前端 tag-calc.js 的事）。
     for key in ("tasks", "contents", "mediaAccounts", "projects", "issues", "progress",
                 "subjects", "studies", "workoutLogs", "weights", "meals", "water",
-                "games", "gameRecords"):
+                "games", "gameRecords", "workLogs"):
         for row in data.get(key) or []:
             if isinstance(row, dict) and not isinstance(row.get("tags"), list):
                 row["tags"] = []

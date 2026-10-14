@@ -3855,3 +3855,44 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .wk-by-row { position: relative; }
 .wk-by-row > *:not(.bar-fill) { position: relative; }
 .wk-row .wk-date { flex: 0 0 84px; color: var(--muted); font-size: 13px; }
+
+/* 热量营养（2026-10-14 加） */
+.sub-tabs { display: inline-flex; gap: 6px; margin-right: 10px; }
+.sub-tab {
+  padding: 4px 10px;
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: 13px;
+}
+.sub-tab:hover { color: var(--accent); }
+.sub-tab.active { background: var(--hover); color: var(--ink); }
+
+.meal-row { display: block; }
+.meal-items { margin: 2px 0 6px; padding: 0; list-style: none; }
+.meal-item { display: flex; align-items: baseline; gap: 10px; padding: 2px 0 2px 56px; }
+.meal-item .mi-name { flex: 1 1 auto; }
+.meal-item .mi-kcal { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.meal-item-add { padding-left: 56px; }
+
+.nu-kcal { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 14px; }
+.nu-kcal strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.nu-kcal input { width: 92px; }
+.nu-track { margin: 8px 0 4px; }
+.nu-track .low { background: var(--accent); }
+.nu-track .good { background: var(--ok); }
+.nu-track .over { background: var(--err); }
+.nu-state { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.nu-state.over { color: var(--err); }
+.nu-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.nu-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--hover);
+}
+.nu-cell span { color: var(--muted); font-size: 12px; }
+.nu-cell strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.nu-goal { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+.nu-goal input { width: 64px; }

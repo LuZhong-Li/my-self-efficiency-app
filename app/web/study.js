@@ -6,7 +6,7 @@
  */
 
 import { touch, table, esc, todayStr, dateStr, moveToTrash } from "./store.js";
-import { emptyState, chip, bindFresh, pageHeader, tagChips } from "./ui.js";
+import { emptyState, chip, bindFresh, pageHeader, tagChips, assetBadge } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { monthGridHtml, calendarAction, dayLabel, KIND_STUDY } from "./calendar.js";
@@ -113,6 +113,7 @@ function subjectRow(s) {
       ${imgBadge(s.imagePaths, "图")}
       ${s.source ? `<span class="i-meta">${esc(s.source)}</span>` : ""}
       ${tagChips(s)}
+      ${assetBadge(s)}
       <span class="i-note">${esc(s.note || "")}</span>
       <span class="i-meta">学了 ${mine.length} 次 · ${minutes} 分钟${pending ? ` · 待复习 ${pending}` : ""}</span>
       <span class="i-actions">
@@ -132,6 +133,7 @@ function studyRow(s) {
       <span class="chip">${s.reviewed ? "已复习" : "待复习"}</span>
       ${Number(s.minutes) ? `<span class="i-meta">${esc(s.minutes)} 分钟</span>` : ""}
       ${tagChips(s)}
+      ${assetBadge(s)}
       <span class="i-note">${esc(s.takeaway || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="st-review">${s.reviewed ? "标记待复习" : "标记已复习"}</button>

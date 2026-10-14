@@ -1,7 +1,9 @@
 /* 健身计划：每周训练安排 / 训练打卡 / 体重记录 */
 
 import { store, touch, uid, table, esc, todayStr, moveToTrash } from "./store.js";
-import { emptyLine, emptyState, chip, bindFresh, pageHeader, tagChips } from "./ui.js";
+import {
+  emptyLine, emptyState, chip, bindFresh, pageHeader, tagChips, assetBadge,
+} from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { monthGridHtml, calendarAction, dayLabel, KIND_FITNESS } from "./calendar.js";
@@ -126,6 +128,7 @@ function logRow(l) {
       <span class="i-title">${esc(l.moves || "")}</span>
       ${imgBadge(l.imagePaths, "图")}
       ${tagChips(l)}
+      ${assetBadge(l)}
       <span class="i-note">${esc(l.note || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="l-edit">编辑</button>

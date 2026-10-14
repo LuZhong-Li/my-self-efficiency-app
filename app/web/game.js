@@ -11,7 +11,9 @@
  */
 
 import { touch, table, esc, todayStr, shiftDate, moveToTrash } from "./store.js";
-import { sectionHead, emptyState, chip, bindFresh, pageHeader, tagChips } from "./ui.js";
+import {
+  sectionHead, emptyState, chip, bindFresh, pageHeader, tagChips, assetBadge,
+} from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
 import { imgBadge } from "./attachment.js";
@@ -144,6 +146,7 @@ function recordRow(r, withDate) {
       ${withDate ? `<span class="i-meta">${esc(r.playDate || "")}</span>` : ""}
       ${imgBadge(r.imagePaths, "图")}
       ${tagChips(r)}
+      ${assetBadge(r)}
       <span class="i-note">${esc(r.remark || "")}</span>
       <span class="i-actions">
         <button class="link" data-act="gr-edit">编辑</button>

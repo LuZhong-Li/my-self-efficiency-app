@@ -5,6 +5,7 @@
 
 import {
   lastMonths, barRatioOf, barRowsOf, trendBars, heatGrid, heatLevelOf,
+  barFillHtml, trendChartHtml, heatmapHtml,
 } from "../app/web/chart-calc.js";
 import {
   lastMonths as lastMonthsFromFinance, monthTotals, dayExpenseMap,
@@ -153,6 +154,57 @@ eq(heatMap[""], undefined, "没日期的帐不进格子（图上画不出来）"
 eqDeep(dayExpenseMap(null), {}, "传 null 给空对象");
 eq(heatMap["2026-10-14"], monthTotals(TXS, "2026-10").expenseCents,
   "和当月汇总同一个来源（同一天几笔的和就是明细里的数）");
+
+console.log("\n【横条：铺在行背景上那一条】");
+ok(barFillHtml(0.5).includes('class="bar-fill"'), "带 bar-fill 这个类");
+ok(barFillHtml(0.5).includes("width:50%"), "一半的条就是 50%");
+ok(barFillHtml(1).includes("width:100%"), "满格 100%");
+ok(barFillHtml(0).includes("width:0%"), "零就是零宽");
+ok(barFillHtml(-1).includes("width:0%"), "负数当 0");
+ok(barFillHtml(0.5, { title: "甲 · 2 小时" }).includes('title="甲 · 2 小时"'), "能挂悬停说明");
+ok(barFillHtml(0.5).includes("aria-hidden"), "纯装饰，读屏软件不用念它");
+
+console.log("\n【柱状 SVG】");
+const svg = trendChartHtml(
+  [{ month: "2026-08", minutes: 0 }, { month: "2026-09", minutes: 60 },
+   { month: "2026-10", minutes: 120 }],
+  { width: 600, height: 180, value: (r) => r.minutes,
+    label: (r) => Number(r.month.slice(5)) + "月",
+    valueText: (v) => v + " 分",
+    title: (r) => r.month + " · " + r.minutes + " 分",
+    ariaLabel: "近 6 个月游玩时长" });
+ok(svg.startsWith("<svg"), "是一段 SVG");
+ok(svg.includes('viewBox="0 0 600 180"'), "viewBox 按给的尺寸");
+ok(svg.includes('aria-label="近 6 个月游玩时长"'), "带了 aria-label（读屏软件能读）");
+eq((svg.match(/class="chart-trend-bar/g) || []).length, 3, "三行数据三根柱");
+ok(svg.includes("<title>2026-09 · 60 分</title>"), "每根柱挂着完整说明");
+ok(svg.includes(">60 分</text>"), "柱顶写着数值");
+ok(svg.includes(">10月</text>"), "底下写着月份标签");
+ok(svg.includes("chart-trend-bar now"), "最后一根（当月）多一个 now");
+ok(svg.includes('class="chart-base"'), "底下有一条基线");
+eq((svg.match(/>0 分</g) || []).length, 0, "零值那根不写柱顶数字（写了也是 0 分，占地方）");
+ok(!trendChartHtml([{ month: "x", v: 1 }], { value: (r) => r.v }).includes("NaN"),
+  "算不出坐标时不会冒出 NaN");
+ok(!trendChartHtml([], {}).includes("NaN"), "没数据时也不冒出 NaN");
+
+console.log("\n【热力网格】");
+const hm = heatmapHtml(
+  [{ date: "2026-10-12", inRange: true }, { date: "2026-10-13", inRange: true },
+   { date: "2026-10-14", inRange: true }, { date: "2026-10-15", inRange: false }],
+  { amount: (c) => ({ "2026-10-12": 0, "2026-10-13": 5000, "2026-10-14": 10000 })[c.date] || 0,
+    today: "2026-10-14",
+    title: (c, amount) => c.date + " · " + amount + " 分",
+    ariaLabel: "支出日历" });
+ok(hm.includes('class="hm-grid"'), "外层是 hm-grid");
+eq((hm.match(/class="hm-cell/g) || []).length, 4, "几格画几格");
+ok(hm.includes('data-date="2026-10-14"'), "每格带着日期（悬停 / 调试都用得上）");
+ok(hm.includes('class="hm-cell hm-l0" data-date="2026-10-12"'), "零支出那格落在最浅档");
+ok(hm.includes('class="hm-cell hm-l4 today" data-date="2026-10-14"'),
+  "最贵那格落在最高档、今天还多一个 today（描边）");
+ok(hm.includes('class="hm-cell hm-l0 out" data-date="2026-10-15"'), "本周还没到的那天标 out");
+ok(hm.includes('title="2026-10-14 · 10000 分"'), "悬停说明给出日期与金额");
+ok(!hm.includes("undefined"), "金额取不到时不会把 undefined 写进页面");
+ok(heatmapHtml([], {}).includes('class="hm-grid"'), "没格子也给一个空网格（页面自己判空）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

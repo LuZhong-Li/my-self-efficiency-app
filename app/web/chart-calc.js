@@ -115,3 +115,96 @@ export function heatLevelOf(value, max, levels = 5) {
   if (v >= m) return lv - 1;
   return Math.max(1, Math.min(lv - 1, 1 + Math.floor((v / m) * (lv - 1))));
 }
+
+/* ---------------- 拼装：横条（铺在行背景上） ---------------- */
+
+/**
+ * 一条横条：宽度按比例，铺在整行背景上（父元素记得 position: relative）。
+ * 为什么铺背景、不另起一行：榜单一行本来就矮，另起一行会把三行变六行高，
+ * 而「谁比谁长」这件事铺成背景一眼就出来了。空 span，纯装饰。
+ */
+export function barFillHtml(ratio, opts = {}) {
+  const pct = Math.round(barRatioOf(ratio, 1) * 100);
+  const title = opts.title ? ` title="${esc(opts.title)}"` : "";
+  return `<span class="bar-fill" aria-hidden="true" style="width:${pct}%"${title}></span>`;
+}
+
+/* ---------------- 拼装：柱状图（手写 SVG，不引库） ---------------- */
+
+/**
+ * 柱状图整段 SVG。上下各留一行（上面数值、下面标签），最后一根（当月）标 now。
+ * opts = { width, height, gap, value(row), label(row), valueText(value, row),
+ *          title(row), ariaLabel, className }
+ */
+export function trendChartHtml(rows, opts = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  const width = Number(opts.width) || 600;
+  const height = Number(opts.height) || 180;
+  const className = opts.className || "chart-trend";
+  const labelOf =
+    typeof opts.label === "function" ? opts.label : (row) => String((row && row.month) || "");
+  const valueTextOf =
+    typeof opts.valueText === "function" ? opts.valueText : (v) => String(Number(v) || 0);
+  const titleOf = typeof opts.title === "function" ? opts.title : () => "";
+  const { baseY, bars } = trendBars(list, { width, height, gap: opts.gap, value: opts.value });
+  const body = bars
+    .map((b, i) => {
+      const mid = (b.x + b.w / 2).toFixed(1);
+      const now = i === bars.length - 1 ? " now" : "";   // 最后一根就是当月（序列来自 lastMonths）
+      return (
+        `<g class="${className}-bar${now}">` +
+        `<title>${esc(titleOf(b.row))}</title>` +
+        `<rect x="${b.x.toFixed(1)}" y="${b.y}" width="${b.w.toFixed(1)}" height="${b.h}" rx="5"></rect>` +
+        (b.value
+          ? `<text class="${className}-num" x="${mid}" y="${Math.max(13, b.y - 7)}" ` +
+            `text-anchor="middle">${esc(valueTextOf(b.value, b.row))}</text>`
+          : "") +
+        `<text class="${className}-label" x="${mid}" y="${baseY + 17}" ` +
+        `text-anchor="middle">${esc(labelOf(b.row))}</text>` +
+        `</g>`
+      );
+    })
+    .join("");
+  return (
+    `<svg class="${className}" viewBox="0 0 ${width} ${height}" width="100%" height="${height}" ` +
+    `role="img" aria-label="${esc(opts.ariaLabel || "柱状图")}">` +
+    `<line class="chart-base" x1="0" y1="${baseY}" x2="${width}" y2="${baseY}"></line>` +
+    `${body}</svg>`
+  );
+}
+
+/* ---------------- 拼装：热力网格（CSS grid，一周一列） ---------------- */
+
+/**
+ * 热力图的格子。一周一列、七天一行，所以网格要配
+ * `grid-auto-flow: column; grid-template-rows: repeat(7, …)`。
+ * 每格一个 span：档位是 hm-l0（最浅）… hm-l4，今天多一个 today 描边，
+ * 本周还没到的日子多一个 out（画淡一点）。
+ * opts = { amount(cell), today, title(cell, amount), levels, ariaLabel }
+ */
+export function heatmapHtml(cells, opts = {}) {
+  const list = Array.isArray(cells) ? cells : [];
+  const amountOf = typeof opts.amount === "function" ? opts.amount : () => 0;
+  const titleOf = typeof opts.title === "function" ? opts.title : () => "";
+  const levels = Math.max(2, Math.floor(Number(opts.levels) || 5));
+  const max = list.reduce((best, c) => Math.max(best, Number(amountOf(c)) || 0), 0);
+  const today = String(opts.today || "");
+  const body = list
+    .map((c) => {
+      const amount = Number(amountOf(c)) || 0;
+      const level = heatLevelOf(amount, max, levels);
+      const cls =
+        `hm-cell hm-l${level}` +
+        (c.inRange === false ? " out" : "") +
+        (today && c.date === today ? " today" : "");
+      return (
+        `<span class="${cls}" data-date="${esc(c.date)}" ` +
+        `title="${esc(titleOf(c, amount))}"></span>`
+      );
+    })
+    .join("");
+  return (
+    `<div class="hm-grid" role="img" aria-label="${esc(opts.ariaLabel || "支出日历")}">` +
+    `${body}</div>`
+  );
+}

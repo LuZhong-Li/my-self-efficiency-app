@@ -661,7 +661,9 @@ export function applySnapshots(snapshots, accountId, rows, makeId) {
    unlinkAsset 从「返回新数组」变成「原地摘掉、返回摘了几处」——
    调用点（media.js）已经跟着改了。 */
 
-import { assetsOf, assetUsage, assetsOfRow, unlinkAsset } from "./asset-calc.js";
+import {
+  ASSET_KINDS, ASSET_TABLES, assetsOf, assetUsage, assetsOfRow, unlinkAsset,
+} from "./asset-calc.js";
 
-export { assetsOf, assetUsage, assetsOfRow, unlinkAsset };
+export { ASSET_KINDS, ASSET_TABLES, assetsOf, assetUsage, assetsOfRow, unlinkAsset };
 export { assetsOfRow as assetsOfContent };   // 老名字（作品那条链路上在用）也留着

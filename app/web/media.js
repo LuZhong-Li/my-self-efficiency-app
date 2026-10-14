@@ -28,6 +28,7 @@ import {
   removePlatform,
   lastSnapshotOf,
   assetsOf, assetUsage, assetsOfContent, unlinkAsset,
+  ASSET_TABLES,
   recentDays, parseSnapshotLines, applySnapshots,
   contentCsvRows, mediaCsv,
   ARCHIVED,
@@ -85,6 +86,23 @@ function assetsView() {
     </section>`;
 }
 
+/** 「被 N 处引用」那句（0 处时另一句话）；悬停时列出分别是哪几处 */
+function usedText(info) {
+  const total = (info && info.total) || 0;
+  return total ? `被 ${total} 处引用` : "还没被用过";
+}
+
+/** 引用明细，拼成「作品 2 · 待办 1」这种（给确认框和悬停提示用） */
+function usedWhere(info) {
+  const byTable = (info && info.byTable) || {};
+  return Object.entries(byTable)
+    .map(([key, n]) => {
+      const hit = ASSET_TABLES.find(([t]) => t === key);
+      return `${hit ? hit[1] : key} ${n}`;
+    })
+    .join(" · ");
+}
+
 function assetRow(a, info) {
   // info 是 asset-calc 的 assetUsage 给的那份 { total, byTable }（2026-10-14 起跨表数）
   const used = (info && info.total) || 0;
@@ -107,7 +125,9 @@ function assetRow(a, info) {
         ${link}
         ${a.note ? `<span class="i-note">${esc(a.note)}</span>` : ""}
       </span>
-      <span class="i-meta">${used ? `用在 ${used} 条作品上` : "还没被用过"}</span>
+      <span class="i-meta" title="${esc(usedWhere(info) || "还没有人引用它")}">${esc(
+        usedText(info)
+      )}</span>
       <span class="i-actions">
         <button class="link" data-act="asset-edit">编辑</button>
         <button class="link danger" data-act="asset-del">删除</button>
@@ -165,8 +185,9 @@ async function removeAsset(a) {
   const ok = await askConfirm({
     title: `删除素材「${a.title}」？`,
     message: used
-      ? `有 ${used} 条作品在用，删掉之后它们的素材里也会少这一份（作品本身不动）。`
-      : "还没有作品用它。会放进回收站，误删可找回。",
+      ? `它被 ${used} 处引用着（${usedWhere(info)}），删掉之后那些记录里也会少这一份` +
+        "（记录本身不动）。会放进回收站，误删可找回。"
+      : "还没有人引用它。会放进回收站，误删可找回。",
     confirmLabel: "删除",
     danger: true,
   });

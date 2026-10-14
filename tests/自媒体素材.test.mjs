@@ -481,7 +481,8 @@ async function main() {
     await ev("location.hash='#media/assets'");
     await waitFor("!!document.querySelector('.asset-row')", 8000);
     view = await assetsNow();
-    eq(view.rows.find((r) => r.title === "封面：第一期").meta, "用在 1 条作品上", "被用着的那份这么说");
+    eq(view.rows.find((r) => r.title === "封面：第一期").meta, "被 1 处引用",
+      "被用着的那份这么说（2026-10-14 起是全站口径，不再只数作品）");
     eq(view.rows.find((r) => r.title === "素材站参考").meta, "还没被用过", "另一份还是没人用");
 
     /* ---- 删掉没人用的那份 ---- */
@@ -493,7 +494,7 @@ async function main() {
     })()`);
     await waitFor("!!document.querySelector('.dlg-backdrop [data-dlg=\"yes\"]')", 5000);
     const plainMsg = await ev("document.querySelector('.dlg-copy p').textContent");
-    ok(plainMsg.includes("还没有作品用它"), "确认框里说清没人用它（" + plainMsg.slice(0, 30) + "…）");
+    ok(plainMsg.includes("还没有人引用它"), "确认框里说清没人用它（" + plainMsg.slice(0, 30) + "…）");
     await ev("document.querySelector('.dlg-backdrop [data-dlg=\"yes\"]').click()");
     await sleep(400);
     eq(readData(dataFile).assets.length, 1, "数据里只剩一份素材");
@@ -508,7 +509,8 @@ async function main() {
     })()`);
     await waitFor("!!document.querySelector('.dlg-backdrop [data-dlg=\"yes\"]')", 5000);
     const usedMsg = await ev("document.querySelector('.dlg-copy p').textContent");
-    ok(usedMsg.includes("有 1 条作品在用"), "确认框里写明几条作品在用（" + usedMsg.slice(0, 30) + "…）");
+    ok(usedMsg.includes("被 1 处引用着") && usedMsg.includes("作品 1"),
+      "确认框里写明几处引用、分别在哪（" + usedMsg.slice(0, 30) + "…）");
     await ev("document.querySelector('.dlg-backdrop [data-dlg=\"yes\"]').click()");
     await sleep(400);
     const after = readData(dataFile);

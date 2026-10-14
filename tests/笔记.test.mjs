@@ -411,6 +411,46 @@ async function main() {
       "点第二条（更早那条）→ 编辑器换成它");
     ok(await ev('!!document.querySelector(".note-row.active")'), "选中的那条在列表上标出来了");
 
+    /* ---- 预览：Markdown 真渲染出来了 ---- */
+    console.log("\n打开预览：h1 和列表真渲染出来了");
+    ok(await ev('!!document.querySelector(\'[data-act="note-preview"]\')'), "有「预览」开关");
+    await ev('(()=>{const b=document.getElementById("note-body");' +
+      'b.value="# 标题一\\n\\n- 甲\\n- 乙";b.dispatchEvent(new Event("change",{bubbles:true}));' +
+      'return true;})()');
+    await sleep(400);
+    await ev('document.querySelector(\'[data-act="note-preview"]\').click()');
+    ok(await waitFor('!!document.querySelector(".note-render")', 5000), "预览区出来了");
+    eq(await ev('document.querySelector(".note-render .md-h1").textContent'), "标题一",
+      "预览里 h1 出来了");
+    eq(await ev('document.querySelectorAll(".note-render .md-li").length'), 2, "两条列表项");
+    await ev('document.querySelector(\'[data-act="note-preview"]\').click()');
+    await sleep(300);
+    eq(await ev('!!document.querySelector(".note-render")'), false, "再点一下收起预览");
+
+    /* ---- 标签：输进去、存下来、列表上出胶囊 ---- */
+    console.log("\n标签：输入 → 存进数据 → 列表上出胶囊");
+    await ev('(()=>{const t=document.getElementById("note-tags");t.value="想法, 开发";' +
+      't.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+    await sleep(400);
+    // 这会儿编辑器里开着的是「第一篇（改过）」（上面点过它），所以标签落在它身上
+    eqDeep(readData(dataFile).notes.find((n) => n.title === "第一篇（改过）").tags,
+      ["想法", "开发"], "标签存成了数组");
+    ok(await ev('(()=>{const row=[...document.querySelectorAll(".note-row")]' +
+      '.find(r=>r.textContent.includes("第一篇（改过）"));' +
+      'return !!row && !!row.querySelector(".tag-chip");})()'), "列表那一行上有标签胶囊");
+
+    /* ---- 贴图：真上传一张 ---- */
+    console.log("\n贴一张图：真上传，路径写进这条笔记");
+    await attachFile(path.join(ROOT, "docs", "screenshots", "home-light.png"));
+    ok(await ev('!!document.querySelector(\'[data-act="note-save-img"]\')'),
+      "有图待存时出现「保存图片」按钮");
+    await ev('document.querySelector(\'[data-act="note-save-img"]\').click()');
+    await sleep(900);
+    const withImg = readData(dataFile).notes.find((n) => n.title === "第一篇（改过）");
+    eq(withImg.imagePaths.length, 1, "图片路径写进了这条笔记");
+    ok(withImg.imagePaths[0].startsWith("attachments/note/"),
+      "存的是 note 这个目录（" + withImg.imagePaths[0] + "）");
+
     /* ---- 删掉进回收站 ---- */
     console.log("\n删掉一条：进回收站，列表少一条");
     await ev('document.querySelector(\'[data-act="note-del"]\').click()');

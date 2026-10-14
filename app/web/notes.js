@@ -9,10 +9,16 @@ import { touch, table, esc, uid, moveToTrash } from "./store.js";
 import { pageHeader, bindFresh, emptyState } from "./ui.js";
 import { askConfirm, toast } from "./dialog.js";
 import { icon } from "./icons.js";
-import { tagsOfRow, tagColor } from "./tag-calc.js";
+import { tagsOfRow, tagColor, normalizeTags, tagInputError } from "./tag-calc.js";
+import { renderMarkdown } from "./markdown.js";
+import {
+  createAttach, mountAttach, disposeAttach, uploadPending, commitUploads, rowPaths,
+} from "./attachment.js";
 
 let currentId = null;   // 正在写哪一条（只记在内存里：刷新回到「没选」）
 let filterText = "";    // 左边列表的筛选词（也只记在内存里）
+let preview = false;    // 预览开着没（也只记在内存里）
+let attach = null;      // 当前这条的图片会话（重画时按当前这条重建）
 
 export function renderNote(root, sub = "") {
   const notes = table("notes");
@@ -36,6 +42,27 @@ export function renderNote(root, sub = "") {
       <section class="card note-main">${editorHtml(cur)}</section>
     </div>
   `;
+  // 图片区：每条笔记一份会话，重画时按当前这条重建 —— 但**待存的那几张要带过去**
+  // （它们还只是内存里的 blob，重建时丢掉就等于白贴了）。
+  const pending = attach && Array.isArray(attach.files) ? attach.files.slice() : [];
+  if (cur) {
+    attach = createAttach({ module: "note", paths: rowPaths(cur), files: pending });
+    // 图片区自己变了（加了一张 / 撤了一张）就重画一次：
+    // 「保存图片」那个按钮要靠重画才露出来，撤掉已存的图也要立刻写回记录
+    mountAttach(root.querySelector("#note-attach"), attach, {
+      onChange: (state) => {
+        const note = findNote(currentId);
+        if (note) {
+          note.imagePaths = state.paths.slice();
+          stamp(note);
+        }
+        touch(true);
+      },
+    });
+  } else {
+    if (attach) disposeAttach(attach);
+    attach = null;
+  }
   bindFresh(root, { click: onClick, input: onInput, change: onChange });
 }
 
@@ -64,10 +91,23 @@ function editorHtml(cur) {
     <div class="note-editor-head">
       <input id="note-title" class="grow note-title" maxlength="80" autocomplete="off"
         placeholder="标题（可以空着）" value="${esc(cur.title || "")}">
+      <button class="link" data-act="note-preview">${preview ? "收起预览" : "预览"}</button>
       <button class="link danger" data-act="note-del">删除</button>
     </div>
-    <textarea id="note-body" class="note-text"
-      placeholder="写点什么…（支持 Markdown：标题 #、列表 -、加粗 **、代码块 三个反引号）">${esc(cur.body || "")}</textarea>
+    <div class="note-body${preview ? " with-preview" : ""}">
+      <textarea id="note-body" class="note-text"
+        placeholder="写点什么…（支持 Markdown：标题 #、列表 -、加粗 **、代码块 三个反引号）">${esc(cur.body || "")}</textarea>
+      ${preview ? `<div class="note-render md-body">${renderMarkdown(cur.body)}</div>` : ""}
+    </div>
+    <div class="note-meta">
+      <label class="note-tags-label" for="note-tags">标签</label>
+      <input id="note-tags" class="grow" maxlength="200" autocomplete="off"
+        placeholder="逗号分开，比如：想法、开发" value="${esc(tagsOfRow(cur).join(", "))}">
+    </div>
+    <div class="attach-host" id="note-attach"></div>
+    ${attach && attach.files.length
+      ? `<button class="link" data-act="note-save-img">保存图片（${attach.files.length} 张还没存）</button>`
+      : ""}
     <p class="note-hint">打字会自动存；离开输入框会刷新左边列表。</p>
   `;
 }
@@ -164,14 +204,41 @@ function onInput(e) {
 }
 
 /** 离开输入框：正常保存一次并重画（列表的标题 / 摘要 / 排序跟着变） */
-function onChange(e) {
+async function onChange(e) {
   const note = findNote(currentId);
   if (!note) return;
   if (e.target.id === "note-title") note.title = e.target.value;
   else if (e.target.id === "note-body") note.body = e.target.value;
-  else return;
+  else if (e.target.id === "note-tags") {
+    const err = tagInputError(e.target.value);
+    if (err) {
+      toast(err, "err");
+      return;
+    }
+    note.tags = normalizeTags(e.target.value);
+  } else return;
   stamp(note);
   touch(true);
+  // 离开输入框时顺手把待存的图存掉（贴完图直接点别处也不会丢）
+  if (attach && attach.files.length) await saveImages();
+}
+
+/** 把待存的那几张图真写进 附件目录/note/，再记到这条笔记上 */
+async function saveImages() {
+  const note = findNote(currentId);
+  if (!note || !attach || !attach.files.length) return;
+  let uploaded = [];
+  try {
+    uploaded = await uploadPending(attach);
+  } catch (err) {
+    toast("图片没存下：" + err.message, "err");
+    return;
+  }
+  commitUploads(attach, uploaded);
+  note.imagePaths = attach.paths.slice();
+  stamp(note);
+  touch(true);
+  toast("图片已存下");
 }
 
 async function onClick(e) {
@@ -185,6 +252,15 @@ async function onClick(e) {
   if (act === "note-pick") {
     currentId = btn.dataset.id;
     touch(true);
+    return;
+  }
+  if (act === "note-preview") {
+    preview = !preview;
+    touch();       // 只重画，不落盘
+    return;
+  }
+  if (act === "note-save-img") {
+    await saveImages();
     return;
   }
   if (act === "note-del") {

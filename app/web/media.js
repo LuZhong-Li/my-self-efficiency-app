@@ -65,7 +65,7 @@ let listText = ""; // 列表关键词
 /** 素材子页：一行一份素材（图片给缩略图、链接给可点的链接） */
 function assetsView() {
   const assets = assetsOf(store.data);
-  const usage = assetUsage(assets, table("contents"));
+  const usage = assetUsage(store.data);
   return `
     <section class="card">
       <div class="card-head">
@@ -74,7 +74,7 @@ function assetsView() {
       </div>
       ${
         assets.length
-          ? `<ul class="items">${assets.map((a) => assetRow(a, usage[a.id] || 0)).join("")}</ul>`
+          ? `<ul class="items">${assets.map((a) => assetRow(a, usage[a.id] || { total: 0 })).join("")}</ul>`
           : emptyState(
               "还没有素材",
               "把脚本、封面、参考链接收进来，做作品的时候直接挑。",
@@ -85,7 +85,9 @@ function assetsView() {
     </section>`;
 }
 
-function assetRow(a, used) {
+function assetRow(a, info) {
+  // info 是 asset-calc 的 assetUsage 给的那份 { total, byTable }（2026-10-14 起跨表数）
+  const used = (info && info.total) || 0;
   const thumb =
     a.kind === "image"
       ? `<span class="asset-thumb">${
@@ -151,7 +153,8 @@ function assetFormHtml(kind, values = {}) {
  * 返回 true 表示真删了（调用方照它决定要不要关弹窗 / 重画）。
  */
 async function removeAsset(a) {
-  const used = assetUsage(assetsOf(store.data), table("contents"))[a.id] || 0;
+  const info = assetUsage(store.data)[a.id] || { total: 0 };
+  const used = info.total;
   const ok = await askConfirm({
     title: `删除素材「${a.title}」？`,
     message: used
@@ -163,9 +166,11 @@ async function removeAsset(a) {
   if (!ok) return false;
   // 挪进回收站要的是**表里那一行本身**：assetsOf() 给的是规整过的副本，
   // 拿副本去 moveToTrash 会因为「不在表里」而摘不掉（删了等于没删）
-  const raw = table("mediaAssets").find((x) => x && x.id === a.id) || a;
-  store.data.contents = unlinkAsset(table("contents"), a.id);
-  moveToTrash("mediaAssets", raw, a.title);
+  const inAssets = table("assets").find((x) => x && x.id === a.id) || null;
+  const raw = inAssets || table("mediaAssets").find((x) => x && x.id === a.id) || a;
+  // 先把引用从各处摘干净（素材没了，那些 id 就是脏数据），再挪进回收站
+  const removed = unlinkAsset(store.data, a.id);
+  moveToTrash(inAssets ? "assets" : "mediaAssets", raw, a.title);
   touch(true);
   toast("已移入回收站");
   return true;

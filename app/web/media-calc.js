@@ -653,62 +653,15 @@ export function applySnapshots(snapshots, accountId, rows, makeId) {
    日常动作是「做这条作品 → 挑素材」，作品是主动方；素材页那句「用在 N 条作品上」
    由作品侧现算，不会出现第二份真相。删素材时记得摘引用（unlinkAsset）。 */
 
-/** 素材就两种：图片（走附件组件）/ 链接（一段 URL 文本） */
-export const ASSET_KINDS = ["image", "link"];
+/* 2026-10-14 升级成全站共用的素材库之后，这一套搬去了 asset-calc.js
+   （顶层 assets 表 + 三种类型 + 跨表引用计数 / 摘引用）。这里只转出去，
+   让 media.js 这类老调用点还能照旧 import。
+   注意：assetUsage 的入参从「(素材数组, 作品数组)」变成了「整份 data」、
+   返回也从 { id: 条数 } 变成 { id: { total, byTable } }；
+   unlinkAsset 从「返回新数组」变成「原地摘掉、返回摘了几处」——
+   调用点（media.js）已经跟着改了。 */
 
-/** 一条素材读出来规整：类型只认 image / link、标题与说明去空白、两种字段不混着留 */
-export function normalizeAsset(row) {
-  const src = row && typeof row === "object" ? row : {};
-  const text = (v) => String(v == null ? "" : v).trim();
-  const kind = src.kind === "link" ? "link" : "image";
-  return {
-    id: text(src.id),
-    title: text(src.title),
-    kind,
-    path: kind === "image" ? text(src.path) : "",
-    url: kind === "link" ? text(src.url) : "",
-    note: text(src.note),
-    createdAt: text(src.createdAt),
-  };
-}
+import { assetsOf, assetUsage, assetsOfRow, unlinkAsset } from "./asset-calc.js";
 
-/** 素材列表（老数据没这个键就是空的，手改坏了也当空；三样全空的残渣丢掉） */
-export function assetsOf(data) {
-  const list = data && Array.isArray(data.mediaAssets) ? data.mediaAssets : [];
-  return list.map(normalizeAsset).filter((a) => a.title || a.path || a.url);
-}
-
-/** 每份素材被几条作品用着：{ [assetId]: 条数 }（同一条里写两遍只算一条） */
-export function assetUsage(assets, contents) {
-  const used = new Map();
-  for (const c of contents || []) {
-    if (!c || !Array.isArray(c.assetIds)) continue;
-    const ids = new Set(
-      c.assetIds.map((x) => String(x == null ? "" : x).trim()).filter(Boolean)
-    );
-    for (const id of ids) used.set(id, (used.get(id) || 0) + 1);
-  }
-  const out = {};
-  for (const a of assetsOf({ mediaAssets: assets })) out[a.id] = used.get(a.id) || 0;
-  return out;
-}
-
-/** 这条作品用到的素材（按素材库的顺序给回来；认不出的 id 跳过，不硬塞空壳） */
-export function assetsOfContent(content, assets) {
-  const raw = content && Array.isArray(content.assetIds) ? content.assetIds : [];
-  const ids = new Set(raw.map((x) => String(x == null ? "" : x).trim()).filter(Boolean));
-  return assetsOf({ mediaAssets: assets }).filter((a) => ids.has(a.id));
-}
-
-/** 删素材时把引用从各作品摘掉（返回新数组，不改传进来的；别的引用一个不动） */
-export function unlinkAsset(contents, assetId) {
-  const id = String(assetId == null ? "" : assetId).trim();
-  return (contents || []).map((c) => {
-    if (!c || !Array.isArray(c.assetIds)) return c;
-    if (!c.assetIds.some((x) => String(x == null ? "" : x).trim() === id)) return c;
-    return {
-      ...c,
-      assetIds: c.assetIds.filter((x) => String(x == null ? "" : x).trim() !== id),
-    };
-  });
-}
+export { assetsOf, assetUsage, assetsOfRow, unlinkAsset };
+export { assetsOfRow as assetsOfContent };   // 老名字（作品那条链路上在用）也留着

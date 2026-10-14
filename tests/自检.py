@@ -469,6 +469,32 @@ def main() -> int:
               and back_wl.get("note") == "手写的一条" and back_wl.get("projectId") == ""
               and back_wl.get("tags") == [],
               str(back_wl))
+        # 热量营养（2026-10-14 新增）：菜谱是顶层一张新表，吃了什么挂在 meals 那条的 items 上。
+        # 老数据没有 foods 就补一张空表；meals 逐条补 items（[]），一条都不丢。
+        check("没有 foods 的老数据读出来补成空表", back2.get("foods") == [],
+              str(back2.get("foods")))
+        check("老数据的 meals 逐条补上空的 items",
+              all(isinstance(m.get("items"), list) for m in back2.get("meals") or []),
+              str(back2.get("meals")))
+        cur_nu = call(port, "/api/data")[1]
+        cur_nu["foods"] = [{"name": "米饭", "unit": "碗", "kcal": 200}]
+        cur_nu["meals"] = [{"date": "2026-10-14", "breakfast": "米饭", "lunch": "",
+                            "dinner": "", "snack": "",
+                            "items": [{"slot": "breakfast", "name": "米饭", "amount": 1.5,
+                                       "kcal": 200}]}]
+        call(port, "/api/data", "POST", cur_nu)
+        back_nu = call(port, "/api/data")[1]
+        back_food = back_nu["foods"][0]
+        back_item = back_nu["meals"][0]["items"][0]
+        check("手写的菜谱补齐 id / 标签，热量不动",
+              bool(back_food.get("id")) and back_food.get("kcal") == 200
+              and back_food.get("name") == "米饭" and back_food.get("tags") == [],
+              str(back_food))
+        check("手写的饮食条目补齐 id / 项目 / 单位 / 三格营养，份数与热量不动",
+              bool(back_item.get("id")) and back_item.get("amount") == 1.5
+              and back_item.get("kcal") == 200 and back_item.get("slot") == "breakfast"
+              and back_item.get("foodId") == "" and back_item.get("protein") == 0,
+              str(back_item))
         check("没有 gameRecords 的老数据读出来补成空表",
               back2.get("gameRecords") == [], str(back2.get("gameRecords")))
 

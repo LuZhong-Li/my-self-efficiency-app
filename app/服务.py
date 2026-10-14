@@ -180,6 +180,9 @@ def default_data() -> dict:
         },
         "weights": [],
         "meals": [],
+        # 菜谱库：一样东西每份多少热量 / 蛋白 / 脂肪 / 碳水（2026-10-14 新增；
+        # 「今天吃了什么」挂在 meals 那条的 items 上，不另开一张表）
+        "foods": [],
         "water": [],
         "games": [],
         # 游玩记录：玩一次记一条（哪天、哪款游戏、多久、什么感受），
@@ -536,6 +539,38 @@ def migrate(data: dict) -> dict:
         for key in ("date", "projectId", "note", "createdAt"):
             row.setdefault(key, "")
         row.setdefault("minutes", 0)
+    # 热量营养（2026-10-14 新增）：菜谱库 + 每餐的「吃了什么」条目。
+    # 只补不改：营养那几个数和份数一个字都不动（换算与进位是前端 diet-calc.js 的事）。
+    if not isinstance(data.get("foods"), list):
+        data["foods"] = []
+    for row in data["foods"]:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("id"):
+            row["id"] = "f-" + uuid.uuid4().hex[:8]
+        for key in ("name", "unit", "note"):
+            row.setdefault(key, "")
+        for key in ("kcal", "protein", "fat", "carb"):
+            row.setdefault(key, 0)
+    for meal in data.get("meals") or []:
+        if not isinstance(meal, dict):
+            continue
+        if not isinstance(meal.get("items"), list):
+            meal["items"] = []
+        fixed_items = []
+        for item in meal["items"]:
+            if not isinstance(item, dict):
+                continue
+            if not item.get("id"):
+                item["id"] = "mi-" + uuid.uuid4().hex[:8]
+            for key in ("foodId", "name", "unit"):
+                item.setdefault(key, "")
+            item.setdefault("slot", "snack")
+            item.setdefault("amount", 1)
+            for key in ("kcal", "protein", "fat", "carb"):
+                item.setdefault(key, 0)
+            fixed_items.append(item)
+        meal["items"] = fixed_items
     # 2026-10-07 第二批：今日计划、开发待办、学习记录、学习对象、训练打卡、游戏
     # 也都能带图片备注了，老记录一律补一个空数组（补了才动，有了不动）
     for key in ("tasks", "studies", "subjects", "workoutLogs", "games"):
@@ -613,7 +648,7 @@ def migrate(data: dict) -> dict:
     # 已经是数组的原样留着（不清洗、不排序、不去重 —— 那是前端 tag-calc.js 的事）。
     for key in ("tasks", "contents", "mediaAccounts", "projects", "issues", "progress",
                 "subjects", "studies", "workoutLogs", "weights", "meals", "water",
-                "games", "gameRecords", "workLogs"):
+                "games", "gameRecords", "workLogs", "foods"):
         for row in data.get(key) or []:
             if isinstance(row, dict) and not isinstance(row.get("tags"), list):
                 row["tags"] = []

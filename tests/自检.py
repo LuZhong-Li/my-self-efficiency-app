@@ -110,6 +110,64 @@ def js_default_categories() -> dict:
     return out
 
 
+def unquote_js(raw: str) -> str:
+    """把单引号字符串的字面量解成真值（只处理 \\ 和 \' —— 这两处只用得到这两种）。
+
+    JS 和 Python 在这两种转义上是一样的，所以同一个函数两边都能用。"""
+    out = []
+    i = 0
+    while i < len(raw):
+        if raw[i] == "\\" and i + 1 < len(raw):
+            out.append(raw[i + 1])
+            i += 2
+            continue
+        out.append(raw[i])
+        i += 1
+    return "".join(out)
+
+
+def dataset_rules_in(path: Path) -> dict:
+    """把某个文件里那三张表抠出来（数据集的命名规则）。
+
+    服务端 app\\服务.py 和前端 app/web/dataset-calc.js 是同一套规矩、同一批文案，
+    两份必须一模一样 —— 一份是「真拦」，另一份是「当场提示」，对不上就会出现
+    「前端说能建、后端回 400」这种莫名其妙的现象。抠不到就少几项，检查自然报红。
+    """
+    text = path.read_text(encoding="utf-8")
+    out = {}
+    m = re.search(r"DATASET_NAME_MAX\s*=\s*(\d+)", text)
+    if m:
+        out["max"] = int(m.group(1))
+    m = re.search(r"DATASET_BAD_CHARS\s*=\s*'((?:[^'\\]|\\.)*)'", text)
+    if m:
+        out["bad"] = unquote_js(m.group(1))
+    m = (re.search(r"DATASET_RESERVED\s*=\s*\[(.*?)\]", text, re.S)
+         or re.search(r"DATASET_RESERVED\s*=\s*\{(.*?)\n\}", text, re.S))
+    if m:
+        # 显式写出来的那几个（会含 f"com{i}" 这种带花括号的，滤掉）
+        explicit = [s for s in re.findall(r'"([^"]+)"', m.group(1)) if "{" not in s]
+        # 两个 range 生成的那两组（服务端是用 range 写的，前端是老实列出来的）
+        gen = [p + str(i) for p in ("com", "lpt") for i in range(1, 10)]
+        out["reserved"] = sorted(set(explicit) | set(gen))
+    return out
+
+
+def check_dataset_rules() -> None:
+    """数据集名字的规则：服务端和前端那三张表必须一模一样。"""
+    py_rules = dataset_rules_in(ROOT / "app" / "服务.py")
+    js_rules = dataset_rules_in(WEB / "dataset-calc.js")
+    check("数据集名字的长度上限前后端一致",
+          py_rules.get("max") == js_rules.get("max") and py_rules.get("max") is not None,
+          "服务端 %s / 前端 %s" % (py_rules.get("max"), js_rules.get("max")))
+    check("数据集名字的禁用字符前后端一致",
+          py_rules.get("bad") == js_rules.get("bad") and bool(py_rules.get("bad")),
+          "服务端 %r / 前端 %r" % (py_rules.get("bad"), js_rules.get("bad")))
+    check("数据集的系统保留名前后端一致",
+          py_rules.get("reserved") == js_rules.get("reserved")
+          and len(py_rules.get("reserved") or []) == 22,
+          "服务端 %s / 前端 %s" % (py_rules.get("reserved"), js_rules.get("reserved")))
+
+
 def fetch_raw(port: int, path: str):
     """取原始字节。call() 是按 JSON 解析的，图片这类二进制得走这一条。"""
     req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path))
@@ -367,6 +425,7 @@ def main() -> int:
 
     check("服务脚本在位", SERVER.exists(), str(SERVER))
     check_no_external()
+    check_dataset_rules()
 
     workdir = Path(tempfile.mkdtemp(prefix="xiaoli-selftest-"))
     data_dir = workdir / "数据"

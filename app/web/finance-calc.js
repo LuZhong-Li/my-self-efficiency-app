@@ -60,6 +60,23 @@ export function monthByDay(transactions, month) {
   return map;
 }
 
+/**
+ * 按天汇总的**支出**（分）：{ "2026-10-14": 2000, … }，跨月。
+ *
+ * 和 monthByDay 的区别：那个是按月切片、还要看收入；「支出日历」那张热力图要的是
+ * 「这半年哪天花得凶、哪天漏记了」，所以只收支出、不限月份 —— 收入进来会把颜色搅乱
+ * （收入要看有月历和环形图）。用普通对象而不是 Map，是因为键就是日期串，页面查一次就完事。
+ */
+export function dayExpenseMap(transactions) {
+  const map = {};
+  for (const t of transactions || []) {
+    if (!t || !t.date) continue;
+    if (t.type === "income") continue;
+    map[t.date] = (map[t.date] || 0) + (Number(t.amountCents) || 0);
+  }
+  return map;
+}
+
 /** 本月某个方向的收支按分类汇总，金额从大到小；ratio 是占该方向合计的比例。
  *  type 默认 "expense"（记账页的环形图默认看支出，也可以切到收入）。 */
 export function categoryTotals(transactions, month, type = "expense") {

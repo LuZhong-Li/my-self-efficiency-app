@@ -10,6 +10,8 @@
  * 老数据里手填的 hours（小时）仍然认，一并算进去，这样以前记过的时长不会凭空消失。
  */
 
+import { barRatioOf } from "./chart-calc.js";
+
 /** 时长统一按分钟存（120 = 2 小时），界面上可以按分钟或者小时填 */
 export const DURATION_UNITS = ["分钟", "小时"];
 
@@ -176,6 +178,32 @@ export function statsOf(records, today) {
   }
   out.days = seenDays.size;
   return out;
+}
+
+/**
+ * 每个月各玩了多久（给「近 6 个月」那张柱状图用）。months 是「2026-10」这种串，
+ * 顺序照传进来的排，ratio 是相对最多那个月的条长比例（和记账那张趋势图一个口径）。
+ *
+ * 口径：只算填了 playDate 的记录 —— 和 statsOf 一样（没日期的不算进任何一个月），
+ * 所以图上当月那根柱和数字卡片的「本月」永远相等（tests\游戏计算 里有护栏盯着）。
+ */
+export function gameMonthTrend(records, months) {
+  const list = Array.isArray(months) ? months : [];
+  const sums = new Map();
+  for (const r of records || []) {
+    if (!r) continue;
+    const date = text(r.playDate);
+    if (!date) continue;
+    const key = date.slice(0, 7);
+    sums.set(key, (sums.get(key) || 0) + Math.max(0, num(r.durationMin)));
+  }
+  const minutesOf = list.map((month) => Math.max(0, sums.get(text(month)) || 0));
+  const max = minutesOf.reduce((best, m) => Math.max(best, m), 0);
+  return list.map((month, i) => ({
+    month: text(month),
+    minutes: minutesOf[i],
+    ratio: barRatioOf(minutesOf[i], max),
+  }));
 }
 
 /** 玩得最多的前几名：清单里每款游戏的累计，加上没绑定清单的那些临时记录 */

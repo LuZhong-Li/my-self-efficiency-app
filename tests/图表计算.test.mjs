@@ -6,7 +6,10 @@
 import {
   lastMonths, barRatioOf, barRowsOf, trendBars, heatGrid, heatLevelOf,
 } from "../app/web/chart-calc.js";
-import { lastMonths as lastMonthsFromFinance } from "../app/web/finance-calc.js";
+import {
+  lastMonths as lastMonthsFromFinance, monthTotals, dayExpenseMap,
+} from "../app/web/finance-calc.js";
+import { gameMonthTrend } from "../app/web/game-calc.js";
 
 let pass = 0;
 let fail = 0;
@@ -117,6 +120,39 @@ eq(heatLevelOf(30, 100, 3) <= 2 && heatLevelOf(30, 100, 3) >= 1, true,
 const ladder = [0, 1, 100, 1000, 5000, 10000].map((v) => heatLevelOf(v, 10000));
 eqDeep(ladder, [...ladder].sort((a, b) => a - b), "金额越大档位不会更低（单调）");
 eqDeep(ladder, [0, 1, 1, 1, 3, 4], "具体档位：0 → 0，几百 → 1，一半 → 3，满 → 4");
+
+console.log("\n【游戏：按月的游玩时长（图上和数字卡片同源）】");
+const RECS = [
+  { id: "r1", playDate: "2026-10-02", durationMin: 60 },
+  { id: "r2", playDate: "2026-10-03", durationMin: 30 },
+  { id: "r3", playDate: "2026-09-10", durationMin: 120 },
+  { id: "r4", playDate: "", durationMin: 999 },          // 没日期的只进累计，不进任何一个月
+  { id: "r5", playDate: "2025-10-01", durationMin: 45 }, // 去年同月，别串进来
+];
+const gTrend = gameMonthTrend(RECS, ["2026-08", "2026-09", "2026-10"]);
+eqDeep(gTrend.map((r) => r.month), ["2026-08", "2026-09", "2026-10"],
+  "几个月就几个点，顺序照传进来的");
+eqDeep(gTrend.map((r) => r.minutes), [0, 120, 90], "每个月当天记的时长加起来");
+eqDeep(gTrend.map((r) => r.ratio), [0, 1, 0.75],
+  "最高的那个月满格（9 月 120 分钟 → 10 月 90 分钟是 0.75）");
+eqDeep(gameMonthTrend([], ["2026-10"]).map((r) => r.minutes), [0], "一条记录都没有时给零，不炸");
+eqDeep(gameMonthTrend(null, null), [], "传 null 给空数组");
+
+console.log("\n【记账：按天的支出（跨月，热力图要用）】");
+const TXS = [
+  { id: "t1", date: "2026-10-14", type: "expense", amountCents: 1200, category: "餐饮" },
+  { id: "t2", date: "2026-10-14", type: "expense", amountCents: 800, category: "交通" },
+  { id: "t3", date: "2026-10-14", type: "income", amountCents: 5000, category: "工资" },
+  { id: "t4", date: "2026-09-30", type: "expense", amountCents: 300, category: "餐饮" },
+  { id: "t5", date: "", type: "expense", amountCents: 999, category: "餐饮" },
+];
+const heatMap = dayExpenseMap(TXS);
+eq(heatMap["2026-10-14"], 2000, "同一天几笔支出加起来（收入不算）");
+eq(heatMap["2026-09-30"], 300, "上个月的那天也在（跨月）");
+eq(heatMap[""], undefined, "没日期的帐不进格子（图上画不出来）");
+eqDeep(dayExpenseMap(null), {}, "传 null 给空对象");
+eq(heatMap["2026-10-14"], monthTotals(TXS, "2026-10").expenseCents,
+  "和当月汇总同一个来源（同一天几笔的和就是明细里的数）");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

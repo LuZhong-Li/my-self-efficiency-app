@@ -7,6 +7,7 @@ import {
   toMinutes, shownDuration, linkGameId, belongsTo, recordsOn, recordsOfGame,
   totalMinutesOfGame, sumMinutes, weekStartOf, statsOf, topGames, hasFilter,
   filterRecords, recordTitle, rangeText, dateSpan, elapsedMinutes, clockText, overTargetGames,
+  gameMonthTrend,
 } from "../app/web/game-calc.js";
 
 let pass = 0;
@@ -238,6 +239,14 @@ eq(elapsedMinutes(1000000, 1000000 + 20000), 1, "不到一分钟也按 1 分钟�
 eq(elapsedMinutes(0, Date.now()), 0, "没在计时就是 0");
 eq(clockText(1000000, 1000000 + (3600 + 754) * 1000), "01:12:34", "计时器上的 时:分:秒");
 eq(clockText(0, 0), "00:00:00", "没在计时就显示 00:00:00");
+
+/* ---------------- 按月汇总（2026-10-14 加的，给柱状图用） ---------------- */
+
+// 图（按月）和数字卡片（当月）必须是同一个来源，别各算各的 —— 对不上就是有 bug
+eq(gameMonthTrend(records, ["2026-10"])[0].minutes, statsOf(records, "2026-10-07").monthMin,
+  "按月汇总里当月那根柱 = 数字卡片的「本月」");
+eq(gameMonthTrend(records, ["2026-09"])[0].minutes, 480, "上个月那根柱就是 9 月那条 480 分钟");
+eq(gameMonthTrend(records, ["2026-08"])[0].minutes, 0, "没记录的月份给 0");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

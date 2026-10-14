@@ -53,8 +53,8 @@ function ok(cond, label) {
 
 eqDeep(ITEM_TYPES,
   ["devProject", "todayPlan", "devTodo", "studyRecord", "studyItem", "fitness", "game",
-    "gamePlayRecord", "moduleGoal", "repeatRule"],
-  "十个弹窗类型都在，按顺序（重复任务是 2026-10-14 加的）");
+    "gamePlayRecord", "moduleGoal", "repeatRule", "workLog"],
+  "十一个弹窗类型都在，按顺序（工时是 2026-10-14 加的）");
 eq(formOf("devProject").table, "projects", "项目存 projects 表");
 eq(formOf("devProject").upload, "dev_project", "项目的图片单独一格");
 eq(formOf("game").table, "games", "游戏存 games 表");
@@ -66,6 +66,8 @@ eq(formOf("devTodo").table, "tasks", "开发待办也存 tasks 表（靠 belong 
 eq(formOf("repeatRule").table, "tasks", "重复任务也存 tasks 表（靠 repeat 有内容区分）");
 ok(!formOf("repeatRule").upload,
   "重复任务不带图片区（实例不继承图片，规则自己存图没地方用）");
+eq(formOf("workLog").table, "workLogs", "工时存 workLogs 表");
+ok(!formOf("workLog").upload, "工时不带图片区（一条工时没有值得存图的场景）");
 
 for (const type of ITEM_TYPES) {
   const spec = FORMS[type];
@@ -285,7 +287,8 @@ eqDeep(projTrash.items.map((i) => i.table), ["projects", "tasks", "issues", "pro
 eqDeep(projTrash.items.map((i) => i.row.id), ["p1", "t1", "i1", "g1"], "只带走属于它的那些");
 eq(projTrash.extra, 3, "额外带走 3 条（给提示文案用）");
 eq(trashPlan("devProject", { id: "p9", name: "空项目" }).items.length, 1, "没有附属内容时只动 projects");
-eq(formOf("devProject").extraNote, "条待办 / 问题 / 进展", "删项目的提示语说清带走的是什么");
+eq(formOf("devProject").extraNote, "条待办 / 问题 / 进展 / 工时",
+  "删项目的提示语说清带走的是什么（工时也一起走）");
 eq(formOf("studyItem").extraNote, "条学习记录", "删学习对象的提示语也是它自己那句");
 eq(formOf("game").extraNote, undefined, "没有连带内容的类型不用写提示语");
 eq(trashPlan("fitness", { id: "l1", moves: "深蹲 3×12" }).label, "深蹲 3×12", "训练打卡用练了什么当提示");
@@ -549,6 +552,39 @@ eq(ruleRow.lastRun, "", "lastRun 从空开始");
 eqDeep(ruleRow.tags, ["运动", "每天"], "标签照样能贴");
 eqDeep(ruleRow.subtasks.map((s) => s.text), ["换跑鞋"], "规则能带子任务清单");
 eq(isRepeatRule(ruleRow), true, "存下来的这条就是一条规则");
+
+/* ---------------- 工时表单（2026-10-14 加的） ---------------- */
+
+const workForm = { ...defaultsOf("workLog"), date: "2026-10-14", projectId: "p1",
+  duration: "2", durationUnit: "小时", note: "把工时页画完", tags: "开发" };
+const workRow = newRow("workLog", workForm,
+  { uid: () => "w1", nowIso: () => "2026-10-14T10:00:00.000Z" });
+eq(workRow.minutes, 120, "表单里填的「2 小时」落盘成 120 分钟");
+eq(workRow.duration, undefined, "数据里不留影子字段（duration）");
+eq(workRow.durationUnit, undefined, "数据里不留影子字段（durationUnit）");
+eq(workRow.projectId, "p1", "项目照原样存");
+eqDeep(workRow.tags, ["开发"], "标签照旧");
+eq(workRow.id, "w1", "id 用 ctx.uid 发的");
+eq(defaultsOf("workLog").durationUnit, "小时", "新增时单位默认「小时」（工时按小时说更顺）");
+eq(validate("workLog", { ...workForm, date: "" }).ok, false, "日期必填");
+eq(validate("workLog", { ...workForm, duration: "" }).ok, false, "时长必填");
+eq(validate("workLog", { ...workForm, projectId: "" }).ok, true, "不挑项目也能存");
+eq(valuesOf("workLog", { id: "w1", minutes: 90 }, {}).duration, "90", "编辑回填：90 分钟按分钟填");
+eq(valuesOf("workLog", { id: "w1", minutes: 120 }, {}).duration, "2", "整小时按小时填");
+eq(valuesOf("workLog", { id: "w1", minutes: 120 }, {}).durationUnit, "小时", "单位跟着回填");
+eq(valuesOf("workLog", { id: "w1", minutes: 30 }, {}).durationUnit, "分钟", "零头按分钟填");
+eq(trashPlan("workLog", { id: "w1", note: "写文档" }).label, "写文档", "删除确认里用备注当名字");
+eq(trashPlan("workLog", { id: "w2", date: "2026-10-14" }).label, "2026-10-14 工时",
+  "没备注就用日期凑一个名字");
+
+// 删项目要把它的工时也收走（和待办 / 问题 / 进展一个待遇）
+const projPlan = trashPlan("devProject", { id: "p1", name: "工作台" },
+  { tasks: [], issues: [], progress: [],
+    workLogs: [{ id: "w1", projectId: "p1", note: "写文档", date: "2026-10-14" },
+               { id: "w2", projectId: "p2", note: "别人的", date: "2026-10-14" }] });
+eqDeep(projPlan.items.filter((i) => i.table === "workLogs").map((i) => i.row.id), ["w1"],
+  "只带走这个项目的工时（别的项目的不动）");
+eq(projPlan.extra, 1, "连带条数算上了它");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

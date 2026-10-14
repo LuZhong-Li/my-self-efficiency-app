@@ -31,6 +31,7 @@ function planOf(type, row, ctx = {}) {
     tasks: table("tasks"),
     issues: table("issues"),
     progress: table("progress"),
+    workLogs: table("workLogs"),
   }, ctx);
 }
 

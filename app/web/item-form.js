@@ -79,7 +79,7 @@ export const FORMS = {
         placeholder: "逗号分开，比如：工作、本周" },
     ],
     label: (row) => row.name || "（没写名字）",
-    extraNote: "条待办 / 问题 / 进展",   // 删除确认里那句「它的 N … 也一起进回收站」
+    extraNote: "条待办 / 问题 / 进展 / 工时",   // 删除确认里那句「它的 N … 也一起进回收站」
     create: (ctx) => ({
       id: ctx.uid(),
       name: "",
@@ -420,6 +420,50 @@ export const FORMS = {
       items: [{ table: "tasks", row, label: row.text || "" }],
       note: "只删除这条重复规则；它已经生成的那几条待办会留在「今日计划」里，不会跟着消失。",
     }),
+  },
+
+  /* 工时（2026-10-14 加）：开发工作底下「哪天在哪个项目上花了多久」。
+     时长只存分钟（表单里是「数字 + 单位」两格，落盘前拧成一个数，和游玩记录一个做法）；
+     项目选填 —— 有时候就是杂事，不挑也行，统计上归到「没记项目」。
+     故意不给图片区：一条工时给不出「值得存张图」的场景，
+     也就省掉一处附件白名单与设置页文案的同步（见设计文档第 3 节）。 */
+  workLog: {
+    table: "workLogs",
+    titleNew: "记一笔工时",
+    titleEdit: "改这笔工时",
+    hint: "记一下哪天在哪个项目上花了多久。不挑项目也能存（统计里会归到「没记项目」）。",
+    fields: [
+      { name: "date", label: "日期", kind: "date", required: true, half: true },
+      { name: "projectId", label: "项目", kind: "select", source: "projects",
+        blank: "不挑项目", half: true },
+      { name: "duration", label: "时长", kind: "number", min: 0, step: 1, required: true,
+        half: true, placeholder: "比如 2",
+        fromRow: (row) => shownDuration(row && row.minutes).amount || "" },
+      { name: "durationUnit", label: "单位", kind: "select", list: DURATION_UNITS,
+        half: true, default: "小时",
+        fromRow: (row) => shownDuration(row && row.minutes).unit },
+      { name: "tags", label: "标签", kind: "tags", maxlength: 200,
+        placeholder: "逗号分开，比如：开发、本周" },
+      { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
+        placeholder: "做了什么（可不填）" },
+    ],
+    label: (row) => row.note || ((row.date ? row.date + " " : "") + "工时"),
+    create: (ctx) => ({
+      id: ctx.uid(),
+      date: ctx.date || "",
+      projectId: "",
+      minutes: 0,
+      note: "",
+      tags: [],
+      createdAt: ctx.nowIso(),
+    }),
+    mapValues: (row, values) => {
+      row.projectId = String(values.projectId || "");
+      row.minutes = toMinutes(values.duration, values.durationUnit);
+      // 表单里那两格是「数字 + 单位」，落盘的只有分钟，别在数据里留两个影子字段
+      delete row.duration;
+      delete row.durationUnit;
+    },
   },
 };
 
@@ -787,6 +831,12 @@ export function trashPlan(type, row, rowsByTable = {}) {
     for (const child of rowsByTable.progress || []) {
       if (child && child.projectId === row.id) {
         items.push({ table: "progress", row: child, label: child.text || "" });
+      }
+    }
+    // 工时也是挂在项目上的（和进展一个待遇：项目没了，账跟着进回收站，能整条捞回来）
+    for (const child of rowsByTable.workLogs || []) {
+      if (child && child.projectId === row.id) {
+        items.push({ table: "workLogs", row: child, label: child.note || child.date || "" });
       }
     }
   }

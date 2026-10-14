@@ -10,7 +10,8 @@
 
 import { rowPaths } from "./attachment-calc.js";
 import { GOAL_CYCLES } from "./goal-calc.js";
-import { DURATION_UNITS, toMinutes, shownDuration, linkGameId } from "./game-calc.js";
+import { DURATION_UNITS, toMinutes, shownDuration } from "./time-calc.js";
+import { linkGameId } from "./game-calc.js";
 import { normalizeTags, tagInputError, tagsText } from "./tag-calc.js";
 // 子任务的条数上限（30）只在 task-calc.js 定义一份：这里再写一个数字，迟早两边不一样
 import { SUBTASK_LIMIT } from "./task-calc.js";

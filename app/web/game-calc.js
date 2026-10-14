@@ -12,8 +12,22 @@
 
 import { barRatioOf } from "./chart-calc.js";
 
-/** 时长统一按分钟存（120 = 2 小时），界面上可以按分钟或者小时填 */
-export const DURATION_UNITS = ["分钟", "小时"];
+/* 时长换算 / 显示 / 秒表搬到 time-calc.js 了（工时统计也要用同一套），这里只转出去：
+   game.js、item-form.js、tests\游戏计算.test.mjs 一个字都不用改。
+
+   注意先 import 再 export：`export { x } from "…"` 只把 x 转给外面，
+   **不在本模块建一个能用的名字** —— 而下面的 recordTitle 自己也要用 durationText。
+   写成「转出去」那种写法的话，recordTitle 会当场报 durationText is not defined
+   （tests\游戏计算 里那条断言就是抓这个的）。 */
+import {
+  DURATION_UNITS, toMinutes, shownDuration, hoursOf, hoursText, durationText,
+  elapsedMinutes, clockText,
+} from "./time-calc.js";
+
+export {
+  DURATION_UNITS, toMinutes, shownDuration, hoursOf, hoursText, durationText,
+  elapsedMinutes, clockText,
+};
 
 /** 记录里没绑定清单游戏时，用来分组的显示名 */
 export const LOOSE_NAME = "（没写游戏名）";
@@ -46,42 +60,9 @@ export function normalizeRecord(raw) {
   };
 }
 
-/* ---------------- 时长怎么显示 ---------------- */
-
-/** 120 → 2 小时；90 → 1 小时 30 分钟；45 → 45 分钟；0 → — */
-export function durationText(minutes) {
-  const m = Math.max(0, Math.round(num(minutes)));
-  if (!m) return "—";
-  if (m < 60) return m + " 分钟";
-  const h = Math.floor(m / 60);
-  const rest = m % 60;
-  return rest ? `${h} 小时 ${rest} 分钟` : `${h} 小时`;
-}
-
-/** 120 → 2；90 → 1.5（列表里那行「累计」用） */
-export function hoursOf(minutes) {
-  return Math.round((Math.max(0, num(minutes)) / 60) * 10) / 10;
-}
-
-/** 120 → "2 小时"；90 → "1.5 小时"（比 durationText 短，卡片上够用） */
-export function hoursText(minutes) {
-  const h = hoursOf(minutes);
-  if (!h) return "0 小时";
-  return (Number.isInteger(h) ? h : h.toFixed(1)) + " 小时";
-}
-
-/** 表单里填的「数字 + 单位」换算成分钟 */
-export function toMinutes(amount, unit) {
-  const n = Math.max(0, num(amount));
-  return Math.round(n * (unit === "小时" ? 60 : 1));
-}
-
-/** 反过来：编辑时默认怎么填。整小时就按小时填（2 小时），否则按分钟填（90） */
-export function shownDuration(minutes) {
-  const m = Math.max(0, Math.round(num(minutes)));
-  if (m && m % 60 === 0) return { amount: m / 60, unit: "小时" };
-  return { amount: m, unit: "分钟" };
-}
+/* ---------------- 时长怎么显示 ----------------
+   这几个函数在 time-calc.js 里（工时统计也要用），上面转出来了；
+   这里留个标记，免得下次有人在这一节里又写一份。 */
 
 /* ---------------- 记录 ↔ 清单游戏 ---------------- */
 
@@ -341,25 +322,5 @@ export function dateSpan(records) {
   return { from: days[0] || "", to: days[days.length - 1] || "" };
 }
 
-/* ---------------- 快速计时 ---------------- */
-
-/** 开始计时的那一刻到现在过了多少分钟（至少 1 分钟） */
-export function elapsedMinutes(startedAt, now) {
-  const from = num(startedAt);
-  const to = num(now);
-  if (!from || to <= from) return 0;
-  return Math.max(1, Math.round((to - from) / 60000));
-}
-
-/** 计时器上那串「00:12:34」 */
-export function clockText(startedAt, now) {
-  const from = num(startedAt);
-  const to = num(now);
-  let seconds = from && to > from ? Math.floor((to - from) / 1000) : 0;
-  const h = Math.floor(seconds / 3600);
-  seconds -= h * 3600;
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  const p = (n) => String(n).padStart(2, "0");
-  return `${p(h)}:${p(m)}:${p(s)}`;
-}
+/* ---------------- 快速计时 ----------------
+   秒表那两个函数也在 time-calc.js 里（工时统计也要用），上面转出来了。 */

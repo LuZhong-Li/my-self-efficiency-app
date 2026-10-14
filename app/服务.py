@@ -164,6 +164,10 @@ def default_data() -> dict:
         "mediaAccounts": [],
         "mediaFollowers": [],
         # 自媒体素材：脚本 / 封面 / 参考链接（图片走 attachments/media_asset/，链接存 url）
+        # 素材库（2026-10-14 升级成全站共用）：图片 / 链接 / 文本片段三种，
+        # 各模块记录只存素材 id（assetIds）。老的 mediaAssets 会在读的时候并进来（见 normalize_data）
+        "assets": [],
+        # 老表留着（搬家会把它的内容并进 assets 并清空它），免得老数据读进来时没地方认
         "mediaAssets": [],
         "projects": [],
         "issues": [],
@@ -586,6 +590,38 @@ def migrate(data: dict) -> dict:
             row.setdefault(key, "")
         if not isinstance(row.get("imagePaths"), list):
             row["imagePaths"] = []
+    # 素材库搬家（2026-10-14）：老的 mediaAssets 并进顶层 assets。
+    # id 不变（各表里那些 assetIds 的引用自然还成立）、内容不动，并完把老表清空。
+    # 两边都有同 id 时以 assets 那份为准（搬过一次之后就只在 assets 里了）。
+    if not isinstance(data.get("assets"), list):
+        data["assets"] = []
+    seen_asset_ids = {a.get("id") for a in data["assets"] if isinstance(a, dict)}
+    for row in data.get("mediaAssets") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("id") and row["id"] in seen_asset_ids:
+            continue
+        data["assets"].append(row)
+    data["mediaAssets"] = []
+    for row in data["assets"]:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("id"):
+            row["id"] = "a-" + uuid.uuid4().hex[:8]
+        for key in ("title", "path", "url", "text", "note", "createdAt"):
+            row.setdefault(key, "")
+        row.setdefault("kind", "link")
+        if not isinstance(row.get("tags"), list):
+            row["tags"] = []
+    # 各表补 assetIds：能挂素材的几张表，老记录一律补一个空数组
+    for key in ("contents", "tasks", "issues", "projects", "studies", "subjects",
+                "workoutLogs", "gameRecords", "notes"):
+        for row in data.get(key) or []:
+            if isinstance(row, dict) and not isinstance(row.get("assetIds"), list):
+                row["assetIds"] = []
+    for row in (data.get("finance") or {}).get("transactions") or []:
+        if isinstance(row, dict) and not isinstance(row.get("assetIds"), list):
+            row["assetIds"] = []
     # 2026-10-07 第二批：今日计划、开发待办、学习记录、学习对象、训练打卡、游戏
     # 也都能带图片备注了，老记录一律补一个空数组（补了才动，有了不动）
     for key in ("tasks", "studies", "subjects", "workoutLogs", "games"):

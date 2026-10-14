@@ -510,6 +510,34 @@ def main() -> int:
               and back_nt.get("tags") == [] and back_nt.get("imagePaths") == []
               and back_nt.get("createdAt") == "" and back_nt.get("updatedAt") == "",
               str(back_nt))
+        # 素材库（2026-10-14 搬到顶层）：老的 mediaAssets 并进 assets（id 不变、内容不动），
+        # 并完把老表清空 —— 这是「搬家」，不是改数据。
+        check("没有 assets 又没素材的老数据读出来补成空表", back2.get("assets") == [],
+              str(back2.get("assets")))
+        cur_as = call(port, "/api/data")[1]
+        cur_as["assets"] = []
+        cur_as["mediaAssets"] = [{"id": "a-old", "title": "老的素材", "kind": "link",
+                                  "url": "example.com/x", "note": "",
+                                  "createdAt": "2026-10-01"}]
+        cur_as["tasks"] = [{"id": "t-as", "text": "带素材的待办", "date": "2026-10-07",
+                            "belong": "plan", "assetIds": ["a-old"]},
+                           {"id": "t-plain", "text": "没素材的待办", "date": "2026-10-07",
+                            "belong": "plan"}]
+        call(port, "/api/data", "POST", cur_as)
+        back_as = call(port, "/api/data")[1]
+        check("老 mediaAssets 搬进了 assets（id 与内容都不动）",
+              [a.get("id") for a in back_as.get("assets") or []] == ["a-old"]
+              and back_as["assets"][0].get("title") == "老的素材"
+              and back_as["assets"][0].get("url") == "example.com/x",
+              str(back_as.get("assets")))
+        check("搬完之后老表清空（不重复留一份）", back_as.get("mediaAssets") == [],
+              str(back_as.get("mediaAssets")))
+        check("待办自己写过的 assetIds 一个字节都没动",
+              back_as["tasks"][0].get("assetIds") == ["a-old"],
+              str(back_as["tasks"][0].get("assetIds")))
+        check("老待办读出来补上空的 assetIds",
+              back_as["tasks"][1].get("assetIds") == [],
+              str(back_as["tasks"][1].get("assetIds")))
         check("没有 gameRecords 的老数据读出来补成空表",
               back2.get("gameRecords") == [], str(back2.get("gameRecords")))
 
@@ -642,10 +670,14 @@ def main() -> int:
         }]
         call(port, "/api/data", "POST", cur)
         back_assets = call(port, "/api/data")[1]
-        check("老数据没有 mediaAssets 读出来补成空表 / 有的话原样留着",
-              back_assets.get("mediaAssets") and back_assets["mediaAssets"][0]["url"]
-              == "https://example.com/a",
-              str(back_assets.get("mediaAssets")))
+        # 2026-10-14 晚：素材库升级成全站版，这一条从「mediaAssets 原样留着」改成
+        # 「搬进顶层 assets、老表清空」（内容与 id 一个字节都不动，只是换了家）
+        check("老 mediaAssets 搬进了顶层 assets，老表清空",
+              back_assets.get("mediaAssets") == []
+              and any(a.get("id") == "asset-selftest"
+                      and a.get("url") == "https://example.com/a"
+                      for a in back_assets.get("assets") or []),
+              str([back_assets.get("assets"), back_assets.get("mediaAssets")]))
         check("老作品的 assetIds 补齐成空数组",
               back_assets["contents"][0].get("assetIds") == [],
               str(back_assets["contents"][0].get("assetIds")))

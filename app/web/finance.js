@@ -21,7 +21,9 @@ import {
   ledgerOf, rangeTotals,
   TEMPLATE_LIMIT, templatesOf, templateFromTx, templateLabel, addTemplate,
   lastMonths, monthTrend, trendSummary,
+  dayExpenseMap,
 } from "./finance-calc.js";
+import { heatGrid, heatmapHtml } from "./chart-calc.js";
 import { financeOf, accountsOf, budgetOf, catIcon, accountOptionsHtml } from "./finance-shared.js";
 import { renderDebtPage, openDebtDialog } from "./debt.js";
 import { splitBySettled } from "./debt-calc.js";
@@ -520,6 +522,47 @@ function trendCard(txs) {
         ? `<p class="hint">${esc(monthCN(last))}是到 ${esc(todayStr().slice(5))} 为止的数，这个月还没过完。</p>`
         : ""
     }`;
+}
+
+/* ---------------- 左栏第四张：支出日历 ----------------
+   月历只看得见一个月，环形图只看得见当月分类，趋势图只看得见总额 ——
+   「这半年哪一段花得凶、哪天漏记了」三张图都答不了。这张热力图就是补这个的：
+   近 HEAT_WEEKS 周，一格一天，颜色越深那天花得越多（只算支出）。
+   格子不可点：看某一天的明细旁边那张月历已经做了，两处都能点会互相打架。 */
+const HEAT_WEEKS = 26;
+
+function heatCard(txs) {
+  const today = todayStr();
+  const map = dayExpenseMap(txs);
+  const cells = heatGrid(today, HEAT_WEEKS);
+  const inRange = cells.filter((c) => c.inRange);
+  const total = inRange.reduce((sum, c) => sum + (map[c.date] || 0), 0);
+  const peak = inRange.reduce(
+    (best, c) => ((map[c.date] || 0) > best.cents ? { date: c.date, cents: map[c.date] || 0 } : best),
+    { date: "", cents: 0 });
+  const head = `
+    <div class="card-head">
+      <h2>支出日历</h2>
+      <span class="hint">${
+        total
+          ? `近 ${HEAT_WEEKS} 周共 ${fmtMoney(total)} · 最凶的一天 ${fmtMoney(peak.cents)}（${esc(peak.date.slice(5))}）`
+          : `近 ${HEAT_WEEKS} 周还没有支出`
+      }</span>
+    </div>`;
+  if (!total) {
+    return `${head}${emptyState(
+      `近 ${HEAT_WEEKS} 周还没有支出`,
+      "记上几笔，这里就看得出来哪一段花得凶。",
+      "",
+      "money"
+    )}`;
+  }
+  return `${head}${heatmapHtml(cells, {
+    amount: (c) => map[c.date] || 0,
+    today,
+    title: (c, amount) => (amount ? `${c.date} · 支出 ${fmtMoney(amount)}` : `${c.date} · 没花钱`),
+    ariaLabel: `近 ${HEAT_WEEKS} 周的每日支出`,
+  })}`;
 }
 
 /** 右栏第三张：账户列表。余额是实时算出来的（期初 + 该账户的收支），
@@ -1144,6 +1187,7 @@ export function renderFinance(root, sub = "") {
                <section class="card" id="fin-calendar">${calendarCard(txs)}</section>
                <section class="card" id="fin-ring">${ringCard(txs)}</section>
                <section class="card" id="fin-trend">${trendCard(txs)}</section>
+               <section class="card" id="fin-heat">${heatCard(txs)}</section>
              </div>
              <div class="fin-side">
                 <section class="card" id="fin-overview">${overviewCard(txs, tfs)}</section>

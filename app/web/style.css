@@ -3802,3 +3802,23 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .chart-trend .chart-trend-num { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-trend .chart-trend-label { fill: var(--muted); font-size: 11px; }
 .chart-trend .chart-trend-bar.now .chart-trend-label { fill: var(--ink); }
+
+/* 支出日历：一格一天，一周一列（近 26 周） */
+.hm-grid {
+  display: grid;
+  grid-auto-flow: column;             /* 一周一列 */
+  grid-template-rows: repeat(7, 1fr); /* 周一 → 周日 */
+  gap: 3px;
+  margin-top: 4px;
+}
+.hm-cell {
+  aspect-ratio: 1 / 1;                /* 正方形格子，跟着列宽缩 */
+  border-radius: 3px;
+  background: var(--hover);           /* 0 档：先给一块底色 */
+}
+.hm-l1 { background: color-mix(in srgb, var(--err) 22%, transparent); }
+.hm-l2 { background: color-mix(in srgb, var(--err) 42%, transparent); }
+.hm-l3 { background: color-mix(in srgb, var(--err) 68%, transparent); }
+.hm-l4 { background: var(--err); opacity: 0.9; }
+.hm-cell.out { opacity: 0.35; }       /* 本周还没到的日子 */
+.hm-cell.today { outline: 1.5px solid var(--accent); outline-offset: 1px; }

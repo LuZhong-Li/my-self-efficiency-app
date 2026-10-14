@@ -20,7 +20,7 @@ import {
 } from "./attachment.js";
 import {
   formOf, formHtml, defaultsOf, valuesOf, readValues, validate, applyValues,
-  newRow, trashPlan,
+  newRow, trashPlan, parseSubtaskJson, SUBTASK_LIMIT,
 } from "./item-form.js";
 
 /** 一条记录的删除计划（把要看的几张表读出来交给纯函数算） */
@@ -190,6 +190,7 @@ export function openItemDialog(type, row, options = {}) {
   if (attach) mountAttach(dlg.el.querySelector("#item-attach"), attach);
   bindConditionalFields(dlg.el, spec);
   bindTagPreview(dlg.el, spec);
+  bindSubtasks(dlg.el, spec);
   bindEnterToSave(dlg);
   const first = spec.fields.find((f) => f.kind !== "static");   // 只读那行不抢焦点
   if (first) setTimeout(() => dlg.el.querySelector("#item-" + first.name)?.focus(), 0);
@@ -241,6 +242,91 @@ function bindTagPreview(el, spec) {
     };
     input.addEventListener("input", sync);
     sync();          // 编辑老记录时进来就先把已有的标签画出来
+  }
+}
+
+/**
+ * 子任务清单那一小块：加一条、删一条、勾一条，全在这儿。
+ *
+ * 值和别处一样还是从表单走（kind: "subtasks" 读写的是一条隐藏 input 里的 JSON），
+ * 所以这里只管把界面上的清单和那条隐藏 input 对齐 —— 校验、写回记录一个字都不重复。
+ */
+function bindSubtasks(el, spec) {
+  for (const field of spec.fields.filter((f) => f.kind === "subtasks")) {
+    const host = el.querySelector(`[data-subtasks="${field.name}"]`);
+    if (!host) continue;
+    const hidden = host.querySelector("#item-" + field.name);
+    const listEl = host.querySelector(".sub-list");
+    const input = host.querySelector(".sub-input");
+    const hint = host.querySelector("[data-sub-hint]");
+    if (!hidden || !listEl || !input || !hint) continue;
+
+    const read = () => parseSubtaskJson(hidden.value);
+    const draw = (list) => {
+      listEl.innerHTML = list.length
+        ? list
+            .map(
+              (s, i) =>
+                `<li class="subtask${s.done ? " done" : ""}" data-i="${i}">` +
+                  `<label class="check" title="这条做完了没">` +
+                  `<input type="checkbox" data-sub-check${s.done ? " checked" : ""}></label>` +
+                  `<span class="sub-text">${esc(s.text)}</span>` +
+                  `<button type="button" class="link danger" data-sub-del>删除</button>` +
+                `</li>`
+            )
+            .join("")
+        : `<li class="sub-empty">还没加子任务</li>`;
+      hint.textContent = list.length
+        ? `${list.filter((s) => s.done).length} / ${list.length} 条已完成`
+        : `最多 ${SUBTASK_LIMIT} 条`;
+    };
+    const write = (list) => {
+      hidden.value = JSON.stringify(list);
+      draw(list);
+    };
+    const addOne = () => {
+      const text = String(input.value || "").trim();
+      if (!text) return;
+      const list = read();
+      if (list.length >= SUBTASK_LIMIT) {
+        hint.textContent = `最多 ${SUBTASK_LIMIT} 条，加不下了`;
+        return;
+      }
+      list.push({ id: uid(), text, done: false });   // id 在这儿发：列表上那个勾选框靠它认人
+      input.value = "";
+      write(list);
+      input.focus();
+    };
+
+    host.addEventListener("click", (e) => {
+      const del = e.target.closest("[data-sub-del]");
+      if (del) {
+        const li = del.closest("[data-i]");
+        const list = read();
+        if (li) list.splice(Number(li.dataset.i), 1);
+        write(list);
+        return;
+      }
+      if (e.target.closest("[data-sub-add]")) addOne();
+    });
+    host.addEventListener("change", (e) => {
+      const box = e.target.closest("[data-sub-check]");
+      if (!box) return;
+      const li = box.closest("[data-i]");
+      const list = read();
+      const item = li ? list[Number(li.dataset.i)] : null;
+      if (item) item.done = box.checked;
+      write(list);
+    });
+    // 回车在这儿是「加下一条」，所以得拦下来别让它冒到弹窗那层（那边回车 = 保存）；
+    // 和备注那种多行输入一个规矩：正在加清单的时候回车不做保存。
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      e.stopPropagation();
+      addOne();
+    });
+    draw(read());   // 编辑老记录时进来就把已有的清单画出来
   }
 }
 

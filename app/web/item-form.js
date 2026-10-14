@@ -12,6 +12,10 @@ import { rowPaths } from "./attachment-calc.js";
 import { GOAL_CYCLES } from "./goal-calc.js";
 import { DURATION_UNITS, toMinutes, shownDuration, linkGameId } from "./game-calc.js";
 import { normalizeTags, tagInputError, tagsText } from "./tag-calc.js";
+// 子任务的条数上限（30）只在 task-calc.js 定义一份：这里再写一个数字，迟早两边不一样
+import { SUBTASK_LIMIT } from "./task-calc.js";
+
+export { SUBTASK_LIMIT };
 
 /* 这里自带一个转义：store.js 里那个 esc 是给浏览器用的（那个文件会碰 window），
    纯模块 import 不了它。实现故意和 store.js 里那份保持一致。 */
@@ -102,6 +106,8 @@ export const FORMS = {
         blank: "不标", default: "" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
+      { name: "subtasks", label: "子任务", kind: "subtasks",
+        placeholder: "一行为一件小事，回车加下一条（最多 30 条）" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "备注（可不填）" },
     ],
@@ -133,6 +139,8 @@ export const FORMS = {
         half: true, blank: "不标", default: "" },
       { name: "tags", label: "标签", kind: "tags", maxlength: 200,
         placeholder: "逗号分开，比如：工作、本周" },
+      { name: "subtasks", label: "子任务", kind: "subtasks",
+        placeholder: "一行为一件小事，回车加下一条（最多 30 条）" },
       { name: "note", label: "备注", kind: "textarea", rows: 3, maxlength: 400,
         placeholder: "备注（可不填）" },
     ],
@@ -462,6 +470,24 @@ function fieldHtml(field, values, ctx) {
       `<div class="dlg-tags-preview" data-tags-preview="${esc(field.name)}"></div>`
     );
   }
+  // 子任务清单：可增删的小列表 + 底下藏着一条隐藏 input（里面是 JSON）。
+  // 值不走别的路 —— 读值、校验、写回还是表单那一套（见 parseSubtaskJson / applyValues），
+  // 所以这里只画个架子，界面上的加减在 item-dialog.js 的 bindSubtasks。
+  if (field.kind === "subtasks") {
+    return wrap(
+      label +
+      `<div class="dlg-subtasks" data-subtasks="${esc(field.name)}">` +
+        `<ul class="sub-list"></ul>` +
+        `<div class="sub-add">` +
+          `<input type="text" class="sub-input" maxlength="80"` +
+          ` placeholder="${esc(field.placeholder || "一行为一件小事，回车加下一条")}">` +
+          `<button type="button" class="btn small" data-sub-add>加</button>` +
+        `</div>` +
+        `<input type="hidden" id="${id}" value="${esc(value)}">` +
+        `<div class="dlg-sub-hint" data-sub-hint></div>` +
+      `</div>`
+    );
+  }
   const attrs = [];
   if (field.kind === "number") {
     attrs.push('type="number"', `min="${field.min == null ? 0 : field.min}"`);
@@ -502,11 +528,48 @@ export function formHtml(type, values = {}, ctx = {}) {
 
 /* ---------------- 读、校验、写回 ---------------- */
 
+/**
+ * 表单里那条隐藏 input 的 JSON → 干净的数组。读的时候一律经过这里：
+ * 坏 JSON 当空的、两头空白掐掉、空条目扔掉、done 转成布尔。
+ * （服务端那边也会补形状，见 app/服务.py 的 normalize_data —— 两边往同一个形状收。）
+ */
+export function parseSubtaskJson(raw) {
+  let list;
+  try {
+    list = JSON.parse(String(raw == null ? "" : raw) || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((s) => ({
+      id: String((s && s.id) || ""),
+      text: String((s && s.text) || "").trim(),
+      done: Boolean(s && s.done),
+    }))
+    .filter((s) => s.text);
+}
+
+/** 编回那条隐藏 input 的值（编辑回填、新增默认值都走它，免得两边各拼一遍） */
+function encodeSubtasks(list) {
+  return JSON.stringify(
+    (Array.isArray(list) ? list : []).map((s) => ({
+      id: String((s && s.id) || ""),
+      text: String((s && s.text) || ""),
+      done: Boolean(s && s.done),
+    }))
+  );
+}
+
 /** 新增时的初始值：字段自己的 default，再被 extra 盖掉 */
 export function defaultsOf(type, extra = {}) {
   const out = {};
   for (const field of formOf(type).fields) {
-    out[field.name] = field.kind === "static" ? "" : field.default ?? "";
+    if (field.kind === "static") out[field.name] = "";
+    // 子任务在表单里是一条 JSON 字符串：给空数组的 JSON，
+    // 底下那块就不必再判「空白」和「空数组」两种空。
+    else if (field.kind === "subtasks") out[field.name] = "[]";
+    else out[field.name] = field.default ?? "";
   }
   return { ...out, ...extra };
 }
@@ -527,6 +590,10 @@ export function valuesOf(type, row, extra = {}) {
     // 标签：记录里是数组，框里是「工作、本周」这种一行文本
     if (field.kind === "tags") {
       out[field.name] = tagsText(v);
+      continue;
+    }
+    if (field.kind === "subtasks") {
+      out[field.name] = encodeSubtasks(v);
       continue;
     }
     if (v === undefined || v === null || v === "") continue;
@@ -560,6 +627,16 @@ export function validate(type, values) {
       const tagErr = tagInputError(values[field.name]);
       if (tagErr) return { ok: false, error: `「${field.label}」${tagErr}` };
     }
+    // 子任务的条数上限（30 只在 task-calc.js 定义一份）
+    if (field.kind === "subtasks") {
+      const n = parseSubtaskJson(values[field.name]).length;
+      if (n > SUBTASK_LIMIT) return { ok: false, error: `「${field.label}」最多 ${SUBTASK_LIMIT} 条` };
+    }
+    // 字段自己带校验的（重复规则那句人话就是），错误整句由它给
+    if (typeof field.check === "function") {
+      const err = field.check(values[field.name]);
+      if (err) return { ok: false, error: err };
+    }
   }
   if (spec.requireAny) {
     const filled = spec.requireAny.some((name) => String(values[name] || "").trim());
@@ -574,7 +651,8 @@ export function applyValues(type, row, values, ctx = {}) {
   for (const field of spec.fields) {
     if (field.kind === "static") continue;   // 只读字段不回写，免得把它冲成空
     const raw = String(values[field.name] ?? "").trim();
-    if (field.kind === "tags") row[field.name] = normalizeTags(raw);
+    if (field.kind === "subtasks") row[field.name] = parseSubtaskJson(raw);
+    else if (field.kind === "tags") row[field.name] = normalizeTags(raw);
     else if (field.kind === "switch") row[field.name] = Boolean(raw) && raw !== "off";
     else row[field.name] = field.kind === "number" ? Number(raw) || 0 : raw;
   }

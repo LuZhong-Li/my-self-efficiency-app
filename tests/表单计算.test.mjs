@@ -5,6 +5,7 @@
 import {
   FORMS, ITEM_TYPES, formOf, optionsOf, formHtml,
   defaultsOf, valuesOf, readValues, validate, applyValues, newRow, trashPlan, imagesOf,
+  parseSubtaskJson,
   TASK_CATEGORIES, PRIORITIES, PROJECT_STATUSES, STUDY_KINDS, GAME_STATUSES, GAME_PLATFORMS,
 } from "../app/web/item-form.js";
 import { ATTACH_MODULES } from "../app/web/attachment-calc.js";
@@ -167,7 +168,7 @@ eq(valuesOf("fitness", null, { date: "2026-10-01" }).date, "2026-10-01", "extra 
 
 const bag = { text: "  写方案  ", minutes: "", category: "生活" };
 eqDeep(readValues("todayPlan", (name) => bag[name]),
-  { text: "  写方案  ", time: "", category: "生活", priority: "", tags: "", note: "" },
+  { text: "  写方案  ", time: "", category: "生活", priority: "", tags: "", subtasks: "", note: "" },
   "读表单：没填的字段回空串，不去动两头的空格（校验和写回各管各的）");
 
 /* ---------------- 校验 ---------------- */
@@ -209,7 +210,7 @@ eqDeep(todo, {
   id: "id-1", date: "", time: "", category: "工作", done: false, note: "",
   priority: "高", belong: "dev:demo-p1", createdAt: "2026-10-07T10:00:00.000Z",
   isTodayPlan: false,
-  text: "把月历氛围底调淡", tags: [], imagePaths: [],
+  text: "把月历氛围底调淡", tags: [], subtasks: [], imagePaths: [],
 }, "新增一条开发待办：空壳 + 表单值 + imagePaths: []");
 
 const plan = newRow("todayPlan", { text: "写方案", time: "09:00", category: "工作", note: "" }, ctx);
@@ -471,6 +472,43 @@ ok(tagHtml.indexOf('<option value="本周">') >= 0, "候选里是全站已经出
 ok(formHtml("todayPlan", {}, {}).indexOf('id="item-tags"') >= 0,
   "一个候选都没有时，输入框照样在（不该整块消失）");
 ok(tagHtml.indexOf('data-tags-preview="tags"') >= 0, "输入框下面留着那行实时预览的位置");
+
+/* ---------------- 子任务字段（2026-10-14 加的） ----------------
+   表单里它是一块可增删的小列表，底下藏着一条隐藏 input（里面是 JSON 字符串）——
+   读值 / 写回走的还是表单那一套，所以校验、落盘一个字都不重复。 */
+
+const subHtml = formHtml("devTodo", { subtasks: "[]" }, {});
+ok(subHtml.indexOf('data-subtasks="subtasks"') >= 0, "弹窗里画出了子任务那一块");
+ok(subHtml.indexOf('id="item-subtasks"') >= 0, "底下那条隐藏 input 在（值从它走）");
+ok(subHtml.indexOf('type="hidden"') >= 0, "它是隐藏的（不占地方）");
+eq(defaultsOf("devTodo", {}).subtasks, "[]", "新增时清单默认给一个空数组的 JSON");
+eq(valuesOf("devTodo", { id: "t1", subtasks: [{ id: "s1", text: "改侧栏", done: true }] }, {}).subtasks,
+  '[{"id":"s1","text":"改侧栏","done":true}]', "编辑时把清单编码成 JSON 回填");
+eq(valuesOf("devTodo", { id: "t1" }, {}).subtasks, "[]", "老记录没有清单 → 空数组的 JSON");
+
+const subRow = newRow("devTodo", { ...defaultsOf("devTodo"), text: "改版",
+  subtasks: '[{"id":"s1","text":" 改侧栏 ","done":true},{"id":"","text":"","done":false}]' },
+  { uid: () => "t-subs", nowIso: () => "2026-10-14T10:00:00.000Z", pid: "p1" });
+eqDeep(subRow.subtasks, [{ id: "s1", text: "改侧栏", done: true }],
+  "写回记录时是数组：两头空白掐掉、空条目扔掉");
+
+const clearedSubs = { id: "t2", text: "老记录", subtasks: [{ id: "s1", text: "旧的", done: true }] };
+applyValues("devTodo", clearedSubs, { ...defaultsOf("devTodo"), text: "x", subtasks: "[]" });
+eqDeep(clearedSubs.subtasks, [], "清单清空 = 记录里清成空数组（不是留着旧值）");
+eqDeep(parseSubtaskJson("这不是 JSON"), [], "读不出 JSON 时当空的，不抛错");
+eqDeep(parseSubtaskJson(""), [], "空串当空的");
+eqDeep(parseSubtaskJson('[{"id":"s1","text":"a","done":1}]'), [{ id: "s1", text: "a", done: true }],
+  "done 不是布尔也认（转成布尔）");
+
+const manySubs = JSON.stringify(
+  Array.from({ length: 31 }, (_, i) => ({ id: "s" + i, text: "第" + i, done: false })));
+eq(validate("devTodo", { ...defaultsOf("devTodo"), text: "x", subtasks: manySubs }).ok, false,
+  "31 条子任务过不了校验");
+ok(validate("devTodo", { ...defaultsOf("devTodo"), text: "x", subtasks: manySubs }).error.indexOf("30") >= 0,
+  "提示里带上限 30");
+eq(validate("devTodo", { ...defaultsOf("devTodo"), text: "x",
+  subtasks: JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ id: "s" + i, text: "第" + i }))) }).ok,
+  true, "刚好 30 条放行");
 
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 process.exit(fail ? 1 : 0);

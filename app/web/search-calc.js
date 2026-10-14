@@ -143,6 +143,11 @@ export const SOURCE_SPECS = [
     fields: ["mainTarget", "dailyRule", "remark", "moduleName", "cycle", "startDate", "endDate"] },
   // 粉丝快照自己只存 accountId，账号名 / 平台要回账号表里找 —— 搜「B站」也能
   // 带出那天的快照。点结果回自媒体页（快照没有自己的子地址）。
+  { table: "mediaAssets", module: "media", label: "素材",
+    alias: "自媒体 素材 脚本 封面 参考",
+    title: "title",
+    // 图片路径本身不进匹配：搜一个附件文件名没意义，要的是按标题 / 说明 / 链接找到它
+    fields: ["title", "note", "url"] },
   { table: "mediaFollowers", module: "media", label: "粉丝",
     alias: "自媒体 粉丝快照 涨粉",
     title: (r, data) => {

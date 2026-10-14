@@ -771,6 +771,11 @@ function row(c, items) {
       ${platformChip(c.platform)}
       ${owner ? `<span class="i-note">${esc(owner)}</span>` : ""}
       <span class="i-meta">${esc(late ? when + "（已过期）" : when)}</span>
+      ${
+        Array.isArray(c.assetIds) && c.assetIds.length
+          ? `<span class="i-meta">素材 ${c.assetIds.length}</span>`
+          : ""
+      }
       ${published ? publishedNums(c) : ""}
       <span class="i-actions">
         ${published ? "" : `<button class="link" data-act="publish">标记已发布</button>`}
@@ -1219,10 +1224,34 @@ function openSnapshotDialog(id) {
 
 /* ---------------- 作品弹窗 ---------------- */
 
+/**
+ * 作品弹窗里那排「素材」可勾选项 + 一颗「＋ 新建素材」。
+ * 抽成函数是因为「新建素材」存完要把这一格重画一遍（还得保住已经勾上的那些）。
+ */
+function assetPicksHtml(checked) {
+  const picked = checked || new Set();
+  const list = assetsOf(store.data);
+  return (
+    (list.length
+      ? list
+          .map(
+            (a) => `<label class="asset-pick${picked.has(a.id) ? " on" : ""}">
+              <input type="checkbox" value="${esc(a.id)}"${
+                picked.has(a.id) ? " checked" : ""
+              }>${esc(a.title)}</label>`
+          )
+          .join("")
+      : `<span class="hint">素材库还是空的</span>`) +
+    `<button class="link" type="button" id="w-asset-new">＋ 新建素材</button>`
+  );
+}
+
 function openWorkDialog(id) {
   const accounts = table("mediaAccounts");
   const c = id ? table("contents").find((x) => x.id === id) : null;
   const status = c ? c.status || "想法" : "想法";
+  // 这条作品现在勾了哪几份素材（新作品就是空）
+  const picked = new Set(c && Array.isArray(c.assetIds) ? c.assetIds : []);
   const { el, close } = openDialog({
     title: c ? "编辑作品" : "添加作品 / 选题",
     bodyHtml: `
@@ -1266,6 +1295,8 @@ function openWorkDialog(id) {
         <div><label class="fin-label" for="w-fans">这条涨粉</label>
           <input id="w-fans" type="number" min="0" step="1" value="${esc(c ? c.fansGain || 0 : 0)}"></div>
       </div>
+      <label class="fin-label">素材</label>
+      <div class="asset-picks" id="w-assets">${assetPicksHtml(picked)}</div>
       <label class="fin-label" for="w-note">备注</label>
       <input id="w-note" maxlength="200" placeholder="脚本要点、素材放在哪…"
         value="${esc(c ? c.note || "" : "")}">`,
@@ -1306,6 +1337,8 @@ function openWorkDialog(id) {
         accountId: pick.accountId,
         platform: pick.platform || (c ? c.platform || "" : ""),
         status: nextStatus,
+        // 勾了哪几份素材（存在作品这一侧；素材那边「用在几条作品上」是照它现算的）
+        assetIds: [...dlg.querySelectorAll("#w-assets input:checked")].map((i) => i.value),
         planDate: dlg.querySelector("#w-plan").value || "",
         publishDate: published ? dlg.querySelector("#w-publish").value || todayStr() : "",
         // 数据字段不管发没发布都照原样存回去：禁用只是不给改，
@@ -1346,7 +1379,40 @@ function openWorkDialog(id) {
   };
   el.addEventListener("change", (e) => {
     if (e.target.id === "w-status") sync();
+    // 勾素材：把标签点亮一点（纯观感；真值看保存时哪些 input 是 checked）
+    if (e.target.closest("#w-assets")) {
+      const box = e.target.closest(".asset-pick");
+      if (box) box.classList.toggle("on", e.target.checked);
+    }
   });
+  // 「＋ 新建素材」：叠一个素材弹窗上去（弹窗栈会回到作品弹窗），
+  // 存完把这一格重画一遍、已经勾上的那些照旧勾着
+  const bindAssetPicks = () => {
+    el.querySelector("#w-asset-new")?.addEventListener("click", () => {
+      openAssetDialog(null, {
+        onSaved: () => {
+          const box = el.querySelector("#w-assets");
+          if (!box) return;
+          const nowChecked = new Set(
+            [...box.querySelectorAll("input:checked")].map((i) => i.value)
+          );
+          const justAdded = assetsOf(store.data).map((a) => a.id);
+          box.innerHTML = assetPicksHtml(nowChecked);
+          bindAssetPicks();
+          // 刚建的那份直接替用户勾上（建它八成就是为了用它）
+          const fresh = justAdded.find((x) => !nowChecked.has(x));
+          if (fresh) {
+            const input = box.querySelector(`input[value="${fresh}"]`);
+            if (input) {
+              input.checked = true;
+              input.closest(".asset-pick")?.classList.add("on");
+            }
+          }
+        },
+      });
+    });
+  };
+  bindAssetPicks();
   sync();
   setTimeout(() => el.querySelector("#w-title")?.focus(), 0);
 }

@@ -21,7 +21,9 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -234,6 +236,100 @@ def check_datasets() -> None:
                   (root / "默认" / "日志" / "运行.log").exists()
                   and "老布局搬进" in read_text_or(root / "默认" / "日志" / "运行.log"),
                   "日志里应该有一行「老布局搬进 默认\\」")
+
+            # 坏名字：一个都别想建出来（含想跑到根目录外面去的）
+            for bad in ("", "   ", "../跑出去", "带/斜杠", "带\\反斜杠", "a:b", "带*星号",
+                        "con", "..", ".", ".隐藏", "结尾是点.", "x" * 25):
+                status, err = call(port, "/api/dataset-new", "POST", {"name": bad})
+                check("坏名字「%s」被拦下" % (bad or "空"), status == 400, str(err)[:70])
+
+            # 新建：建得出来，但**不**切过去
+            status, made = call(port, "/api/dataset-new", "POST", {"name": "工作"})
+            check("能新建一份数据集", status == 200 and (root / "工作" / "数据.json").exists(),
+                  str(made)[:70])
+            check("新建的不自动切过去（还在默认）",
+                  call(port, "/api/health")[1].get("dataset") == "默认")
+            made_items = dict_or(call(port, "/api/datasets")[1]).get("items") or []
+            check("新那份是空骨架（多了那一条，条数是 0）",
+                  len(made_items) == 2 and made_items[1].get("count") == 0, str(made_items)[:90])
+            status, dup = call(port, "/api/dataset-new", "POST", {"name": "工作"})
+            check("重名的新建被拦下", status == 400 and "已经有一份" in str(dup), str(dup)[:70])
+
+            # 切过去
+            cur = call(port, "/api/data")[1]
+            status, sw = call(port, "/api/dataset-switch", "POST",
+                              {"name": "工作", "rev": cur["rev"]})
+            check("能切到新建的那一份", status == 200 and sw.get("ok"), str(sw)[:70])
+            check("切过去之后读的是新那份（空骨架，不是老数据）",
+                  call(port, "/api/data")[1].get("memo") == "")
+            check("数据文件真的换到 工作\\ 下面",
+                  str(root / "工作") in str(call(port, "/api/health")[1].get("dataFile")))
+            status, stale = call(port, "/api/dataset-switch", "POST",
+                                 {"name": "默认", "rev": int(cur["rev"]) + 5})
+            check("切换时修订号对不上会被拦下（防「切的那一下正有人存」）",
+                  status == 409 and stale.get("conflict") is True, str(stale)[:80])
+
+            # 防串数据：拿着「默认」那份的名字去存，必须被挡回去
+            status, denied = call(port, "/api/data", "POST", cur,
+                                  extra={"X-XiaoLi-Dataset": urllib.parse.quote("默认")})
+            check("旧窗口带着旧数据集名保存会被挡回去（防串数据）",
+                  status == 409 and denied.get("conflict") is True, str(denied)[:90])
+            check("挡回去之后那份数据没被写坏", call(port, "/api/data")[1].get("memo") == "")
+            fresh = call(port, "/api/data")[1]
+            fresh["memo"] = "工作在写"
+            status, ok2 = call(port, "/api/data", "POST", fresh,
+                               extra={"X-XiaoLi-Dataset": urllib.parse.quote("工作")})
+            check("带着当前数据集名保存照常成功", status == 200 and ok2.get("ok"), str(ok2)[:70])
+
+            # 往「工作」里放一张图（走现成的附件接口，它会写进当前数据集的 attachments\）：
+            # 后面验导出 zip 到底有没有把图片带着走，靠它
+            status, up = call(port, "/api/attachment", "POST", {
+                "module": "finance", "ext": "png",
+                "data": base64.b64encode(TINY_PNG).decode("ascii"),
+            })
+            check("附件写进了当前数据集的 attachments\\",
+                  status == 200 and (root / "工作" / "attachments" / "finance").exists(),
+                  str(up.get("path")))
+
+            # 切回来：默认那份的数据还在（两份各是各的）
+            status, back = call(port, "/api/dataset-switch", "POST", {"name": "默认"})
+            check("能切回默认", status == 200, str(back)[:70])
+            check("切回来数据还在", call(port, "/api/data")[1].get("memo") == "老布局")
+            items2 = dict_or(call(port, "/api/datasets")[1])["items"]
+            check("列表里两份都在，当前那份标出来",
+                  sorted(i["name"] for i in items2) == ["工作", "默认"]
+                  and [i["name"] for i in items2 if i["current"]] == ["默认"], str(items2)[:90])
+
+            # 重命名：文件夹是改名不是重建，里面的数据一个字不动
+            status, ren = call(port, "/api/dataset-rename", "POST",
+                               {"name": "工作", "to": "工作A"})
+            check("能重命名数据集",
+                  status == 200 and (root / "工作A" / "数据.json").exists()
+                  and not (root / "工作").exists(), str(ren)[:70])
+            check("重命名之后里面的数据还在（「工作在写」那句还在）",
+                  "工作在写" in read_text_or(root / "工作A" / "数据.json"))
+            status, ren_bad = call(port, "/api/dataset-rename", "POST",
+                                   {"name": "工作A", "to": "a/b"})
+            check("重命名成坏名字也被拦下", status == 400, str(ren_bad)[:70])
+
+            # 导出 zip：落在**当前**数据集的 导出\ 里（「打开导出文件夹」开的就是它）
+            status, ex = call(port, "/api/dataset-export", "POST", {"name": "工作A"})
+            zpath = Path(str(ex.get("path") or "x"))
+            check("能导出成 zip",
+                  status == 200 and zpath.exists() and zpath.stat().st_size > 0, str(ex)[:80])
+            check("zip 落在当前数据集的 导出\\ 里",
+                  str(root / "默认" / "导出") in str(zpath), str(zpath))
+            names_in_zip = []
+            try:
+                with zipfile.ZipFile(zpath) as zf:
+                    names_in_zip = zf.namelist()
+            except Exception as exc:  # noqa: BLE001
+                names_in_zip = ["打不开：" + str(exc)]
+            check("zip 里带着那份数据的 数据.json",
+                  any(n.endswith("数据.json") for n in names_in_zip), str(names_in_zip[:4]))
+            check("zip 里带着图片附件",
+                  any(n.startswith("工作A/attachments/") for n in names_in_zip),
+                  str(names_in_zip[:4]))
     finally:
         stop_server(proc)
         shutil.rmtree(workdir, ignore_errors=True)

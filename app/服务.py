@@ -25,6 +25,7 @@ import socket
 import sys
 import threading
 import time
+import urllib.parse
 import uuid
 import urllib.parse
 import webbrowser
@@ -425,6 +426,91 @@ def list_datasets() -> dict:
         "ok": True, "enabled": True, "current": CURRENT_DATASET, "root": DATA_ROOT,
         "items": [dataset_info(n) for n in dataset_names()],
     }
+
+
+def _require_datasets() -> None:
+    if not DATASETS_ENABLED:
+        raise DatasetError("这次的数据目录是外面指定的（XIAOLI_DATA_DIR），数据集功能关着")
+
+
+def switch_dataset(name: str) -> None:
+    """运行期切到另一份。顺序不能换：先把「用哪一份」落盘，再换九个路径。
+
+    拿一次写入锁又立刻放开 = 问一句「此刻真没人在写吗」。LOCK_FILE 马上就要指向新目录，
+    这一对必须在旧目录上完成，不然那个锁文件会永远留在旧目录里没人摘。
+    """
+    global CURRENT_DATASET
+    _require_datasets()
+    if not os.path.isdir(dataset_dir(name)):
+        raise DatasetError("没有叫「%s」的数据集" % name)
+    with LOCK:
+        try:
+            acquire_write_lock()
+        except DataBusy:
+            raise DatasetBusy("数据正在保存，稍后重试")
+        release_write_lock()
+        write_current_dataset(name)
+        CURRENT_DATASET = name
+        derive_paths(dataset_dir(name))
+    ensure_dirs()      # 新建的数据集可能还没有 attachments\ 那几个文件夹
+    log_line("切换数据集：%s" % name)
+
+
+def create_dataset(name: str) -> None:
+    """新建一份空数据集。按设计**不**切过去：列表里出现，用户自己点「用这份」。"""
+    _require_datasets()
+    bad = check_dataset_name(name, dataset_names())
+    if bad:
+        raise DatasetError(bad)
+    target = dataset_dir(name)
+    os.makedirs(target, exist_ok=True)      # atomic_write_json 只会写文件，不会建目录
+    atomic_write_json(os.path.join(target, "数据.json"), default_data())
+    log_line("新建数据集：%s" % name)
+
+
+def rename_dataset(name: str, to: str) -> None:
+    """改文件夹名。改的是当前在用的那份，就把路径也换过去 —— 不然状态栏和
+    health 里的路径会指着一个已经不存在的文件夹。"""
+    global CURRENT_DATASET
+    _require_datasets()
+    if not os.path.isdir(dataset_dir(name)):
+        raise DatasetError("没有叫「%s」的数据集" % name)
+    if to == name:
+        return
+    bad = check_dataset_name(to, dataset_names())
+    if bad:
+        raise DatasetError(bad)
+    with LOCK:
+        os.rename(dataset_dir(name), dataset_dir(to))     # 同一个盘里改名，原子
+        if CURRENT_DATASET == name:
+            write_current_dataset(to)
+            CURRENT_DATASET = to
+            derive_paths(dataset_dir(to))
+    log_line("重命名数据集：%s → %s" % (name, to))
+
+
+def export_dataset(name: str) -> dict:
+    """打包成 zip（数据.json + attachments\\），落在**当前**数据集的 导出\\ 里：
+    「打开导出文件夹」按钮开的就是这个文件夹，放别处用户找不到。
+    为什么要 zip：数据集是个文件夹，而「整份搬走」得把图片一起带走。"""
+    _require_datasets()
+    src = dataset_dir(name)
+    if not os.path.isdir(src):
+        raise DatasetError("没有叫「%s」的数据集" % name)
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    out = os.path.join(EXPORT_DIR, "数据集-%s-%s.zip" % (name, time_stamp()))
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        data_file = os.path.join(src, "数据.json")
+        if os.path.exists(data_file):
+            zf.write(data_file, "%s/数据.json" % name)
+        for base, _dirs, files in os.walk(os.path.join(src, "attachments")):
+            for fn in files:
+                full = os.path.join(base, fn)
+                rel = os.path.relpath(full, src).replace(os.sep, "/")
+                zf.write(full, "%s/%s" % (name, rel))
+    log_line("导出数据集：%s" % os.path.basename(out))
+    return {"name": os.path.basename(out), "path": out, "bytes": os.path.getsize(out),
+            "folder": EXPORT_DIR}
 
 
 boot_paths()
@@ -1185,6 +1271,10 @@ class Handler(BaseHTTPRequestHandler):
             "/api/open-folder": self.api_open_folder,
             "/api/attachment": self.api_attachment,
             "/api/attachment-delete": self.api_attachment_delete,
+            "/api/dataset-new": self.api_dataset_new,
+            "/api/dataset-switch": self.api_dataset_switch,
+            "/api/dataset-rename": self.api_dataset_rename,
+            "/api/dataset-export": self.api_dataset_export,
         }
         handler = routes.get(path)
         if handler is None:
@@ -1214,6 +1304,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not isinstance(data, dict) or "version" not in data:
             self.send_json({"ok": False, "error": "数据格式不对，拒绝写入"}, 400)
+            return
+
+        # 数据集这道闸：页面每次保存都带上「自己是哪一份」（X-XiaoLi-Dataset）。
+        # 为什么不靠 rev 就够：切走之后旧窗口再存一次时，两份数据的修订号完全可能
+        # 正好相等，光比 rev 就放行了 —— 那是把旧数据写进别人那份，真丢数据。
+        # 不带这个头 = 老客户端 / 自检脚本，照旧不校验（向后兼容）。
+        # 值要**百分号编码**（前端 encodeURIComponent）：HTTP 头的值只能是 latin-1，
+        # 中文数据集名直接塞进去，客户端那一侧连请求都发不出来（2026-10-14 踩到）。
+        asked = urllib.parse.unquote((self.headers.get("X-XiaoLi-Dataset") or "").strip())
+        if asked and DATASETS_ENABLED and asked != CURRENT_DATASET:
+            log_line("拒绝写入：数据集已经换成 %s（页面还以为在用 %s）"
+                     % (CURRENT_DATASET, asked))
+            self.send_json({
+                "ok": False,
+                "conflict": True,
+                "dataset": CURRENT_DATASET,
+                "error": "数据集已经换掉了",
+            }, 409)
             return
 
         # 写入闸 + 修订号，两道一起上：
@@ -1257,6 +1365,7 @@ class Handler(BaseHTTPRequestHandler):
             "savedAt": now_text(),
             "bytes": size,
             "rev": data["rev"],
+            "dataset": CURRENT_DATASET,
         })
 
     def api_backup_now(self) -> None:
@@ -1363,6 +1472,75 @@ class Handler(BaseHTTPRequestHandler):
         open_folder(target)
         print("  · 已打开文件夹：%s" % target)
         self.send_json({"ok": True, "path": target})
+
+    # ---------- 数据集（多套数据文件） ----------
+
+    def api_dataset_new(self) -> None:
+        body = self.read_json_body()
+        if body is None:
+            return
+        name = str((body or {}).get("name") or "").strip()
+        try:
+            create_dataset(name)
+        except DatasetError as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        print("  · 已新建数据集：%s（还没切过去）" % name)
+        self.send_json({"ok": True, "name": name, "datasets": list_datasets()})
+
+    def api_dataset_switch(self) -> None:
+        body = self.read_json_body()
+        if body is None:
+            return
+        name = str((body or {}).get("name") or "").strip()
+        rev = (body or {}).get("rev")
+        # 切换也要 rev 对得上：防「切的那一下，另一个窗口正存到一半」
+        if DATASETS_ENABLED and isinstance(rev, int):
+            with LOCK:
+                cur_rev = int(load_data().get("rev") or 0)
+            if rev != cur_rev:
+                self.send_json({"ok": False, "conflict": True, "rev": cur_rev,
+                                "error": "数据刚被改过，刷新一下再切"}, 409)
+                return
+        try:
+            switch_dataset(name)
+        except DatasetBusy as exc:
+            self.send_json({"ok": False, "busy": True, "error": str(exc)}, 409)
+            return
+        except DatasetError as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        print("  · 已切到数据集：%s" % CURRENT_DATASET)
+        self.send_json({"ok": True, "dataset": CURRENT_DATASET, "dataFile": DATA_FILE,
+                        "datasets": list_datasets()})
+
+    def api_dataset_rename(self) -> None:
+        body = self.read_json_body()
+        if body is None:
+            return
+        name = str((body or {}).get("name") or "").strip()
+        to = str((body or {}).get("to") or "").strip()
+        try:
+            rename_dataset(name, to)
+        except DatasetError as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        print("  · 数据集改名：%s → %s" % (name, to))
+        self.send_json({"ok": True, "dataset": CURRENT_DATASET, "dataFile": DATA_FILE,
+                        "datasets": list_datasets()})
+
+    def api_dataset_export(self) -> None:
+        body = self.read_json_body()
+        if body is None:
+            return
+        name = str((body or {}).get("name") or "").strip()
+        try:
+            made = export_dataset(name)
+        except DatasetError as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        print("  · 已导出数据集：%s" % made["path"])
+        self.send_json({"ok": True, **made})
 
     # ---------- 图片附件 ----------
 

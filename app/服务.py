@@ -98,6 +98,7 @@ COUNT_KEYS = [
     ("gameRecords", "游玩记录"),
     ("finance.transactions", "账目"),
     ("debt.items", "债务"),
+    ("notes", "笔记"),
 ]
 
 
@@ -183,6 +184,8 @@ def default_data() -> dict:
         # 菜谱库：一样东西每份多少热量 / 蛋白 / 脂肪 / 碳水（2026-10-14 新增；
         # 「今天吃了什么」挂在 meals 那条的 items 上，不另开一张表）
         "foods": [],
+        # 笔记：第 11 个模块，一篇一条（body 存 Markdown 源码，不存渲染后的 HTML）
+        "notes": [],
         "water": [],
         "games": [],
         # 游玩记录：玩一次记一条（哪天、哪款游戏、多久、什么感受），
@@ -571,6 +574,18 @@ def migrate(data: dict) -> dict:
                 item.setdefault(key, 0)
             fixed_items.append(item)
         meal["items"] = fixed_items
+    # 笔记（2026-10-14 新增）：正文是 Markdown 纯文本，只补形状、不动一个字。
+    if not isinstance(data.get("notes"), list):
+        data["notes"] = []
+    for row in data["notes"]:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("id"):
+            row["id"] = "n-" + uuid.uuid4().hex[:8]
+        for key in ("title", "body", "createdAt", "updatedAt"):
+            row.setdefault(key, "")
+        if not isinstance(row.get("imagePaths"), list):
+            row["imagePaths"] = []
     # 2026-10-07 第二批：今日计划、开发待办、学习记录、学习对象、训练打卡、游戏
     # 也都能带图片备注了，老记录一律补一个空数组（补了才动，有了不动）
     for key in ("tasks", "studies", "subjects", "workoutLogs", "games"):
@@ -648,7 +663,7 @@ def migrate(data: dict) -> dict:
     # 已经是数组的原样留着（不清洗、不排序、不去重 —— 那是前端 tag-calc.js 的事）。
     for key in ("tasks", "contents", "mediaAccounts", "projects", "issues", "progress",
                 "subjects", "studies", "workoutLogs", "weights", "meals", "water",
-                "games", "gameRecords", "workLogs", "foods"):
+                "games", "gameRecords", "workLogs", "foods", "notes"):
         for row in data.get(key) or []:
             if isinstance(row, dict) and not isinstance(row.get("tags"), list):
                 row["tags"] = []

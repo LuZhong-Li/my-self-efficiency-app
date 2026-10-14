@@ -164,7 +164,8 @@ def main() -> int:
         need = ["tasks", "memo", "contents", "projects", "issues", "progress", "subjects",
                 "studies", "workoutLogs", "workoutPlan", "weights", "meals", "water",
                 "games", "gameRecords", "settings", "finance", "debt", "mediaAccounts",
-                "mediaFollowers", "mediaAssets", "moduleGoals"]
+                "mediaFollowers", "mediaAssets", "moduleGoals",
+                "workLogs", "foods", "notes"]
         missing = [k for k in need if k not in data]
         check("数据骨架九个模块的字段都在", not missing, "缺：" + ",".join(missing))
 
@@ -495,6 +496,20 @@ def main() -> int:
               and back_item.get("kcal") == 200 and back_item.get("slot") == "breakfast"
               and back_item.get("foodId") == "" and back_item.get("protein") == 0,
               str(back_item))
+        # 笔记（2026-10-14 新增）：第 11 个模块「笔记」，一张顶层表。
+        # 老数据没有这个键就补一张空表；有的逐条补齐字段，正文一个字都不动。
+        check("没有 notes 的老数据读出来补成空表", back2.get("notes") == [],
+              str(back2.get("notes")))
+        cur_nt = call(port, "/api/data")[1]
+        cur_nt["notes"] = [{"title": "手写的一条", "body": "# 你好\n- 一\n- 二"}]
+        call(port, "/api/data", "POST", cur_nt)
+        back_nt = call(port, "/api/data")[1]["notes"][0]
+        check("手写的笔记补齐 id / 标签 / 图片 / 时间，标题与正文不动",
+              bool(back_nt.get("id")) and back_nt.get("title") == "手写的一条"
+              and back_nt.get("body") == "# 你好\n- 一\n- 二"
+              and back_nt.get("tags") == [] and back_nt.get("imagePaths") == []
+              and back_nt.get("createdAt") == "" and back_nt.get("updatedAt") == "",
+              str(back_nt))
         check("没有 gameRecords 的老数据读出来补成空表",
               back2.get("gameRecords") == [], str(back2.get("gameRecords")))
 

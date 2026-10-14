@@ -72,7 +72,8 @@ eq(isIssueClosed(""), false, "空状态没结");
 eq(normalizeSeverity("高"), "高", "优先级认得出就原样");
 eq(normalizeSeverity("紧急"), "中", "认不出的优先级退回中");
 eq(normalizeModule("记账"), "记账", "关联模块认得出就原样");
-eq(normalizeModule("笔记"), "通用", "模块清单里没有的退回通用");
+eq(normalizeModule("笔记"), "笔记", "第 11 个模块「笔记」也是合法的关联模块");
+eq(normalizeModule("不存在的模块"), "通用", "模块清单里没有的退回通用");
 eq(normalizeModule(""), "通用", "空模块退回通用");
 
 /* ---------------- 条目规整 ---------------- */

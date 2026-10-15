@@ -4087,19 +4087,22 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
      「一眼区分」就成了空话：
        开发 22° · 健身 46° · 饮食 74° · 记账 145° · 学习 174° ·
        笔记 211° · 设置 217°(低饱和灰蓝) · 首页 225° · 计划 258° · 游戏 288° · 自媒体 331°
-     首页那个就是品牌蓝 #3b66d9，不动。备注那三个偏蓝的靠饱和度/明度分开：
+     首页那个就是品牌蓝 #3b66d9，不动。三个偏蓝的靠饱和度/明度分开：
      首页是深的品牌蓝、笔记是亮一档的天蓝、设置是几乎没颜色的灰蓝。
-     浅色这组都压在 4.5:1 上下（选中项的文字要用它，太浅了读不清）。 */
+
+     深浅只按一个规矩定：这些颜色会被当**文字**用（侧栏选中项的名字、
+     搜索结果那排标签），所以浅色这一组全部压到白底 4.6:1 以上，
+     深色那一组压在深色面板上 5.8:1 以上 —— 算式跑过一遍，不是目测。 */
   --m-home: #3b66d9;
   --m-plan: #6d4ae6;
-  --m-media: #d9448a;
-  --m-dev: #cf6428;
-  --m-study: #0f9b8e;
-  --m-fin: #1f8a4c;
-  --m-fit: #c99a12;
-  --m-diet: #7d9a1f;
+  --m-media: #ca3f81;
+  --m-dev: #b95a24;
+  --m-study: #0d8378;
+  --m-fin: #1e864a;
+  --m-fit: #93700d;
+  --m-diet: #667e19;
   --m-game: #a03cb0;
-  --m-note: #2f7fd6;
+  --m-note: #2c76c8;
   --m-set: #616f85;
 
   /* --m 是「当前这块是谁的主题色」的落点：侧栏每一项、首页每张模块卡片
@@ -4444,4 +4447,97 @@ textarea:focus-visible {
   .dlg-backdrop {
     animation: none;
   }
+}
+
+/* ----------------------------------------------------------------------------
+   10. 视觉第二波（2026-10-15）：搜索面板与全站主题色对齐
+   ----------------------------------------------------------------------------
+   走查发现的唯一一处「同一个模块、两种颜色」：全局搜索结果那一排标签
+   （.sr-tag）早就按模块着色了，用的却是**写死**的另一套色值 ——
+   自媒体在那边是青色、在这一轮的主题色里是玫红；学习那边是紫、这里是青。
+   同一个人在两处看到两个身份，等于没有身份。这里把它接回 --m-*，
+   并改成「主题色淡底 + 主题色文字」（原来那套实底 + 白字，金黄和青绿
+   几档压白字其实是不达标的）。老规则一行没删，靠写在后面压过去。
+   -------------------------------------------------------------------------- */
+
+.sr-item[data-module="plan"] .sr-tag {
+  background: color-mix(in srgb, var(--m-plan) 16%, var(--card));
+  color: var(--m-plan);
+}
+.sr-item[data-module="media"] .sr-tag {
+  background: color-mix(in srgb, var(--m-media) 16%, var(--card));
+  color: var(--m-media);
+}
+.sr-item[data-module="dev"] .sr-tag {
+  background: color-mix(in srgb, var(--m-dev) 16%, var(--card));
+  color: var(--m-dev);
+}
+.sr-item[data-module="study"] .sr-tag {
+  background: color-mix(in srgb, var(--m-study) 16%, var(--card));
+  color: var(--m-study);
+}
+.sr-item[data-module="diet"] .sr-tag {
+  background: color-mix(in srgb, var(--m-diet) 16%, var(--card));
+  color: var(--m-diet);
+}
+.sr-item[data-module="fitness"] .sr-tag {
+  background: color-mix(in srgb, var(--m-fit) 16%, var(--card));
+  color: var(--m-fit);
+}
+.sr-item[data-module="game"] .sr-tag {
+  background: color-mix(in srgb, var(--m-game) 16%, var(--card));
+  color: var(--m-game);
+}
+.sr-item[data-module="finance"] .sr-tag {
+  background: color-mix(in srgb, var(--m-fin) 16%, var(--card));
+  color: var(--m-fin);
+}
+
+/* 搜索面板是「从顶栏那个框里掉下来」的：给它一条和弹窗同一节奏的进场，
+   别让它硬邦邦地闪出来。（.arch-drawer 早就有自己的滑入，不动） */
+@keyframes xlPanelIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.search-panel:not([hidden]) {
+  animation: xlPanelIn var(--dur-m) var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-panel:not([hidden]) {
+    animation: none;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   11. 让「当前在哪个模块」这一层也用上主题色
+   ----------------------------------------------------------------------------
+   上面那套 --m 只落在侧栏每一项和首页每张模块卡片上，模块页**里面**没有它：
+   空状态那枚小标记、页头那个图标，都还是中性的灰（走查时发现「记账页空着
+   的时候，空状态标记也是灰的」，五个空状态全一样，等于没上色）。
+
+   模块页里没有「我是谁」的标记，但侧栏上有：当前模块那一项带着
+   .side-item[href="#finance"].active。用 :has() 从 html 往下问一句
+   「现在选中的是哪个模块」，把 --m 提到 html 这一层 ——
+   页面里的元素只要不自己另设 --m，就都继承到当前模块的颜色。
+   不动 DOM、不加 class，浏览器不认 :has() 时整段自动失效（退回中性色）。
+   -------------------------------------------------------------------------- */
+
+html:has(.side-item[href="#home"].active) { --m: var(--m-home); }
+html:has(.side-item[href="#plan"].active) { --m: var(--m-plan); }
+html:has(.side-item[href="#media"].active) { --m: var(--m-media); }
+html:has(.side-item[href="#dev"].active) { --m: var(--m-dev); }
+html:has(.side-item[href="#study"].active) { --m: var(--m-study); }
+html:has(.side-item[href="#finance"].active) { --m: var(--m-fin); }
+html:has(.side-item[href="#fitness"].active) { --m: var(--m-fit); }
+html:has(.side-item[href="#diet"].active) { --m: var(--m-diet); }
+html:has(.side-item[href="#game"].active) { --m: var(--m-game); }
+html:has(.side-item[href="#note"].active) { --m: var(--m-note); }
+html:has(.side-item[href="#data"].active) { --m: var(--m-set); }
+
+/* 页头那个图标跟着模块走（原来一律是品牌蓝），一眼看出这是哪一页 */
+.page-header .page-icon {
+  background: color-mix(in srgb, var(--m) 14%, var(--card));
+  color: var(--m);
 }

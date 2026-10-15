@@ -4430,19 +4430,23 @@ textarea:focus-visible {
 
 /* ---- 9. 系统开了「减弱动态效果」：上面那些动效一个不落，全关 ---- */
 
+/* 选择器为什么要套一层 :is(html[data-skin], html:not([data-skin]))：
+   @media 本身**不加**优先级，而玻璃皮肤那几条
+   `html[data-skin="glass"] .card { transition: … }` 是 (0,2,1)，
+   光写 `.card { transition: none }`（(0,1,0)）压不住它 ——
+   实测过：开了减弱动效之后卡片那 0.2s 过渡还在。
+   套上这一层正好也是 (0,2,1)，又写在后面，两种皮肤都压得住。
+   下面单独那几条（弹窗、搜索面板）没有竞争者，照常写就行。 */
+
 @media (prefers-reduced-motion: reduce) {
-  .card,
-  .card:hover,
-  .btn,
-  .btn:active,
-  .icon-btn,
-  .icon-btn:active,
-  .side-nav .side-item .side-icon,
-  .mod-card .mod-icon {
+  :is(html[data-skin], html:not([data-skin])) :is(.card, .card:hover, .btn, .btn:active,
+    .icon-btn, .icon-btn:active, .side-nav .side-item .side-icon, .mod-card .mod-icon,
+    .search-panel:not([hidden])) {
     transition: none;
     transform: none;
     animation: none;
   }
+
   .dlg,
   .dlg-backdrop {
     animation: none;

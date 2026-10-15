@@ -157,3 +157,7 @@ vite.config.ts.timestamp-*
 
 # 运行自检时可能留下的临时文件
 *.tmp
+
+# 跑过 自检.py / 服务.py 之后 Python 自己攒的字节码缓存，不进仓库
+__pycache__/
+*.pyc

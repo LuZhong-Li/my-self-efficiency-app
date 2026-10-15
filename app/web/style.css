@@ -3962,6 +3962,7 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 
 /* 素材选择器（2026-10-14 全站版加的） */
 .dlg-assets { margin-top: 4px; }
+
 .asset-pick-list { margin: 6px 0; padding: 0; list-style: none; max-height: 220px; overflow: auto; }
 .asset-pick { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
 .asset-pick-main { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -4040,4 +4041,407 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .md-body .md-img { max-width: 100%; border-radius: var(--r-md); }
 @media (max-width: 980px) {
   .note-body.with-preview { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   2026-10-15 设计感升级
+   ----------------------------------------------------------------------------
+   一整块追加的东西，老规则一条没动（要覆盖的都用更高优先级选择器压过去，
+   每条都写了为什么）。四套皮肤 × 明暗两种的规矩不变：data-skin 决定长什么样，
+   data-theme 决定明暗，这一块只往上加「设计感」，不碰任何骨架、class、文案。
+
+   里面装的是四件事：
+     1) 一组设计令牌（渐变背景 / 玻璃 / 第二档阴影 / 动效时长缓动 / 11 个模块主题色）；
+     2) 背景与顶栏 / 侧栏的质感：柔和渐变 + 半透明磨砂 + 高光描边；
+     3) 卡片双档阴影 + hover 抬升、按钮按压、弹窗进场；
+     4) 模块主题色（侧栏图标、首页模块卡片）、等宽数字、统一聚焦环。
+
+   动效全部都收在 prefers-reduced-motion: reduce 里 —— 系统开了「减弱动态效果」
+   就一点不动。
+   ========================================================================== */
+
+/* ---- 1. 设计令牌 ---- */
+
+:root {
+  /* 背景：浅色是低饱和的蓝紫渐变，不是刺眼的纯色块 */
+  --bg-grad: linear-gradient(165deg, #eef2fb 0%, #f6f7fa 48%, #eef0f7 100%);
+
+  /* 玻璃（顶栏 / 侧栏 / 状态栏）：半透明底 + 模糊 + 一圈高光边 */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-blur: 14px;
+  --glass-line: rgba(255, 255, 255, 0.6);
+
+  /* 阴影第二档：hover / 抬起来的时候用，比常态那档散得更开 */
+  --shadow-2: 0 10px 30px rgba(31, 41, 55, 0.1);
+
+  /* 动效：时长三档 + 一条统一的缓动（起手快、收尾稳） */
+  --dur-s: 120ms;
+  --dur-m: 180ms;
+  --dur-l: 240ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* 11 个模块的主题色。浅色下当基准（够深，压在浅底上看得清）；
+     深色在下面的 dark 块里换一批更亮的，不然深底上全糊成一团。
+
+     挑颜色时按色相摊开（约 20°~40° 一档），不然十几个模块全挤在蓝绿那一带，
+     「一眼区分」就成了空话：
+       开发 22° · 健身 46° · 饮食 74° · 记账 145° · 学习 174° ·
+       笔记 211° · 设置 217°(低饱和灰蓝) · 首页 225° · 计划 258° · 游戏 288° · 自媒体 331°
+     首页那个就是品牌蓝 #3b66d9，不动。备注那三个偏蓝的靠饱和度/明度分开：
+     首页是深的品牌蓝、笔记是亮一档的天蓝、设置是几乎没颜色的灰蓝。
+     浅色这组都压在 4.5:1 上下（选中项的文字要用它，太浅了读不清）。 */
+  --m-home: #3b66d9;
+  --m-plan: #6d4ae6;
+  --m-media: #d9448a;
+  --m-dev: #cf6428;
+  --m-study: #0f9b8e;
+  --m-fin: #1f8a4c;
+  --m-fit: #c99a12;
+  --m-diet: #7d9a1f;
+  --m-game: #a03cb0;
+  --m-note: #2f7fd6;
+  --m-set: #616f85;
+
+  /* --m 是「当前这块是谁的主题色」的落点：侧栏每一项、首页每张模块卡片
+     各自把它指向自己的那个 --m-*，下面的规则全都吃它。这儿给一个中性兜底
+     （以后加了模块忘了配，也不会变成透明或者继承出奇怪的颜色）。
+     兜底挂在 :root 上是有意的：它的优先级只有 (0,1,0)，
+     .side-item[href="#dev"] 那种 (0,2,0) 才压得住它。 */
+  --m: var(--m-set);
+}
+
+html[data-theme="dark"] {
+  --bg-grad: radial-gradient(1100px 620px at 18% -12%, #1b2440 0%, #131a2c 52%, #0d1220 100%);
+  --glass-bg: rgba(23, 27, 39, 0.66);
+  --glass-line: rgba(148, 163, 255, 0.14);
+  --shadow-2: 0 12px 34px rgba(0, 0, 0, 0.5);
+
+  /* 深色下每个模块色提亮一档（色相不动）：同样是彩虹，但不是彩虹糖 */
+  --m-home: #7aa2ff;
+  --m-plan: #a78bff;
+  --m-media: #ff8ab5;
+  --m-dev: #f5915a;
+  --m-study: #3fc2b4;
+  --m-fin: #4fd39b;
+  --m-fit: #edc356;
+  --m-diet: #bcd85c;
+  --m-game: #cf87e0;
+  --m-note: #6fa8f5;
+  --m-set: #9aa6bb;
+}
+
+/* 玻璃皮肤：它自己那套半透明 + blur(22px) 已经很足，第二档阴影跟着它的
+   语言走（散得更开、带一点内高光），别拿上面那档浅灰阴影去配它。 */
+html[data-skin="glass"] {
+  --shadow-2: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+html[data-skin="glass"][data-theme="dark"] {
+  --shadow-2: 0 20px 52px rgba(0, 0, 0, 0.55);
+}
+
+/* 笔记皮肤是纯平纸面、粗野皮肤是硬投影：把第二档阴影换成它们自己的脾气，
+   免得「柔和悬浮」那股现代感把它们的气质冲掉。 */
+html[data-skin="notebook"] {
+  --shadow-2: 0 2px 8px rgba(55, 53, 47, 0.1);
+}
+html[data-skin="neo"] {
+  --shadow-2: 6px 6px 0 var(--ink);
+}
+
+/* 笔记 / 粗野不用渐变铺底：一个是纸、一个是牛皮纸，纯色才对。
+   （玻璃皮肤自己有一层「壁纸」渐变，body 在它那儿本来就是透明的） */
+html[data-skin="notebook"],
+html[data-skin="neo"] {
+  --bg-grad: var(--bg);
+}
+
+/* ---- 2. 背景与外壳的质感（极简皮肤；玻璃皮肤有自己的壁纸，保持原样） ---- */
+
+body {
+  background: var(--bg-grad);
+  min-height: 100vh;
+}
+
+/* 顶栏 / 侧栏 / 状态栏：半透明磨砂 + 一圈高光边。
+   只在「极简」（没挂 data-skin）时加 —— 玻璃皮肤那一套在第 1871 行起，
+   笔记 / 粗野是纯平表面，都不该被这一段改掉。 */
+html:not([data-skin]) .topbar,
+html:not([data-skin]) .sidebar,
+html:not([data-skin]) .statusbar {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+}
+
+html:not([data-skin]) .topbar {
+  border-bottom-color: var(--glass-line);
+}
+
+html:not([data-skin]) .sidebar {
+  border-right-color: var(--glass-line);
+}
+
+html:not([data-skin]) .statusbar {
+  border-top-color: var(--glass-line);
+}
+
+/* 顶栏一旦有了 backdrop-filter，它就成了一个层叠上下文；内容区的卡片各是
+   一个，而它们在 DOM 里排在顶栏后面 —— 结果顶栏里那个搜索面板（z-index 30）
+   会被卡片压住：看得见、点不动。（玻璃皮肤第 1993 行踩过一模一样的坑，
+   那边也是这么解决的。） */
+html:not([data-skin]) .topbar {
+  position: relative;
+  z-index: 40;
+}
+
+/* 系统开了「减少透明度」就换成不透明（和玻璃皮肤一个脾气） */
+@media (prefers-reduced-transparency: reduce) {
+  html:not([data-skin]) .topbar,
+  html:not([data-skin]) .sidebar,
+  html:not([data-skin]) .statusbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--chrome);
+  }
+}
+
+/* 不支持 backdrop-filter 的老浏览器：半透明底会糊成一片，调实一点 */
+@supports not ((backdrop-filter: blur(4px)) or (-webkit-backdrop-filter: blur(4px))) {
+  html:not([data-skin]) .topbar,
+  html:not([data-skin]) .sidebar,
+  html:not([data-skin]) .statusbar {
+    background: var(--chrome);
+  }
+}
+
+/* ---- 3. 卡片：双档阴影 + hover 抬升 ---- */
+
+.card {
+  transition: transform var(--dur-s) var(--ease), box-shadow var(--dur-s) var(--ease),
+    border-color var(--dur-s) var(--ease);
+}
+
+/* 只在真能 hover 的设备上抬（触屏上「粘住」的 hover 会很难受） */
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+  }
+}
+
+/* 笔记 / 粗野：一动不动的平面感是它们的性格，别给它们加悬浮 */
+html[data-skin="notebook"] .card:hover {
+  transform: none;
+  box-shadow: var(--shadow-2);
+  border-color: rgba(55, 53, 47, 0.35);
+}
+
+html[data-skin="neo"] .card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-2);
+}
+
+/* ---- 4. 11 个模块的主体色 ---- */
+
+/* 认模块不用改 DOM：侧栏每一项和首页每张模块卡片都带着 href="#模块id"，
+   用属性选择器认出来，把颜色落到一个 --m 上，下面所有规则都吃这个变量。 */
+.side-item[href="#home"],
+.mod-card[href="#home"] { --m: var(--m-home); }
+.side-item[href="#plan"],
+.mod-card[href="#plan"] { --m: var(--m-plan); }
+.side-item[href="#media"],
+.mod-card[href="#media"] { --m: var(--m-media); }
+.side-item[href="#dev"],
+.mod-card[href="#dev"] { --m: var(--m-dev); }
+.side-item[href="#study"],
+.mod-card[href="#study"] { --m: var(--m-study); }
+.side-item[href="#finance"],
+.mod-card[href="#finance"] { --m: var(--m-fin); }
+.side-item[href="#fitness"],
+.mod-card[href="#fitness"] { --m: var(--m-fit); }
+.side-item[href="#diet"],
+.mod-card[href="#diet"] { --m: var(--m-diet); }
+.side-item[href="#game"],
+.mod-card[href="#game"] { --m: var(--m-game); }
+.side-item[href="#note"],
+.mod-card[href="#note"] { --m: var(--m-note); }
+.side-item[href="#data"],
+.mod-card[href="#data"] { --m: var(--m-set); }
+
+/* 侧栏：图标装进一个小色块里，一眼分得开是哪个模块。
+   色块用 color-mix 兑出来，不再多备 11 个「浅色版」变量。 */
+.side-nav .side-item .side-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--m) 14%, transparent);
+  color: var(--m);
+  transition: background var(--dur-s) var(--ease), color var(--dur-s) var(--ease);
+}
+
+/* 选中的那一项：整块淡主题色底 + 主题色文字 + 主题色左边那条。
+   底子是拿主题色去兑 --card（而不是兑 transparent）：纯透明的淡色压在
+   玻璃皮肤那层彩色壁纸上，会透出壁纸本来的粉调，看起来像脏了一块。
+   兑一点卡片底色进去，颜色就归自己管了，同时还是半透的。 */
+.side-nav .side-item.active {
+  background: color-mix(in srgb, var(--m) 14%, var(--card));
+  color: var(--m);
+}
+
+.side-nav .side-item.active::before {
+  background: var(--m);
+}
+
+.side-nav .side-item.active .side-icon {
+  background: color-mix(in srgb, var(--m) 22%, transparent);
+}
+
+/* 玻璃皮肤的选中态原来是一块白玻璃；这里改成「主题色淡底 + 一层内高光」，
+   保住它的玻璃语言，同时让 11 个模块分得开。（选择器长度和它一模一样，
+   靠写在后面压过去。兑 --card 不兑 transparent，理由见上面那条） */
+html[data-skin="glass"] .side-item.active {
+  background: color-mix(in srgb, var(--m) 18%, var(--card));
+  box-shadow: inset 0 1px 0 var(--glass-line);
+}
+html[data-skin="glass"][data-theme="dark"] .side-item.active {
+  background: color-mix(in srgb, var(--m) 22%, var(--card));
+  box-shadow: none;
+}
+
+/* 笔记皮肤是纯平纸面：色块去掉，只让图标本身带颜色 */
+html[data-skin="notebook"] .side-nav .side-item .side-icon {
+  background: transparent;
+}
+
+/* 首页模块卡片：左边一条 4px 主题色 + 图标同色。
+   用伪元素而不是 border-left，是因为卡片自带阴影和圆角，加边框会改尺寸。 */
+.mod-card {
+  position: relative;
+}
+
+.mod-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--m, var(--m-set));
+  opacity: 0.9;
+}
+
+.mod-card .mod-icon {
+  color: var(--m, var(--m-set));
+  transition: color var(--dur-s) var(--ease);
+}
+
+/* 笔记 / 粗野的圆角是 3px / 0，色条跟着收窄一点，别显得突兀 */
+html[data-skin="notebook"] .mod-card::before { width: 3px; }
+html[data-skin="neo"] .mod-card::before { width: 5px; }
+
+/* ---- 5. 排版：数字等宽，同列对得齐 ---- */
+
+/* 卡片里的数字（金额 / 条数 / 百分比）统一用等宽数字：位数一变，前后那一位
+   不再左右跳。只作用于数字本身，中文和字母一点都不受影响。 */
+.card strong,
+.card b,
+.mod-main,
+.top-status {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 6. 动效：弹窗进场、按钮按压 ---- */
+
+@keyframes xlDlgIn {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes xlBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 只做进场：关闭是 dialog.js 里立刻把节点摘掉，CSS 拦不住那一刻
+   （要做出场得改 JS 里那段收尾时序，牵动弹窗栈的回归测试，不值当）。 */
+.dlg-backdrop {
+  animation: xlBackdropIn var(--dur-m) var(--ease) both;
+}
+
+.dlg {
+  animation: xlDlgIn var(--dur-m) var(--ease) both;
+}
+
+.btn,
+.icon-btn,
+.link {
+  transition: transform var(--dur-s) var(--ease), background var(--dur-s) var(--ease),
+    border-color var(--dur-s) var(--ease), color var(--dur-s) var(--ease),
+    box-shadow var(--dur-s) var(--ease);
+}
+
+.btn:active,
+.icon-btn:active {
+  transform: scale(0.98);
+}
+
+/* ---- 7. 统一聚焦环 ---- */
+
+/* 键盘走到哪儿都看得见：一圈主题色描边 + 一点外发光。
+   鼠标点了不画（:focus-visible 的规矩），免得点一下到处都是框。 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 输入框本来就有自己那一圈 box-shadow 聚焦样式，别叠成两道框 */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+/* ---- 8. 空状态：淡一点的插图底 + 圆一点的标记 ---- */
+
+/* 空列表时那枚小图标：底色跟着当前模块走（有 --m 就用，没有就用中性色），
+   外圈一圈很淡的虚线作为「配图」—— 全部是 CSS，不联网、不改结构。 */
+.empty-state .empty-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--m, var(--muted)) 12%, transparent);
+  color: var(--m, var(--muted));
+  border: 1px dashed color-mix(in srgb, var(--m, var(--muted)) 34%, transparent);
+}
+
+.empty-state strong {
+  font-size: 15px;
+  letter-spacing: 0.2px;
+}
+
+/* ---- 9. 系统开了「减弱动态效果」：上面那些动效一个不落，全关 ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card:hover,
+  .btn,
+  .btn:active,
+  .icon-btn,
+  .icon-btn:active,
+  .side-nav .side-item .side-icon,
+  .mod-card .mod-icon {
+    transition: none;
+    transform: none;
+    animation: none;
+  }
+  .dlg,
+  .dlg-backdrop {
+    animation: none;
+  }
 }

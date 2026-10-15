@@ -4,28 +4,26 @@ setlocal
 cd /d "%~dp0"
 
 rem =====================================================================
-rem  双击这个文件启动。默认不再弹黑窗口：直接开一个「小李」自己的窗口
-rem  （pywebview / WebView2），关掉那个窗口 = 退出程序。
+rem  双击启动。默认开「小李」自己的窗口，关掉窗口 = 退出程序。
 rem
-rem  什么时候还会看到黑窗口：这台机器上要么没有 pythonw.exe、要么没装
-rem  pywebview —— 那两种情况下留一个控制台窗口是**故意的**，它是「关掉程序」
-rem  的开关（无控制台的服务在后台跑着，你就没处关了）。要排错看日志用
-rem  启动-调试.cmd。
+rem  还会看到黑窗口的两种情形（都是有意的）：
+rem    a) 没装 pywebview  → 退回浏览器模式，控制台就是关程序的开关；
+rem    b) 没有 pythonw.exe → 用 python.exe 跑，同样要靠控制台关。
+rem  排错请看日志：启动-调试.cmd（带控制台）。
 rem
-rem  这里有两处不能随便改：
+rem  两处不能随便改：
 rem
-rem  1) chcp 65001 不能删。下面要启动的文件名「服务.py」是中文，而这个
-rem     批处理文件本身按 UTF-8 保存；只有把控制台切到 UTF-8，cmd 才能
-rem     正确读到那串中文文件名。
+rem  1) chcp 65001 不能删。要启动的文件名「服务.py」是中文，本文件按 UTF-8
+rem     保存；只有控制台切到 UTF-8，cmd 才读得对那串中文文件名。
 rem
-rem  2) 不要直接相信 PATH 里的 python。这台电脑的 PATH 里排在前面的是
+rem  2) 不要直接相信 PATH 里的 python。这台机器 PATH 里排第一的是
 rem     D:\msys64\ucrt64\bin\python.exe，但系统开着「智能应用控制」，
-rem     会拦掉那份 Python 未签名的 .pyd 文件，连 http.server 都导不进来。
-rem     所以下面每个候选都要先试跑一次导入，真能用的才用。
+rem     会拦掉那份 Python 的 .pyd，连 http.server 都导不进来。
+rem     所以每个候选都要先试跑一次导入，真能用的才用。
 rem
-rem  3) 探测到可用的 Python 之后还要看两件事，才决定用哪种方式跑（见 :start）：
-rem     装没装 pywebview（决定有没有自己的窗口）、同目录有没有 pythonw.exe
-rem     （决定弹不弹黑窗口）。缺哪个就退回哪一档，双击永远能用。
+rem  3) 探测到 Python 之后还要看两件事才决定跑法（见 :start）：
+rem     有没有 pywebview（有没有自己的窗口）、有没有 pythonw.exe
+rem     （弹不弹黑窗口）。缺哪个就退哪一档，双击永远能用。
 rem =====================================================================
 
 set "PY="
@@ -72,8 +70,8 @@ endlocal
 exit /b 0
 
 :bareconsole
-echo   模式: 桌面窗口 + 控制台（这台机器上没有 pythonw.exe）
-echo   控制台窗口留着 = 关掉它即停程序。
+echo   模式: 桌面窗口 + 控制台（没有 pythonw.exe）
+echo   控制台留着 = 关掉它即停程序。
 "%PY%" "app\服务.py" --desktop %*
 if not errorlevel 1 goto done
 
@@ -84,9 +82,10 @@ pause
 goto done
 
 :browser
-echo   模式: 浏览器（这台机器上没装 pywebview）
-echo   想换成小李自己的窗口： "%PY%" -m pip install pywebview
-echo   控制台窗口留着 = 关掉它即停程序。
+echo   模式: 浏览器（没装 pywebview）
+echo   想换成自己的窗口，装一次：
+echo     "%PY%" -m pip install pywebview
+echo   控制台留着 = 关掉它即停程序。
 "%PY%" "app\服务.py" %*
 if not errorlevel 1 goto done
 

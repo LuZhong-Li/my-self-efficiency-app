@@ -10,7 +10,14 @@
   4. 写入用「先写临时文件、再整体替换」，断电也不会写坏；
   5. 每天第一次启动自动备份一份，只保留最近若干份。
 
-用法：双击项目目录里的 启动.cmd
+用法：双击项目目录里的 启动.cmd（默认开自己的桌面窗口）
+      启动-调试.cmd       带控制台跑，浏览器模式，排错看日志用
+
+命令行开关（都不写 = 老样子）：
+  --desktop     开小李自己的窗口（pywebview / WebView2）；没装 pywebview 就自动
+                退回浏览器模式，双击永远能用
+  --no-browser  一个界面都不开，只跑服务（测试 / 无头调试用，服务保持无 GUI 可跑）
+  --port N      指定端口，不写就从 8765 往上试 12 个
 """
 
 from __future__ import annotations
@@ -44,6 +51,9 @@ SERVER_TOKEN = "XiaoLi/1.0"
 # 项目目录就是这个文件的上上级（比如 D:\小李）
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(BASE_DIR, "app", "web")
+# 桌面窗口的图标：就是仓库根目录那份「小李.ico」。找不到就不传，
+# 窗口照样开（只是用系统默认图标）。
+ICON_FILE = os.path.join(BASE_DIR, "小李.ico")
 # 数据放哪儿，两种用法：
 #   1) 「一份数据一个文件夹，界面上换着用」（多数据集）—— 默认就是这一种。
 #      根目录 = 环境变量 XIAOLI_DATA_ROOT，默认 BASE_DIR\数据；
@@ -121,6 +131,13 @@ DEFAULT_PORT = 8765
 PORT_TRIES = 12
 DEFAULT_BACKUP_KEEP = 14
 MAX_BODY = 32 * 1024 * 1024
+
+# 桌面窗口（pywebview / WebView2）的默认尺寸与最小尺寸。
+# 最小尺寸不是随便定的：窄过 960 之后首页那排模块卡片和记账的左右两栏就要挤了。
+WIN_W, WIN_H = 1280, 860
+WIN_MIN_W, WIN_MIN_H = 960, 640
+# 无控制台模式（pythonw）下 print 攒到多大就轮换一次
+CONSOLE_LOG_MAX = 512 * 1024
 
 LOCK = threading.Lock()
 
@@ -1711,6 +1728,145 @@ def open_browser(url: str) -> None:
         print("  请手动打开：%s" % url)
 
 
+# --------------------------------------------------------------------------
+# 无控制台模式：pythonw.exe 起的进程没有 stdout / stderr，print 出去的字全丢了。
+# 双击没反应的时候没处看原因，所以把它们收进 数据\日志\console.log。
+# 带控制台的调试入口（启动-调试.cmd）不受影响：它有 stdout，这里什么都不做。
+# --------------------------------------------------------------------------
+
+
+class FileStream:
+    """冒充 stdout / stderr 的一个小壳：写进来的东西追加到文件里。
+    只实现 print 会用到的那几个方法，别的照 Python 的规矩给个安全的默认。
+
+    服务线程和主线程都会往这儿写（关窗时那几行尤其容易撞上），所以写一次
+    加一次锁：宁可慢一点，也不要日志里两行字绞在一起看不清。
+    每次写完就关文件，不留缓冲 —— 进程被强杀时也已经落盘了。"""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+
+    def write(self, text: str) -> int:
+        if text:
+            with self._lock:
+                try:
+                    with open(self.path, "a", encoding="utf-8") as f:
+                        f.write(text)
+                except OSError:
+                    pass              # 日志写不进去也不该影响服务本身
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+
+def redirect_console() -> str:
+    """没有控制台时把 print 收进 数据\\日志\\console.log，返回日志路径。
+    有控制台（python.exe 前台跑）就什么都不做，返回空串。"""
+    if sys.stdout is not None and sys.stderr is not None:
+        return ""
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+    except OSError:
+        return ""
+    path = os.path.join(LOG_DIR, "console.log")
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > CONSOLE_LOG_MAX:
+            os.replace(path, path + ".1")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n===== %s  %s %s（无控制台模式）=====\n"
+                    % (now_text(), APP_NAME, APP_VERSION))
+    except OSError:
+        return ""
+    stream = FileStream(path)
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+    return path
+
+
+# --------------------------------------------------------------------------
+# 桌面窗口模式（pywebview / WebView2）
+#
+# 它是「可选外壳」，不是唯一入口：命令行加 --desktop（或设 XIAOLI_DESKTOP=1）
+# 才走这条路，而且必须 import 得到 pywebview。缺依赖就还按原来的浏览器模式跑，
+# 双击永远能用（需求 D-3）。服务本身始终是「无 GUI 也能跑」的，测试直接连端口。
+# --------------------------------------------------------------------------
+
+
+def desktop_requested() -> bool:
+    """这次要不要开桌面窗口：命令行带 --desktop，或者环境变量 XIAOLI_DESKTOP=1。
+
+    带着 --no-browser 就当没要求过 —— 那个开关的意思是「一个界面都别开」，
+    测试和无头调试都靠它（服务照常跑，只是没有窗口）。"""
+    if "--no-browser" in sys.argv:
+        return False
+    if "--desktop" in sys.argv:
+        return True
+    return os.environ.get("XIAOLI_DESKTOP", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def desktop_available() -> bool:
+    """装没装 pywebview。装不上（没装 / 装坏了 / import 报错）就是 False。"""
+    try:
+        import webview  # noqa: F401  —— 只为探个路，不用它
+    except Exception:
+        return False
+    return True
+
+
+def desktop_mode() -> bool:
+    """这一次到底开不开桌面窗口：要了 + 有依赖，两个都成立才算。"""
+    return desktop_requested() and desktop_available()
+
+
+def run_desktop(httpd: ThreadingHTTPServer, port: int) -> None:
+    """开小李自己的窗口（WebView2 渲染现有页面），窗口关掉就收摊。
+
+    分工：服务挪到后台线程跑，主线程交给 pywebview 的消息循环 ——
+    webview.start() 会一直阻塞到窗口关闭，返回之后关掉服务，进程自然退出，
+    不留在后台（需求 D-5：关窗 = 退出，端口释放）。"""
+    import webview
+
+    def serve() -> None:
+        try:
+            httpd.serve_forever()
+        except OSError:
+            # 下面 server_close() 收掉监听套接字时，这边正堵在 accept 上，
+            # 会抛一个「套接字关了」——正常退出，不是故障，别让它变成一段报错。
+            pass
+
+    url = "http://127.0.0.1:%d/" % port
+    threading.Thread(target=serve, daemon=True).start()
+    print("  桌面窗口：%s" % url)
+    log_line("桌面窗口：%dx%d（最小 %dx%d）%s" % (WIN_W, WIN_H, WIN_MIN_W, WIN_MIN_H, url))
+    webview.create_window(
+        APP_NAME,
+        url,
+        width=WIN_W,
+        height=WIN_H,
+        min_size=(WIN_MIN_W, WIN_MIN_H),
+    )
+    # 图标是 start() 的参数，不是 create_window() 的（pywebview 6.x 的签名）。
+    # 根目录没有那张 .ico 就不传，窗口用系统默认图标照开。
+    icon = ICON_FILE if os.path.exists(ICON_FILE) else None
+    webview.start(icon=icon)
+    # 先让 serve_forever 那个循环自己收尾，再把端口放掉 —— 顺序反了会从
+    # 服务线程里冒一段套接字报错出来。shutdown() 最多等半秒。
+    httpd.shutdown()
+    httpd.server_close()
+    print("  窗口已关闭，程序退出。")
+    log_line("停止：关掉了桌面窗口")
+
+
 class AlreadyRunning(Exception):
     """端口上已经跑着我们的服务了"""
 
@@ -1812,6 +1968,8 @@ def main() -> int:
     setup_console()
     ensure_dirs()
     clear_stale_lock()   # 上次崩在写盘中途留下的锁，别挡着这次
+    # pythonw 起的进程没有控制台，print 会石沉大海：收进 日志\console.log 好排错
+    redirect_console()
 
     print("=" * 60)
     print("  %s  %s" % (APP_NAME, APP_VERSION))
@@ -1828,9 +1986,17 @@ def main() -> int:
         time.sleep(1.5)  # 让用户看清这行提示再关窗口
         return 0
 
-    # 端口已经绑好了，浏览器可以先开：它加载页面的同时我们把剩下的事做完
+    # 端口已经绑好了，界面可以先开：它加载页面的同时我们把剩下的事做完
     url = "http://127.0.0.1:%d/" % port
-    if "--no-browser" not in sys.argv:
+    desktop = desktop_mode()
+    if desktop_requested() and not desktop:
+        print("  这台机器上 pywebview 用不了（没装或装坏了），这回还是开浏览器。")
+        print("  想要自己的窗口：%s -m pip install pywebview" % sys.executable)
+        log_line("桌面模式：pywebview 用不了，退回浏览器模式")
+    if desktop:
+        print("  桌面窗口模式：等会儿开一个「%s」自己的窗口。" % APP_NAME)
+    elif "--no-browser" not in sys.argv:
+        # 原来的逻辑：浏览器先开，一边加载一边把剩下的事做完
         threading.Timer(0.15, lambda: open_browser(url)).start()
 
     existed = os.path.exists(DATA_FILE)
@@ -1852,8 +2018,20 @@ def main() -> int:
     print("  当前数据：%s" % "、".join("%s %d" % (label, n) for label, n in summarize(data)))
     print("-" * 60)
     print("  界面地址：http://127.0.0.1:%d/" % port)
-    print("  关掉这个窗口 = 停止程序；数据早已落盘，下次双击继续。")
+    if desktop:
+        print("  关掉小李窗口 = 退出程序；数据早已落盘，下次双击继续。")
+    else:
+        print("  关掉这个窗口 = 停止程序；数据早已落盘，下次双击继续。")
     print("=" * 60)
+
+    if desktop:
+        try:
+            run_desktop(httpd, port)
+            return 0
+        except Exception as exc:          # 窗口起不来也不能拦死入口：退回浏览器
+            print("  桌面窗口没开起来（%s），改用浏览器打开。" % exc)
+            log_line("桌面窗口起不来，退回浏览器：%s" % exc)
+            open_browser(url)
 
     try:
         httpd.serve_forever()

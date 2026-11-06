@@ -362,7 +362,15 @@ async function main() {
     const rule = readData(dataFile).tasks.find((t) => t.repeat);
     ok(Boolean(rule), "规则存进了数据");
     eq(rule.date, "", "规则自己不占日期");
-    eq(rule.lastRun, new Date().toISOString().slice(0, 10), "规则记下了「今天对过表」");
+    // 这里要用本地日期，不能用 toISOString()——它取的是 UTC。
+    // 北京时间 00:00~08:00 之间 UTC 还停在前一天，会出现「今天」对不上的假失败
+    // （2026-11-04 凌晨就撞上了）。程序本身记的也是本地日期。
+    const todayLocal = (() => {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    })();
+    eq(rule.lastRun, todayLocal, "规则记下了「今天对过表」");
     await waitFor('!!document.querySelector(".repeat-item")', 5000);
     eq(await ev('document.querySelector(".repeat-item .r-text").textContent.trim()'), "散步",
       "卡片里列出了这条规则");

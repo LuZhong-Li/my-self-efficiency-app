@@ -23,16 +23,21 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import email.utils
 import mimetypes
 import os
+import re
 import shutil
 import socket
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
+import urllib.error
 import uuid
 import urllib.parse
 import webbrowser
@@ -40,6 +45,14 @@ import http.client
 import zipfile
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# 签到：WorkBuddy 每日签到（2026-11-04 接入）。纯标准库实现，不引第三方依赖。
+# 注意它**只在用户主动点签到/查状态时才联网**，别的功能一个请求都不发。
+#
+# 这里要把 app 目录自己塞进 sys.path：正常用 python 跑这个文件时 Python 已经
+# 加过了，但测试里用 importlib 动态加载时没有，不补的话 import 签到 会失败。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import 签到 as 签到模块  # noqa: E402（必须在 sys.path 调整之后）
 
 APP_NAME = "小李"
 APP_VERSION = "v2.0"
@@ -126,6 +139,30 @@ ATTACH_MAX_BYTES = 12 * 1024 * 1024
 
 # 备份文件名以这个开头 = 标了「长期保留」，自动清理时跳过
 KEEP_PREFIX = "保留-"
+
+# ---------------------------------------------------------------------------
+# 自定义适配（适配包）
+#
+# 一期只管「我是谁」：应用名、图标、标语。界面元素 / 模块定制 / 整份 CSS 是后面几期。
+#
+# 包放哪儿：跟着数据走，放在数据集目录下面 —— <数据集>/适配包/<id>/
+#   为什么不放仓库根目录：换数据集时适配包也应该跟着换（工作那份用工作风格），
+#   而且 同步到小李.cmd 和 .gitignore 都不碰 数据/，包不会被误推到 GitHub。
+# 存哪个是当前启用的：记在 数据.json 的 settings.pack（和 skin / theme 一样的位置），
+#   页面读得到，两个窗口开着也会同步。
+# ---------------------------------------------------------------------------
+PACK_MANIFEST = "manifest.json"
+PACK_ICON_EXTS = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                  ".webp": "image/webp", ".ico": "image/x-icon", ".svg": "image/svg+xml"}
+PACK_MAX_ICON_BYTES = 2 * 1024 * 1024       # 单张图标上限
+PACK_MAX_ZIP_BYTES = 20 * 1024 * 1024       # 导入 / 下载的 zip 上限
+PACK_MAX_CSS_BYTES = 1024 * 1024            # 以后几期要用，先占位
+PACK_DOWNLOAD_TIMEOUT = 20                  # 从 GitHub 拉包最多等多少秒
+# 清单字段长度的规则和后端 app/web/pack-calc.js 那份必须一模一样
+# （tests\自检.py 里有一条盯着两边对不对得上）
+PACK_NAME_MAX = 24
+PACK_SLOGAN_MAX = 40
+PACK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 
 DEFAULT_PORT = 8765
 PORT_TRIES = 12
@@ -1173,6 +1210,358 @@ def summarize(data: dict) -> list[tuple[str, int]]:
 
 
 # --------------------------------------------------------------------------
+# 自定义适配（适配包）
+#
+# 一期只管「我是谁」：应用名、图标、标语。装在 <数据集>/适配包/<id>/ 下面，
+# 跟着数据走；当前启用哪一个是 settings.pack（存在 数据.json 里）。
+#
+# 三个来源都归一成「一个目录里有 manifest.json（可选 icon.png）」：
+#   1. 本地文件夹  —— 直接复制进来
+#   2. 本地 zip    —— 解开，认包在压缩包里的第几层（GitHub 的 zip 会多套一层）
+#   3. 从 GitHub   —— 下载 zip 后走和 2 一样的路
+# 校验一律用 normalize_manifest()：坏包不落盘，用户能看见原因。
+# --------------------------------------------------------------------------
+
+def packs_dir(data_dir: str = "") -> str:
+    """当前数据集的适配包目录。跟 ATTACH_DIR 一样按「现在这份数据」算。"""
+    return os.path.join(data_dir or DATA_DIR, "适配包")
+
+
+def clean_text(value) -> str:
+    """把任何东西塞进字符串位：不是字符串就当空串，去掉控制字符和首尾空白。
+    和前端 pack-calc.js 的 cleanText 必须一致。"""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"[\u0000-\u001f\u007f]", "", value).strip()
+
+
+def clip_text(value, limit: int) -> str:
+    """按码点截断，不把 emoji 劈成半个。"""
+    chars = list(clean_text(value))
+    return "".join(chars[:limit])
+
+
+def normalize_manifest(raw) -> tuple[bool, dict, list[str], list[str]]:
+    """校验清单。返回 (ok, pack, errors, warnings)。
+    ok=False 时不该安装；errors 是「不能装」，warnings 是「能装但你大概想改改」。
+
+    规则和 app/web/pack-calc.js 的 normalizeManifest 一一对应：
+    两边任何一边改了长度 / 正则，自检里那条对照会立刻报出来。"""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not isinstance(raw, dict):
+        return False, {}, ["manifest.json 不是一个对象"], warnings
+
+    schema = raw.get("schema", 1)
+    if schema != 1:
+        if isinstance(schema, (int, float)) and schema > 1:
+            errors.append("这个适配包用的是更新版本的格式（schema %s），当前程序读不了" % schema)
+        else:
+            errors.append("schema 不对，应该是 1")
+
+    pid = clean_text(raw.get("id"))
+    if not pid:
+        errors.append("缺少 id（适配包的唯一名字，只能用字母数字下划线连字符）")
+    elif not PACK_ID_RE.match(pid):
+        errors.append("id 只能用字母、数字、下划线、连字符，长度 1~40：%s" % pid)
+
+    app_name = clip_text(raw.get("appName"), PACK_NAME_MAX)
+    if not app_name:
+        errors.append("缺少 appName（要显示的应用名）")
+    elif len(list(clean_text(raw.get("appName")))) > PACK_NAME_MAX:
+        warnings.append("appName 太长了，只取前 %d 个字符" % PACK_NAME_MAX)
+
+    icon = ""
+    raw_icon = clean_text(raw.get("icon"))
+    if raw_icon:
+        if not icon_name_ok(raw_icon):
+            errors.append("icon 只能写图标文件名（png / jpg / ico / webp / svg），不能带路径：%s" % raw_icon)
+        else:
+            icon = raw_icon
+
+    slogan = clip_text(raw.get("slogan"), PACK_SLOGAN_MAX)
+    if raw.get("slogan") and len(list(clean_text(raw.get("slogan")))) > PACK_SLOGAN_MAX:
+        warnings.append("slogan 太长了，只取前 %d 个字符" % PACK_SLOGAN_MAX)
+
+    if errors:
+        return False, {}, errors, warnings
+
+    return True, {
+        "id": pid,
+        "appName": app_name,
+        "slogan": slogan,
+        "icon": icon,
+        "version": clean_text(raw.get("version")),
+        "author": clean_text(raw.get("author")),
+    }, errors, warnings
+
+
+def icon_name_ok(name: str) -> bool:
+    """图标只能是单层文件名 + 认识的扩展名，防止 ../ 这类路径。"""
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        return False
+    if not re.match(r"^[A-Za-z0-9_.-]{1,80}$", name):
+        return False
+    return os.path.splitext(name)[1].lower() in PACK_ICON_EXTS
+
+
+def list_packs(data_dir: str = "") -> list[dict]:
+    """盘上装了哪些包。坏了的也列出来（带 broken / reason），
+    这样用户能在设置页看见「这个包装坏了，删掉它」，而不是无声消失。"""
+    root = packs_dir(data_dir)
+    out: list[dict] = []
+    if not os.path.isdir(root):
+        return out
+
+    for dir_name in sorted(os.listdir(root)):
+        path = os.path.join(root, dir_name)
+        if not os.path.isdir(path):
+            continue
+        manifest_path = os.path.join(path, PACK_MANIFEST)
+        item = {"dirName": dir_name}
+        if not os.path.isfile(manifest_path):
+            item.update({"id": "", "broken": True, "reason": "目录里没有 manifest.json",
+                         "appName": dir_name})
+            out.append(item)
+            continue
+        try:
+            with open(manifest_path, "r", encoding="utf-8-sig") as f:
+                raw = json.load(f)
+        except Exception as exc:
+            item.update({"id": "", "broken": True, "reason": "manifest.json 读不出来：%s" % exc,
+                         "appName": dir_name})
+            out.append(item)
+            continue
+
+        ok, pack, errors, warnings = normalize_manifest(raw)
+        if ok:
+            item.update(pack)
+            item["broken"] = False
+            item["reason"] = ""
+        else:
+            item.update({"id": clean_text(raw.get("id")) if isinstance(raw, dict) else "",
+                         "broken": True,
+                         "reason": "；".join(errors),
+                         "appName": clean_text(raw.get("appName")) if isinstance(raw, dict) else dir_name})
+            if not item["appName"]:
+                item["appName"] = dir_name
+        item["warnings"] = warnings
+        out.append(item)
+
+    out.sort(key=lambda r: (r.get("broken", False), r.get("appName", "")))
+    return out
+
+
+def read_pack(data_dir: str = "") -> dict:
+    """当前数据用哪个包 + 装了什么，给前端一口气拿走。
+
+    返回 { active, resolved, items }：
+      active   —— settings.pack 里记的 id（可能是空的 / 可能已经不在了）
+      resolved —— 真正该用的那个（前端拿它改标题），永远有 appName
+      items    —— 列表
+    """
+    active = ""
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                active = clean_text((json.load(f).get("settings") or {}).get("pack"))
+    except Exception:
+        active = ""
+
+    items = list_packs(data_dir)
+    resolved = {"id": "", "appName": APP_NAME, "slogan": "", "icon": ""}
+    for item in items:
+        if not item.get("broken") and item.get("id") == active:
+            resolved = {
+                "id": item["id"],
+                "appName": item.get("appName") or APP_NAME,
+                "slogan": item.get("slogan") or "",
+                "icon": item.get("icon") or "",
+            }
+            break
+
+    return {"active": active, "resolved": resolved, "items": items, "dir": packs_dir(data_dir)}
+
+
+def install_pack_from_dir(src_dir: str, data_dir: str = "") -> dict:
+    """把一个目录（里面有 manifest.json）装进来。整体装或整体不装，不留半份。"""
+    manifest_path = os.path.join(src_dir, PACK_MANIFEST)
+    if not os.path.isfile(manifest_path):
+        return {"ok": False, "error": "这个文件夹里没有 manifest.json"}
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8-sig") as f:
+            raw = json.load(f)
+    except Exception as exc:
+        return {"ok": False, "error": "manifest.json 读不出来：%s" % exc}
+
+    ok, pack, errors, warnings = normalize_manifest(raw)
+    if not ok:
+        return {"ok": False, "error": "；".join(errors), "errors": errors, "warnings": warnings}
+
+    # 图标：清单里点了名就必须真在，免得装上一个显示不出图标的包
+    icon_src = ""
+    if pack["icon"]:
+        icon_src = os.path.join(src_dir, pack["icon"])
+        if not os.path.isfile(icon_src):
+            return {"ok": False, "error": "清单里写了 icon=%s，但包里没有这个文件" % pack["icon"]}
+        if os.path.getsize(icon_src) > PACK_MAX_ICON_BYTES:
+            return {"ok": False, "error": "图标太大了（上限 %d MB）" % (PACK_MAX_ICON_BYTES // 1024 // 1024)}
+
+    target = os.path.join(packs_dir(data_dir), pack["id"])
+    # 先装到旁边的临时目录，成功了再换上去：装到一半失败不能把旧的顶掉
+    staging = target + ".installing"
+    _remove_tree(staging)
+    try:
+        os.makedirs(staging, exist_ok=True)
+        with open(os.path.join(staging, PACK_MANIFEST), "w", encoding="utf-8", newline="\n") as f:
+            json.dump(pack, f, ensure_ascii=False, indent=2)
+        if icon_src:
+            shutil.copyfile(icon_src, os.path.join(staging, pack["icon"]))
+        _remove_tree(target)
+        os.replace(staging, target)
+    except Exception as exc:
+        _remove_tree(staging)
+        return {"ok": False, "error": "装到一半失败：%s" % exc}
+
+    log_line("装适配包：%s（%s）" % (pack["id"], pack["appName"]))
+    return {"ok": True, "pack": pack, "warnings": warnings}
+
+
+def install_pack_from_zip(zip_path: str, data_dir: str = "") -> dict:
+    """解开一个 zip 装包。包里第几层有 manifest.json 就认第几层——
+    GitHub 的 zip 会多套一层 <repo>-<ref>/，用户自己压的也常常套一层。"""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            bad = zf.testzip()
+            if bad is not None:
+                return {"ok": False, "error": "压缩包是坏的：%s" % bad}
+
+            names = [n for n in zf.namelist() if not n.endswith("/")]
+            manifests = [n for n in names if os.path.basename(n) == PACK_MANIFEST]
+            if not manifests:
+                return {"ok": False, "error": "压缩包里没有 manifest.json"}
+            # 有多层就取最浅的那个（用户自己压的可能是 a/b/manifest.json，也可能根目录就有）
+            manifests.sort(key=lambda n: n.count("/"))
+            found = manifests[0]
+            base = os.path.dirname(found)
+
+            tmp = tempfile.mkdtemp(prefix="xiaoli-pack-")
+            try:
+                # 只解压 base 这一层这一层的直接子文件：不信任压缩包里的路径，
+                # 免得 ../ 这种条目解到桌面上去
+                for name in names:
+                    if os.path.dirname(name) != base:
+                        continue
+                    leaf = os.path.basename(name)
+                    if not leaf or leaf in (".", ".."):
+                        continue
+                    if not re.match(r"^[A-Za-z0-9_.\-\u4e00-\u9fff ]{1,120}$", leaf):
+                        continue
+                    # 大小要从 zip 的条目信息里读：zip 里的名字不是磁盘路径，
+                    # 拿它去 os.path.getsize 会报「系统找不到指定的路径」。
+                    info = zf.getinfo(name)
+                    if info.file_size > PACK_MAX_ZIP_BYTES:
+                        continue
+                    with zf.open(info) as src, open(os.path.join(tmp, leaf), "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                return install_pack_from_dir(tmp, data_dir)
+            finally:
+                _remove_tree(tmp)
+    except zipfile.BadZipFile:
+        return {"ok": False, "error": "这不是一个 zip 文件"}
+    except Exception as exc:
+        return {"ok": False, "error": "解压失败：%s" % exc}
+
+
+def install_pack_from_github(owner: str, repo: str, ref: str = "", data_dir: str = "") -> dict:
+    """从 GitHub 拉一个仓库的 zip 当适配包。
+
+    只认识 github.com 的 owner/repo，不让用户随便指个网址 ——
+    这个程序本来是「不发任何网络请求」的，这里是唯一一处联网，
+    而且只在用户主动点「从 GitHub 拉取」时才走。"""
+    for part, label in ((owner, "用户名"), (repo, "仓库名")):
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", part or ""):
+            return {"ok": False, "error": "%s不合法：%s" % (label, part)}
+    if ref and not re.match(r"^[A-Za-z0-9._/-]{1,100}$", ref):
+        return {"ok": False, "error": "分支 / 标签名不合法：%s" % ref}
+
+    if ref:
+        url = "https://codeload.github.com/%s/%s/zip/refs/heads/%s" % (owner, repo, ref)
+    else:
+        url = "https://codeload.github.com/%s/%s/zip/HEAD" % (owner, repo)
+
+    log_line("从 GitHub 拉取适配包：%s" % url)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "XiaoLi-Pack/1.0"})
+        with urllib.request.urlopen(req, timeout=PACK_DOWNLOAD_TIMEOUT) as resp:
+            if resp.status != 200:
+                return {"ok": False, "error": "GitHub 返回 %s" % resp.status}
+            blob = resp.read(PACK_MAX_ZIP_BYTES + 1)
+            if len(blob) > PACK_MAX_ZIP_BYTES:
+                return {"ok": False, "error": "包太大了（上限 %d MB）" % (PACK_MAX_ZIP_BYTES // 1024 // 1024)}
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"ok": False, "error": "找不到这个仓库 / 分支（404）：%s/%s" % (owner, repo)}
+        return {"ok": False, "error": "下载失败：HTTP %s" % exc.code}
+    except urllib.error.URLError as exc:
+        return {"ok": False, "error": "连不上 GitHub（%s）。没有网络时可以改用「选本地文件夹」" % exc.reason}
+    except Exception as exc:
+        return {"ok": False, "error": "下载失败：%s" % exc}
+
+    tmp_zip = os.path.join(tempfile.gettempdir(), "xiaoli-pack-%s.zip" % uuid.uuid4().hex[:12])
+    try:
+        with open(tmp_zip, "wb") as f:
+            f.write(blob)
+        return install_pack_from_zip(tmp_zip, data_dir)
+    finally:
+        try:
+            os.remove(tmp_zip)
+        except OSError:
+            pass
+
+
+def uninstall_pack(pack_id: str, data_dir: str = "") -> dict:
+    """删掉一个包。没在用的包删了就删了；正在用的那个，调用方要顺手把 settings.pack 清掉。"""
+    pid = clean_text(pack_id)
+    if not pid or not PACK_ID_RE.match(pid):
+        return {"ok": False, "error": "包 id 不合法"}
+    target = os.path.join(packs_dir(data_dir), pid)
+    root = os.path.abspath(packs_dir(data_dir))
+    # 双保险：算出来的路径必须真在 适配包/ 底下（id 已经卡过正则了，这里再兜一次）
+    if not os.path.abspath(target).startswith(root + os.sep) or not os.path.isdir(target):
+        return {"ok": False, "error": "找不到这个包"}
+    _remove_tree(target)
+    log_line("删掉适配包：%s" % pid)
+    return {"ok": True}
+
+
+def _remove_tree(path: str) -> None:
+    """删目录，不抛异常（删不掉就当没有）。"""
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.isfile(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def pack_icon_path(pack_id: str, name: str, data_dir: str = "") -> str:
+    """给 /pack-icon/<id>/<name> 解出真正的文件路径；不合法就返回空串。"""
+    pid = clean_text(pack_id)
+    leaf = clean_text(name)
+    if not pid or not PACK_ID_RE.match(pid) or not icon_name_ok(leaf):
+        return ""
+    root = os.path.abspath(packs_dir(data_dir))
+    target = os.path.abspath(os.path.join(root, pid, leaf))
+    if not target.startswith(root + os.sep):
+        return ""
+    return target if os.path.isfile(target) else ""
+
+
+# --------------------------------------------------------------------------
 # HTTP 服务
 # --------------------------------------------------------------------------
 
@@ -1228,6 +1617,9 @@ class Handler(BaseHTTPRequestHandler):
             attach_count, attach_bytes = attachments_stat()
             self.send_json({
                 "app": APP_NAME,
+                # 显示用的名字：装了适配包就是包里的，没装就是「小李」。
+                # 注意别拿它做「这是不是同一份程序」的判断——那个认上面的 app。
+                "appName": pack_app_name(),
                 "version": APP_VERSION,
                 "dataset": CURRENT_DATASET,
                 "dataRoot": DATA_ROOT if DATASETS_ENABLED else "",
@@ -1250,6 +1642,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/backups":
             self.send_json({"ok": True, "items": list_backups()})
+            return
+        if path == "/api/pack":
+            self.send_json({"ok": True, **read_pack()})
+            return
+        if path == "/api/checkin":
+            self.api_checkin_sites()
+            return
+        if path == "/api/checkin-status":
+            self.api_checkin_status()
+            return
+        if path.startswith("/pack-icon/"):
+            self.serve_pack_icon(path)
             return
         if path.startswith("/attachments/"):
             self.serve_attachment(path)
@@ -1292,6 +1696,17 @@ class Handler(BaseHTTPRequestHandler):
             "/api/dataset-switch": self.api_dataset_switch,
             "/api/dataset-rename": self.api_dataset_rename,
             "/api/dataset-export": self.api_dataset_export,
+            "/api/pack-use": self.api_pack_use,
+            "/api/pack-install": self.api_pack_install,
+            "/api/pack-github": self.api_pack_github,
+            "/api/pack-delete": self.api_pack_delete,
+            "/api/pack-folder": self.api_pack_folder,
+            "/api/checkin": self.api_checkin_do,
+            "/api/checkin-token": self.api_checkin_token,
+            "/api/checkin-clear": self.api_checkin_clear,
+            "/api/checkin-folder": self.api_checkin_folder,
+            "/api/checkin-login": self.api_checkin_login,
+            "/api/checkin-logout": self.api_checkin_logout,
         }
         handler = routes.get(path)
         if handler is None:
@@ -1559,6 +1974,360 @@ class Handler(BaseHTTPRequestHandler):
         print("  · 已导出数据集：%s" % made["path"])
         self.send_json({"ok": True, **made})
 
+    # ---------- 自定义适配（适配包） ----------
+
+    def api_pack_use(self) -> None:
+        """切换 / 取消当前启用的适配包。空 id = 退回默认的「小李」。
+
+        直接改 数据.json 的 settings.pack，走和保存接口同一道闸（修订号），
+        这样两个窗口开着的时候不会互相覆盖。"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        pid = clean_text(body.get("id"))
+
+        if pid:
+            if not PACK_ID_RE.match(pid):
+                self.send_json({"ok": False, "error": "包 id 不合法"}, 400)
+                return
+            target = os.path.join(packs_dir(), pid)
+            if not os.path.isdir(target):
+                self.send_json({"ok": False, "error": "这个包装没装：%s" % pid}, 404)
+                return
+            with open(os.path.join(target, PACK_MANIFEST), "r", encoding="utf-8-sig") as f:
+                ok, _pack, errors, _w = normalize_manifest(json.load(f))
+            if not ok:
+                self.send_json({"ok": False, "error": "这个包是坏的，装不了：%s" % "；".join(errors)}, 400)
+                return
+
+        data = load_data()
+        if not isinstance(data.get("settings"), dict):
+            data["settings"] = {}
+        data["settings"]["pack"] = pid
+        data["rev"] = int(data.get("rev") or 0) + 1
+        data["updatedAt"] = now_text()
+        atomic_write_json(DATA_FILE, data)
+        log_line("切换适配包：%s" % (pid or "（默认）"))
+        self.send_json({"ok": True, **read_pack()})
+
+    def api_pack_install(self) -> None:
+        """装一个本地包。两种传法：
+          { "dir":  "D:\\\\某个文件夹" }        —— 装文件夹
+          { "zip":  "D:\\\\某个包.zip" }        —— 装 zip
+          { "data": "<base64 zip>" }            —— 浏览器选的文件直接传上来
+        """
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+
+        if body.get("data"):
+            text = str(body.get("data") or "")
+            if text.startswith("data:"):
+                text = text.split(",", 1)[-1]
+            try:
+                raw = base64.b64decode(text, validate=True)
+            except Exception:
+                self.send_json({"ok": False, "error": "文件数据读不出来"}, 400)
+                return
+            if len(raw) > PACK_MAX_ZIP_BYTES:
+                self.send_json({"ok": False, "error": "包太大了（上限 %d MB）"
+                                % (PACK_MAX_ZIP_BYTES // 1024 // 1024)}, 400)
+                return
+            tmp_zip = os.path.join(tempfile.gettempdir(), "xiaoli-pack-%s.zip" % uuid.uuid4().hex[:12])
+            try:
+                with open(tmp_zip, "wb") as f:
+                    f.write(raw)
+                result = install_pack_from_zip(tmp_zip)
+            finally:
+                _remove_tree(tmp_zip)
+        elif body.get("zip"):
+            path = clean_text(body.get("zip"))
+            if not os.path.isfile(path):
+                self.send_json({"ok": False, "error": "找不到这个文件：%s" % path}, 400)
+                return
+            if os.path.getsize(path) > PACK_MAX_ZIP_BYTES:
+                self.send_json({"ok": False, "error": "包太大了（上限 %d MB）"
+                                % (PACK_MAX_ZIP_BYTES // 1024 // 1024)}, 400)
+                return
+            result = install_pack_from_zip(path)
+        elif body.get("dir"):
+            path = clean_text(body.get("dir"))
+            if not os.path.isdir(path):
+                self.send_json({"ok": False, "error": "找不到这个文件夹：%s" % path}, 400)
+                return
+            result = install_pack_from_dir(path)
+        else:
+            self.send_json({"ok": False, "error": "要说清楚装哪个（dir / zip / data）"}, 400)
+            return
+
+        if not result.get("ok"):
+            self.send_json(result, 400)
+            return
+        self.send_json({"ok": True, "pack": result.get("pack"), "warnings": result.get("warnings", []),
+                        **read_pack()})
+
+    def api_pack_github(self) -> None:
+        """从 GitHub 拉一个仓库当适配包。{ "owner": .., "repo": .., "ref": .. }"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        owner = clean_text(body.get("owner"))
+        repo = clean_text(body.get("repo"))
+        ref = clean_text(body.get("ref"))
+        if not owner or not repo:
+            self.send_json({"ok": False, "error": "要填用户名和仓库名"}, 400)
+            return
+        result = install_pack_from_github(owner, repo, ref)
+        if not result.get("ok"):
+            self.send_json(result, 400)
+            return
+        self.send_json({"ok": True, "pack": result.get("pack"), "warnings": result.get("warnings", []),
+                        **read_pack()})
+
+    def api_pack_delete(self) -> None:
+        """删掉一个包。删的正好是当前启用的那个，就把 settings.pack 一并清空。"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        pid = clean_text(body.get("id"))
+        result = uninstall_pack(pid)
+        if not result.get("ok"):
+            self.send_json(result, 400)
+            return
+
+        # 删掉的正好在用 → 顺手取消启用，免得下一次打开指向一个不存在的包
+        try:
+            data = load_data()
+            settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+            if clean_text(settings.get("pack")) == pid:
+                settings["pack"] = ""
+                data["settings"] = settings
+                data["rev"] = int(data.get("rev") or 0) + 1
+                data["updatedAt"] = now_text()
+                atomic_write_json(DATA_FILE, data)
+                log_line("适配包被删掉，已退回默认：%s" % pid)
+        except Exception as exc:
+            log_line("删包后清理 settings 失败：%s" % exc)
+
+        self.send_json({"ok": True, **read_pack()})
+
+    def api_pack_folder(self) -> None:
+        """在文件管理器里打开适配包目录，方便用户往里丢包。"""
+        path = packs_dir()
+        os.makedirs(path, exist_ok=True)
+        try:
+            open_folder(path)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 500)
+            return
+        self.send_json({"ok": True, "dir": path})
+
+    # ---------- 签到（多站点，2026-11-04 重构）----------
+    #
+    # 站点定义是数据不是代码：app/签到.py 里是引擎，
+    # 数据\<数据集>\签到站点\*.json 是用户自己加的站点。
+    # 这里只做「收参数 → 交给引擎 → 回 JSON」，不掺业务逻辑。
+
+    def api_checkin_sites(self) -> None:
+        """GET /api/checkin — 列出所有站点 + 各自的凭证状态。不联网。"""
+        try:
+            items = 签到模块.list_sites(DATA_DIR)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": "读站点列表出错：%s" % exc}, 500)
+            return
+        self.send_json({"ok": True, "items": items,
+                        "dir": 签到模块.sites_dir(DATA_DIR)})
+
+    def api_checkin_status(self) -> None:
+        """GET /api/checkin-status?site=xxx — 查一个站点的状态。要联网。"""
+        site = self.site_param()
+        if site is None:
+            return
+        try:
+            state = 签到模块.fetch_site_status(DATA_DIR, site)
+        except 签到模块.CheckinError as exc:
+            self.send_json({"ok": False, "configured": True, "error": str(exc)})
+            return
+        self.send_json({"ok": True, "configured": True, **state})
+
+    def api_checkin_do(self) -> None:
+        """POST /api/checkin — 给一个站点签到。"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        site = str(body.get("site") or "").strip()
+        if not site:
+            self.send_json({"ok": False, "error": "没说是哪个站点"}, 400)
+            return
+        try:
+            result = 签到模块.do_site_checkin(DATA_DIR, site)
+        except 签到模块.CheckinError as exc:
+            self.send_json({"ok": False, "error": str(exc)})
+            return
+        log_line("签到 %s：%s" % (site, result.get("message")))
+        self.send_json({"ok": True, "site": site, **result})
+
+    def api_checkin_token(self) -> None:
+        """POST /api/checkin-token — 存一个站点的凭证。
+
+        body: { "site": "workbuddy", "token": "eyJ..." }   直接填
+        body: { "site": "workbuddy", "fromScript": true }  从外部脚本导入
+        """
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        site = str(body.get("site") or "").strip()
+        if not site:
+            self.send_json({"ok": False, "error": "没说是哪个站点"}, 400)
+            return
+
+        token = str(body.get("token") or "").strip()
+        if not token and body.get("fromScript"):
+            token = self._import_script_token(site)
+            if token is None:
+                return
+
+        try:
+            签到模块.save_site_cred(DATA_DIR, site, {"token": token})
+        except 签到模块.CheckinError as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        except OSError as exc:
+            self.send_json({"ok": False, "error": "凭证写不进去：%s" % exc}, 500)
+            return
+
+        log_line("更新签到凭证：%s" % site)
+        ok, exp = 签到模块.token_expiry(token)
+        self.send_json({"ok": True, "expires": exp, "expiresKnown": ok})
+
+    def _import_script_token(self, site: str):
+        """从 D:\\自动签到\\ 那套外部脚本的凭证文件里取 token。
+
+        读不到就直接回了错（返回 None），调用方不用再判。
+        """
+        # 外部脚本的凭证文件名先后用过两个，都试一下
+        for name in ("签到凭证.json", "凭证.json"):
+            path = os.path.join("D:\\自动签到", name)
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (ValueError, OSError):
+                continue
+            entry = data.get(site)
+            if isinstance(entry, dict):
+                # 新格式 {values:{token:...}} 和老格式 {token:...} 都认
+                tok = ((entry.get("values") or {}).get("token")
+                       if isinstance(entry.get("values"), dict) else entry.get("token"))
+                if isinstance(tok, str) and tok.strip():
+                    return tok.strip()
+        self.send_json({"ok": False,
+                        "error": "没找到 D:\\自动签到 里这个站点的凭证，请手动填"}, 400)
+        return None
+
+    def api_checkin_clear(self) -> None:
+        """POST /api/checkin-clear — 删掉一个站点的凭证。"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        site = str(body.get("site") or "").strip()
+        if not site:
+            self.send_json({"ok": False, "error": "没说是哪个站点"}, 400)
+            return
+        try:
+            签到模块.clear_site_cred(DATA_DIR, site)
+        except OSError as exc:
+            self.send_json({"ok": False, "error": "删不掉：%s" % exc}, 500)
+            return
+        log_line("清除签到凭证：%s" % site)
+        self.send_json({"ok": True})
+
+    def api_checkin_folder(self) -> None:
+        """POST /api/checkin-folder — 打开「签到站点」文件夹。"""
+        path = 签到模块.sites_dir(DATA_DIR)
+        try:
+            os.makedirs(path, exist_ok=True)
+            open_folder(path)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, 500)
+            return
+        self.send_json({"ok": True, "dir": path})
+
+    def site_param(self):
+        """从查询串里取 site=xxx；没给就回个错并返回 None。"""
+        qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        site = (qs.get("site") or [""])[0].strip()
+        if not site:
+            self.send_json({"ok": False, "error": "没说是哪个站点"}, 400)
+            return None
+        return site
+
+    def api_checkin_login(self) -> None:
+        """POST /api/checkin-login — 打开浏览器让用户登录（浏览器型站点用）。
+
+        2026-11-04 加，给即梦用。即梦没有 Token 可填，凭证是一份登录过的
+        浏览器配置。所以这里弹一个有界面的浏览器，用户登完关掉就行。
+        """
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        site = str(body.get("site") or "").strip()
+        if not site:
+            self.send_json({"ok": False, "error": "没说是哪个站点"}, 400)
+            return
+
+        try:
+            defs = 签到模块.load_site_defs(DATA_DIR)
+            entry = defs.get(site)
+            if not entry or entry.get("error"):
+                self.send_json({"ok": False,
+                                "error": entry.get("error") if entry else "找不到这个签到站点"}, 400)
+                return
+            homepage = (entry.get("def") or {}).get("homepage") or ""
+            if not homepage:
+                self.send_json({"ok": False, "error": "这个站点没写 homepage，没法打开"}, 400)
+                return
+
+            from 签到_浏览器 import open_for_login
+            open_for_login(DATA_DIR, site, homepage)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": "打不开浏览器：%s" % exc}, 500)
+            return
+
+        log_line("打开浏览器登录：%s" % site)
+        self.send_json({
+            "ok": True,
+            "message": "浏览器已经打开了，在上面登录一次。登完把窗口关掉，再点「查状态」。",
+        })
+
+    def api_checkin_logout(self) -> None:
+        """POST /api/checkin-logout — 清掉浏览器配置（换账号 / 登录态坏了）。"""
+        body = self.read_json_body()
+        if body is None:
+            return
+        body = body if isinstance(body, dict) else {}
+        site = str(body.get("site") or "").strip()
+        if not site:
+            self.send_json({"ok": False, "error": "没说是哪个站点"}, 400)
+            return
+        try:
+            from 签到_浏览器 import reset_profile
+            done = reset_profile(DATA_DIR, site)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": "清不掉：%s" % exc}, 500)
+            return
+        log_line("清除浏览器登录态：%s" % site)
+        self.send_json({"ok": True, "removed": done})
+
     # ---------- 图片附件 ----------
 
     def api_attachment(self) -> None:
@@ -1629,6 +2398,33 @@ class Handler(BaseHTTPRequestHandler):
         if deleted or refused:
             log_line("删图片附件：删掉 %d 张，拒绝 %d 条（找不到 %d 张）" % (deleted, refused, missing))
         self.send_json({"ok": True, "deleted": deleted, "missing": missing, "refused": refused})
+
+    def serve_pack_icon(self, path: str) -> None:
+        """/pack-icon/<包id>/<文件名> —— 把适配包里的图标发出去。
+        路径已经过 PACK_ID_RE + icon_name_ok 两道白名单，不会跑出目录。"""
+        rest = urllib.parse.unquote(path[len("/pack-icon/"):])
+        parts = rest.split("/", 1)
+        if len(parts) != 2:
+            self.send_text("路径不合法", 404)
+            return
+        target = pack_icon_path(parts[0], parts[1])
+        if not target:
+            self.send_text("找不到图标", 404)
+            return
+        try:
+            with open(target, "rb") as f:
+                body = f.read()
+        except OSError:
+            self.send_text("读不到图标", 500)
+            return
+        ctype = PACK_ICON_EXTS.get(os.path.splitext(target)[1].lower(), "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        # 图标跟着包走，包一换文件名就变，所以可以放心让浏览器缓存
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
 
     def serve_attachment(self, path: str) -> None:
         """把 数据\\attachments\\ 里的图片发给浏览器。路径同样先过白名单，
@@ -1706,6 +2502,36 @@ class Handler(BaseHTTPRequestHandler):
 # 启动
 # --------------------------------------------------------------------------
 
+def pack_icon_for_desktop() -> str:
+    """桌面窗口 / 任务栏用的图标文件。
+
+    装了什么适配包就用包里那张，没有就退回仓库根目录的「小李.ico」。
+    pywebview 的 start(icon=) 只认 .ico / .png 的实体文件路径。"""
+    try:
+        info = read_pack()
+        resolved = info.get("resolved") or {}
+        if resolved.get("id") and resolved.get("icon"):
+            icon = pack_icon_path(resolved["id"], resolved["icon"])
+            if icon and os.path.isfile(icon):
+                return icon
+    except Exception:
+        pass
+    return ICON_FILE
+
+
+def pack_app_name() -> str:
+    """启动时该显示的应用名（窗口标题、控制台标题、启动横幅）。
+    装了适配包就用包里的名字，否则就是「小李」。"""
+    try:
+        resolved = read_pack().get("resolved") or {}
+        name = clean_text(resolved.get("appName"))
+        if name:
+            return name
+    except Exception:
+        pass
+    return APP_NAME
+
+
 def setup_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -1714,7 +2540,7 @@ def setup_console() -> None:
             pass
     try:
         import ctypes
-        ctypes.windll.kernel32.SetConsoleTitleW(APP_NAME)
+        ctypes.windll.kernel32.SetConsoleTitleW(pack_app_name())
     except Exception:
         pass
 
@@ -1849,15 +2675,16 @@ def run_desktop(httpd: ThreadingHTTPServer, port: int) -> None:
     print("  桌面窗口：%s" % url)
     log_line("桌面窗口：%dx%d（最小 %dx%d）%s" % (WIN_W, WIN_H, WIN_MIN_W, WIN_MIN_H, url))
     webview.create_window(
-        APP_NAME,
+        pack_app_name(),
         url,
         width=WIN_W,
         height=WIN_H,
         min_size=(WIN_MIN_W, WIN_MIN_H),
     )
     # 图标是 start() 的参数，不是 create_window() 的（pywebview 6.x 的签名）。
-    # 根目录没有那张 .ico 就不传，窗口用系统默认图标照开。
-    icon = ICON_FILE if os.path.exists(ICON_FILE) else None
+    # 装了适配包用包里的图标，没有就用仓库根目录那张 .ico；都没有就不传，窗口照开。
+    icon_file = pack_icon_for_desktop()
+    icon = icon_file if os.path.exists(icon_file) else None
     webview.start(icon=icon)
     # 先让 serve_forever 那个循环自己收尾，再把端口放掉 —— 顺序反了会从
     # 服务线程里冒一段套接字报错出来。shutdown() 最多等半秒。
@@ -1972,7 +2799,7 @@ def main() -> int:
     redirect_console()
 
     print("=" * 60)
-    print("  %s  %s" % (APP_NAME, APP_VERSION))
+    print("  %s  %s" % (pack_app_name(), APP_VERSION))
     print("=" * 60)
 
     try:

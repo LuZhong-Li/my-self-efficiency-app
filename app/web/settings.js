@@ -26,6 +26,8 @@ import { askConfirm, toast } from "./dialog.js";
 import { attachmentSettings, setAttachmentSettings, purgeRowAttachments } from "./attachment.js";
 import { COMPRESS_PRESETS, presetLabel, humanSize } from "./attachment-calc.js";
 import { datasetCardHtml, mountDataset } from "./dataset.js";
+import { packCardHtml, mountPack } from "./pack-ui.js";
+import { checkinCardHtml, mountCheckin } from "./checkin.js";
 
 let health = null;
 
@@ -41,6 +43,8 @@ export async function renderSettings(el) {
   el.innerHTML = `
     ${pageHeader("data")}
     ${datasetCardHtml()}
+    ${packCardHtml()}
+    ${checkinCardHtml()}
     <section class="card">
       <h2>数据放在哪</h2>
       <p class="hint">所有数据就一个文件，随时可以整份复制走。</p>
@@ -252,6 +256,8 @@ export async function renderSettings(el) {
   renderArchive();
   renderTrash();
   await mountDataset();      // 数据集那张卡片自己拉列表（要问服务端，所以是异步的）
+  await mountPack();         // 自定义适配那张卡片同理
+  await mountCheckin();      // 每日签到那张卡片要问服务端（会联网），所以也是异步的
   await refreshHealth();   // 文件大小 / 附件占用这两处会变，进来就重新问一次
   await refreshBackups();
 }

@@ -25,8 +25,15 @@ import {
 import { overviewRowsOf } from "./goal-calc.js";
 import { planTasksOf, groupPlanTasks, dailyTargetsOf } from "./task-calc.js";
 import { openDailyTargetDialog } from "./daily-target.js";
+import { packInfo } from "./pack.js";
 
 let memoTimer = null;
+
+/** 当前应用名：装了适配包就是包里的，没装就是「小李」。 */
+function appName() {
+  const info = packInfo();
+  return (info && info.resolved && info.resolved.appName) || "小李";
+}
 
 export function renderHome(root) {
   const today = todayStr();
@@ -50,7 +57,7 @@ function heroHTML(mode) {
   return `
     <section class="hero">
       <div>
-        <h1>${esc(greeting())}，小李</h1>
+        <h1>${esc(greeting())}，<span class="app-name">${esc(appName())}</span></h1>
         ${slogan ? `<div class="hero-sub">${esc(slogan)}</div>` : ""}
       </div>
       <div class="hero-actions">

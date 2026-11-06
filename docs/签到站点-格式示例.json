@@ -1,0 +1,56 @@
+{
+  "_说明": "这是站点定义文件。照这个格式写一个，放进 数据\\签到站点\\ 下面，刷新页面就能看到，不用改代码、不用重启。",
+  "_字段说明": {
+    "schema": "格式版本，现在只有 1",
+    "id": "唯一标识，只能字母数字下划线连字符，1~40 字；当文件名和凭证的键用",
+    "name": "显示名字",
+    "homepage": "给人看的网址（说明里用），不参与请求",
+    "enabled": "关掉就暂时不跑这个站点",
+    "token": "怎么填凭证的说明（纯文案，界面上展示）",
+    "auth": "鉴权头怎么写。type: bearer | header | cookie | none",
+    "vars": "凭证里的变量，下面可以互相引用",
+    "status": "查状态的请求和取值规则",
+    "checkin": "签到的请求和取值规则"
+  },
+
+  "schema": 1,
+  "id": "example",
+  "name": "示例站点",
+  "homepage": "https://example.com",
+  "enabled": true,
+
+  "token": "在浏览器里登录，按 F12 → 网络 → 找一个请求，复制请求头里的 Authorization 值。",
+
+  "auth": {
+    "type": "bearer",
+    "header": "Authorization",
+    "prefix": "Bearer "
+  },
+
+  "vars": {
+    "device_id": { "value": "", "required": false }
+  },
+
+  "status": {
+    "url": "https://example.com/api/checkin/status",
+    "method": "POST",
+    "body": {},
+    "headers": {},
+    "extract": {
+      "checked": "data.checked",
+      "streak": "data.streak",
+      "credit": "data.daily_credit",
+      "total": "data.total"
+    }
+  },
+
+  "checkin": {
+    "url": "https://example.com/api/checkin/claim",
+    "method": "POST",
+    "body": {},
+    "extract": {
+      "credit": "data.credit",
+      "streak": "data.streak"
+    }
+  }
+}

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import re
@@ -82,14 +83,26 @@ def call(port: int, path: str, method: str = "GET", body=None, origin: str | Non
 
 
 def check_no_external() -> None:
+    """界面文件里不该有外部链接——断网也要能用。
+
+    2026-11-04 加签到之后松了一个口子：签到卡片的说明文字里要告诉用户
+    「去 workbuddy.cn 那边看」，所以允许出现 workbuddy.cn 这一个域名。
+    真正的联网请求全部在服务端（app/签到.py），前端一次都不发，
+    所以「断网也能用」这个承诺仍然成立——没网时只有签到不可用，
+    其他功能照常。
+    """
+    allowed = ("workbuddy.cn",)
     bad = []
     for f in sorted(WEB.rglob("*")):
         if f.suffix not in (".html", ".css", ".js"):
             continue
         text = f.read_text(encoding="utf-8")
         for m in re.finditer(r"https?://[^\s\"')]+", text):
-            bad.append("%s → %s" % (f.name, m.group(0)))
-    check("界面文件里没有任何外部链接（断网也能用）", not bad, "；".join(bad[:3]))
+            url = m.group(0)
+            if any(host in url for host in allowed):
+                continue
+            bad.append("%s → %s" % (f.name, url))
+    check("界面文件里没有多余的外部链接（断网也能用）", not bad, "；".join(bad[:3]))
 
 
 def js_default_categories() -> dict:
@@ -166,6 +179,36 @@ def check_dataset_rules() -> None:
           py_rules.get("reserved") == js_rules.get("reserved")
           and len(py_rules.get("reserved") or []) == 22,
           "服务端 %s / 前端 %s" % (py_rules.get("reserved"), js_rules.get("reserved")))
+
+
+def pack_rules_in(py_path: Path, js_path: Path) -> dict:
+    """适配包清单的规则：服务端 normalize_manifest 和前端 normalizeManifest
+    必须是同一套（名字/标语的长度上限、id 的正则、图标扩展名）。
+    任何一边改了没同步另一边，下面那条对照会立刻报红。"""
+    py_text = py_path.read_text(encoding="utf-8")
+    js_text = js_path.read_text(encoding="utf-8")
+
+    def grab(text: str, pattern: str):
+        m = re.search(pattern, text)
+        return m.group(1) if m else None
+
+    return {
+        "py_name_max": grab(py_text, r"PACK_NAME_MAX\s*=\s*(\d+)"),
+        "js_name_max": grab(js_text, r"NAME_MAX\s*=\s*(\d+)"),
+        "py_slogan_max": grab(py_text, r"PACK_SLOGAN_MAX\s*=\s*(\d+)"),
+        "js_slogan_max": grab(js_text, r"SLOGAN_MAX\s*=\s*(\d+)"),
+    }
+
+
+def check_pack_rules() -> None:
+    """适配包：前后端那套长度规则必须一模一样。"""
+    rules = pack_rules_in(ROOT / "app" / "服务.py", WEB / "pack-calc.js")
+    check("适配包：应用名长度上限前后端一致",
+          rules["py_name_max"] == rules["js_name_max"] and rules["py_name_max"] is not None,
+          "服务端 %s / 前端 %s" % (rules["py_name_max"], rules["js_name_max"]))
+    check("适配包：标语长度上限前后端一致",
+          rules["py_slogan_max"] == rules["js_slogan_max"] and rules["py_slogan_max"] is not None,
+          "服务端 %s / 前端 %s" % (rules["py_slogan_max"], rules["js_slogan_max"]))
 
 
 def fetch_raw(port: int, path: str):
@@ -418,6 +461,184 @@ def check_datasets() -> None:
         shutil.rmtree(workdir2, ignore_errors=True)
 
 
+def check_packs() -> None:
+    """自定义适配（适配包）：装 zip → 启用 → 图标 → 越权被挡 → 删包。
+
+    全程用临时数据目录，不碰项目里的真实数据。
+    """
+    print("\n  自定义适配（适配包）")
+    workdir = Path(tempfile.mkdtemp(prefix="xiaoli-pack-"))
+    proc = None
+    try:
+        proc, port, health = start_temp_server(workdir / "数据", expect_under=workdir)
+        check("适配包：临时服务起得来", bool(health))
+
+        # 空的时候：列表空、名字是默认的「小李」
+        st, info = call(port, "/api/pack")
+        info = dict_or(info)
+        check("适配包：一开始一个都没装", st == 200 and info.get("items") == [], str(info)[:80])
+        check("适配包：没装包时应用名是「小李」",
+              dict_or(info.get("resolved")).get("appName") == "小李",
+              str(info.get("resolved"))[:80])
+        check("适配包：health 里 appName 也是「小李」", health.get("appName") == "小李",
+              str(health.get("appName")))
+        check("适配包：health 里 app 仍固定为「小李」（认自己那份程序靠它）",
+              health.get("app") == "小李", str(health.get("app")))
+
+        # 造一个 zip 包（套一层文件夹，模拟 GitHub 下载下来的样子）
+        blob = io.BytesIO()
+        with zipfile.ZipFile(blob, "w") as zf:
+            zf.writestr("mypack/manifest.json", json.dumps(
+                {"id": "zitest", "appName": "自检工作台", "icon": "ic.png", "version": "9.9"},
+                ensure_ascii=False))
+            zf.writestr("mypack/ic.png", TINY_PNG)
+        b64 = base64.b64encode(blob.getvalue()).decode("ascii")
+
+        st, res = call(port, "/api/pack-install", "POST", {"data": b64})
+        res = dict_or(res)
+        check("适配包：能装一个 zip 包", st == 200 and res.get("ok") is True, str(res)[:100])
+        ids = [i.get("id") for i in (res.get("items") or [])]
+        check("适配包：装完列表里就有它", "zitest" in ids, str(ids))
+
+        # 坏包不许装上：没有 id 的清单
+        bad_blob = io.BytesIO()
+        with zipfile.ZipFile(bad_blob, "w") as zf:
+            zf.writestr("manifest.json", json.dumps({"appName": "没有 id"}, ensure_ascii=False))
+        st, bad = call(port, "/api/pack-install", "POST",
+                       {"data": base64.b64encode(bad_blob.getvalue()).decode("ascii")})
+        check("适配包：缺 id 的坏包被拒（不落盘）",
+              st == 400 and dict_or(bad).get("ok") is False, str(bad)[:100])
+
+        # 启用
+        st, used = call(port, "/api/pack-use", "POST", {"id": "zitest"})
+        used = dict_or(used)
+        check("适配包：能启用", st == 200 and used.get("active") == "zitest", str(used)[:80])
+        check("适配包：启用后应用名换成包里的",
+              dict_or(used.get("resolved")).get("appName") == "自检工作台",
+              str(used.get("resolved"))[:80])
+
+        # 图标能取到，越权取不到
+        st, icon_bytes = fetch_raw(port, "/pack-icon/zitest/ic.png")
+        check("适配包：图标能取到", st == 200 and icon_bytes == TINY_PNG, "状态 %s" % st)
+        st, _ = fetch_raw(port, "/pack-icon/zitest/../manifest.json")
+        check("适配包：图标路径不能穿出目录（越权取 404）", st == 404, "状态 %s" % st)
+        # 这里必须用编码过的 .. —— 写字面的 ../.. 的话，客户端自己会先把路径规范化掉，
+        # 请求根本走不到服务端，那条检查就等于没测。
+        st, _ = fetch_raw(port, "/pack-icon/%2e%2e%2f%2e%2e%2f%E6%9C%8D%E5%8A%A1.py/x.png")
+        check("适配包：包 id 也不能穿出目录（越权取 404）", st == 404, "状态 %s" % st)
+
+        # 启用了不存在的包 —— 要拦下
+        st, ghost = call(port, "/api/pack-use", "POST", {"id": "nope"})
+        check("适配包：启用一个没装的包被拦下",
+              st in (400, 404) and dict_or(ghost).get("ok") is False, str(ghost)[:80])
+
+        # 删包
+        st, dele = call(port, "/api/pack-delete", "POST", {"id": "zitest"})
+        dele = dict_or(dele)
+        check("适配包：能删掉", st == 200 and dele.get("ok") is True, str(dele)[:80])
+        check("适配包：删的是正在用的那个 → 自动退回默认",
+              dict_or(dele.get("resolved")).get("appName") == "小李",
+              str(dele.get("resolved"))[:80])
+        check("适配包：删完列表里就没了",
+              "zitest" not in [i.get("id") for i in (dele.get("items") or [])],
+              str([i.get("id") for i in (dele.get("items") or [])]))
+
+        # 删一个不存在的包
+        st, gone = call(port, "/api/pack-delete", "POST", {"id": "nosuch"})
+        check("适配包：删不存在的包说清楚找不到", st == 400, str(gone)[:80])
+
+        # ---- 签到（2026-11-04 加，同日改成多站点）----
+        # 注意：这里**故意不碰网络**。能真的签到的只有用户点按钮那一刻，
+        # 自检要是偷偷发了请求，那就等于每次自检都在替用户签到一次。
+        # 所以只验：站点列表、凭证的存取、格式拦截、以及站点定义的安全规则。
+        data_dir = workdir / "数据"
+        st, ck = call(port, "/api/checkin")
+        items = (ck.get("items") or []) if isinstance(ck, dict) else []
+        wb = next((x for x in items if x.get("id") == "workbuddy"), None)
+        check("签到：站点列表能列出来，内置的 WorkBuddy 在里面",
+              st == 200 and ck.get("ok") is True and wb is not None, str(ck)[:100])
+        check("签到：没填凭证时不算错误（界面照样能开）",
+              wb is not None and wb.get("configured") is False, str(wb)[:100])
+
+        st, bad = call(port, "/api/checkin-token", "POST", {"token": "not-a-jwt"})
+        check("签到：没说是哪个站点就拦下", st == 400, str(bad)[:80])
+
+        st, bad = call(port, "/api/checkin-token", "POST",
+                       {"site": "workbuddy", "token": ""})
+        check("签到：空 Token 被拦下", st == 400, str(bad)[:80])
+
+        # 造一个形状合法的假 Token（不会真的联网，因为没有调用签到接口）
+        fake = "eyJhbGciOiJSUzI1NiJ9." + "a" * 1200 + "." + "b" * 300
+        st, saved = call(port, "/api/checkin-token", "POST",
+                         {"site": "workbuddy", "token": fake})
+        check("签到：形状合法的 Token 能存下", st == 200 and saved.get("ok") is True,
+              str(saved)[:80])
+        check("签到：凭证单独存一个文件，不混进 数据.json",
+              (data_dir / "签到凭证.json").exists())
+        raw_data = (data_dir / "数据.json").read_text(encoding="utf-8")
+        check("签到：数据.json 里没有 Token 字样（备份不会带走凭证）",
+              fake[:40] not in raw_data and "token" not in raw_data.lower())
+
+        st, ck2 = call(port, "/api/checkin")
+        items2 = (ck2.get("items") or []) if isinstance(ck2, dict) else []
+        wb2 = next((x for x in items2 if x.get("id") == "workbuddy"), {})
+        # configured=True 表示服务端认出了「有凭证」；这里只验这件事，
+        # 不验网络结果——自检不该依赖外网通不通。
+        check("签到：存了凭证后 configured 变 true",
+              st == 200 and wb2.get("configured") is True, str(wb2)[:100])
+
+        st, cleared = call(port, "/api/checkin-clear", "POST", {"site": "workbuddy"})
+        check("签到：能删掉已存的凭证", st == 200 and cleared.get("ok") is True)
+        check("签到：删完文件就没了", not (data_dir / "签到凭证.json").exists())
+
+        # ---- 站点定义的安全规则（二开相关，2026-11-04 加）----
+        # 这些是「用户从网上抄一个站点 JSON 放进来」时的底线：
+        # 不能打 http、不能打本机、不能打内网。全部在本地判断，不联网。
+        sites_dir = data_dir / "签到站点"
+        sites_dir.mkdir(parents=True, exist_ok=True)
+
+        def put_site(name, raw):
+            (sites_dir / (name + ".json")).write_text(
+                raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False),
+                encoding="utf-8")
+
+        base = {"schema": 1, "id": "t1", "name": "测试站",
+                "status": {"url": "https://ok.example.com/x"}}
+
+        put_site("bad-http", {**base, "id": "badhttp",
+                              "status": {"url": "http://ok.example.com/x"}})
+        put_site("bad-local", {**base, "id": "badlocal",
+                               "status": {"url": "https://127.0.0.1/x"}})
+        put_site("bad-lan", {**base, "id": "badlan",
+                             "status": {"url": "https://192.168.1.9/x"}})
+        put_site("bad-json", "{ 这不是 json")
+        put_site("good", base)
+
+        st, ck3 = call(port, "/api/checkin")
+        got = {x.get("id"): x for x in (ck3.get("items") or [])}
+        check("签到站点：http 地址被拦下", got.get("badhttp", {}).get("error") is not None,
+              str(got.get("badhttp"))[:100])
+        check("签到站点：指向本机被拦下", got.get("badlocal", {}).get("error") is not None,
+              str(got.get("badlocal"))[:100])
+        check("签到站点：指向内网被拦下", got.get("badlan", {}).get("error") is not None,
+              str(got.get("badlan"))[:100])
+        check("签到站点：坏 JSON 不会让整个列表崩掉",
+              st == 200 and got.get("bad-json", {}).get("error") is not None,
+              str(got.get("bad-json"))[:100])
+        check("签到站点：合法的自定义站点能被认出",
+              got.get("t1", {}).get("error") is None
+              and got.get("t1", {}).get("source") == "用户",
+              str(got.get("t1"))[:100])
+
+        st, miss = call(port, "/api/checkin-status?site=nosuchsite")
+        check("签到：查不存在的站点说清楚找不到",
+              miss.get("ok") is False and "找不到" in str(miss.get("error")),
+              str(miss)[:100])
+    finally:
+        stop_server(proc)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 64)
     print("  小李 · 一键自检")
@@ -426,6 +647,7 @@ def main() -> int:
     check("服务脚本在位", SERVER.exists(), str(SERVER))
     check_no_external()
     check_dataset_rules()
+    check_pack_rules()
 
     workdir = Path(tempfile.mkdtemp(prefix="xiaoli-selftest-"))
     data_dir = workdir / "数据"
@@ -1077,6 +1299,18 @@ def main() -> int:
     # 因为它和上面那一大段是两套数据目录语义，各跑各的、别互相影响
     check_datasets()
 
+    # 自定义适配（适配包）：同样单开一份临时目录，装 / 用 / 删走一遍
+    check_packs()
+
+    # 浏览器兜底模块（即梦用）：只验纯逻辑，不真开浏览器、不联网
+    check_browser()
+
+    # 即梦的响应解析：拿假响应喂给它，验解析对不对（不联网）
+    check_jimeng_parse()
+
+    # 可灵是月度体验包：解析状态 / 下次时间，绝不能写成每日签到
+    check_kling_parse()
+
     print("-" * 64)
     print("  通过 %d 项，失败 %d 项" % (len(ok_list), len(bad_list)))
     if bad_list:
@@ -1085,6 +1319,201 @@ def main() -> int:
             print("    - " + name)
     print("=" * 64)
     return 1 if bad_list else 0
+
+
+def check_browser() -> None:
+    """浏览器兜底模块的纯逻辑（2026-11-04 加，即梦接进来的时候）。
+
+    这里**绝不真开浏览器**：一是慢（一次 4 秒起），二是会给用户的账号
+    真发一次请求。真链路在手工端到端脚本里验。
+    只验：找浏览器、认登录态、清登录态、CDP 帧编码。
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+    try:
+        import 签到_浏览器 as B
+    except Exception as exc:
+        check("浏览器模块：能 import", False, str(exc)[:80])
+        return
+    import tempfile
+
+    check("浏览器模块：能 import", True)
+
+    # 找得到浏览器（Windows 一般自带 Edge）
+    try:
+        exe = B.find_browser()
+        check("浏览器模块：找得到 Edge/Chrome", os.path.isfile(exe), exe)
+    except B.BrowserError as exc:
+        check("浏览器模块：找得到 Edge/Chrome", False, str(exc)[:80])
+
+    # 配置目录规则
+    tmp = tempfile.mkdtemp(prefix="ck-browser-")
+    try:
+        p = B.profile_path(tmp, "jimeng")
+        check("浏览器模块：配置目录在数据目录下", p.startswith(tmp), p)
+        check("浏览器模块：配置目录带站点 id", p.endswith(os.path.join("浏览器配置", "jimeng")), p)
+
+        check("浏览器模块：没配置时算没登录", B.profile_ready(tmp, "jimeng") is False)
+
+        net = os.path.join(p, "Default", "Network")
+        os.makedirs(net, exist_ok=True)
+        ck = os.path.join(net, "Cookies")
+        open(ck, "wb").close()
+        check("浏览器模块：空 Cookies 算没登录", B.profile_ready(tmp, "jimeng") is False)
+
+        with open(ck, "wb") as f:
+            f.write(b"\x00" * 256)
+        check("浏览器模块：有内容的 Cookies 算已登录", B.profile_ready(tmp, "jimeng") is True)
+
+        check("浏览器模块：能清掉登录态", B.reset_profile(tmp, "jimeng") is True)
+        check("浏览器模块：清完就没登录了", B.profile_ready(tmp, "jimeng") is False)
+
+        # CDP 客户端帧必须带掩码（RFC 6455 硬性要求，漏了浏览器会直接断开）
+        class _Fake(B._CDP):
+            def __init__(self):
+                self.sock = type("S", (), {"data": b"", "sendall": lambda s, b: setattr(
+                    s, "data", s.data + b)})()
+                self.buf = b""
+                self._id = 0
+
+        c = _Fake()
+        c.send({"id": 1, "method": "x"})
+        raw = c.sock.data
+        check("浏览器模块：CDP 发的是文本帧", raw[:1] == b"\x81", repr(raw[:2]))
+        check("浏览器模块：CDP 帧带掩码位", bool(raw[1] & 0x80))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_jimeng_parse() -> None:
+    """即梦响应解析（2026-11-04 加）。
+
+    喂假响应给 _jm_pick，验它解析对不对。不联网、不开浏览器。
+    重点复现两个真踩过的坑：
+      1. user_credit 是 user_credit_history 的前缀 → 曾导致「拿到一半就以为齐了」
+      2. expiring_credits 里会员积分和赠送积分混着 → 曾把过期时间显示成 19:21
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+    try:
+        import 签到 as XL
+    except Exception as exc:
+        check("即梦解析：能 import 签到", False, str(exc)[:80])
+        return
+    import time as _t
+
+    URL_C = "https://jimeng.jianying.com/commerce/v1/benefits/user_credit"
+    URL_H = "https://jimeng.jianying.com/commerce/v1/benefits/user_credit_history"
+
+    def _wrap(obj):
+        return json.dumps({"ret": "0", "errmsg": "success",
+                           "response": json.dumps(obj, ensure_ascii=False)},
+                          ensure_ascii=False)
+
+    lt = _t.localtime()
+    t_today = int(_t.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 10, 36, 0, 0, 0, -1)))
+    t_end = int(_t.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 23, 59, 59, 0, 0, -1)))
+    t_vip = int(_t.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 19, 21, 0, 0, 0, -1)))
+
+    credit = _wrap({
+        "credit": {"vip_credit": 725, "gift_credit": 50, "purchase_credit": 0},
+        "expiring_credits": [{"credit_amount": 725, "expire_time": t_vip},
+                             {"credit_amount": 50, "expire_time": t_end}],
+    })
+    history = _wrap({"records": [{"amount": 50, "title": "每日免费积分",
+                                  "create_time": t_today}]})
+
+    try:
+        r = XL._jm_pick({URL_C: credit, URL_H: history})
+        check("即梦解析：今天发了分 → checked", r.get("checked") is True)
+        check("即梦解析：todayCredit=50", r.get("todayCredit") == 50, str(r.get("todayCredit")))
+        check("即梦解析：total=775", r.get("total") == 775, str(r.get("total")))
+        check("即梦解析：连续 1 天", r.get("streak") == 1, str(r.get("streak")))
+        # 坑 2：过期时间要用赠送积分那条
+        check("即梦解析：过期时间是 23:59 不是 19:21",
+              "23:59" in (r.get("expires") or "") and "19:21" not in (r.get("expires") or ""),
+              str(r.get("expires")))
+    except Exception as exc:
+        check("即梦解析：正常响应能解析", False, repr(exc)[:80])
+
+    # 坑 1：只拿到 history 时必须老实报错，不能假装拿到了余额
+    try:
+        XL._jm_pick({URL_H: history})
+        check("即梦解析：只有 history 时报错（不瞎猜）", False, "居然没报错")
+    except XL.CheckinError:
+        check("即梦解析：只有 history 时报错（不瞎猜）", True)
+
+    # 风控要说人话
+    try:
+        XL._jm_pick({URL_C: json.dumps({"ret": "1014", "errmsg": "system busy"})})
+        check("即梦解析：1014 报风控", False, "没报错")
+    except XL.CheckinError as e:
+        check("即梦解析：1014 说风控（不说接口改版）",
+              "1014" in str(e) or "风控" in str(e), str(e)[:40])
+
+    # 坏数据不能崩
+    for label, bodies in [
+        ("空", {}),
+        ("非 JSON", {URL_C: "not json"}),
+        ("response 是坏 JSON", {URL_C: json.dumps({"ret": "0", "response": "{{{"})}),
+    ]:
+        try:
+            XL._jm_pick(bodies)
+            check("即梦解析：%s 不崩" % label, True)
+        except XL.CheckinError:
+            check("即梦解析：%s 明确报错" % label, True)
+        except Exception as exc:
+            check("即梦解析：%s 不崩" % label, False, repr(exc)[:60])
+
+
+def check_kling_parse() -> None:
+    """可灵月度体验包解析（2026-11-06 加；纯假响应，不联网）。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+    try:
+        import 签到 as XL
+    except Exception as exc:
+        check("可灵解析：能 import 签到", False, str(exc)[:80])
+        return
+    import time as _t
+
+    now = _t.localtime()
+    next_ms = int(_t.mktime((now.tm_year, now.tm_mon, min(now.tm_mday + 20, 28),
+                             1, 44, 0, 0, 0, -1)) * 1000)
+    expires_ms = int(_t.mktime((now.tm_year, now.tm_mon, min(now.tm_mday + 3, 28),
+                                1, 44, 0, 0, 0, -1)) * 1000)
+    reward = json.dumps({"result": 1, "data": {
+        "status": "GRANTED", "nextApplyTime": next_ms,
+        "hint": {"title": "您已领取过本月惊喜体验包"},
+    }}, ensure_ascii=False)
+    account = json.dumps({"result": 1, "data": {
+        "total": 6600, "points": [{"endTime": expires_ms}],
+    }}, ensure_ascii=False)
+    R = "https://klingai.com/api/pay/reward/v2"
+    A = "https://klingai.com/api/account/pointAndTicket"
+    try:
+        r = XL._kling_pick({R: reward, A: account})
+        check("可灵解析：GRANTED 就是本月已领", r.get("checked") is True)
+        check("可灵解析：明确标为月度活动", r.get("activityPeriod") == "monthly")
+        check("可灵解析：灵感值余额正确", r.get("total") == 6600, str(r.get("total")))
+        check("可灵解析：有下次可领时间", bool(r.get("nextApplyAt")))
+        check("可灵解析：有积分过期时间", bool(r.get("expires")))
+    except Exception as exc:
+        check("可灵解析：正常响应能解析", False, repr(exc)[:80])
+
+    try:
+        waiting = json.dumps({"result": 1, "data": {"status": "WAITING"}})
+        check("可灵解析：非 GRANTED 不假装已领",
+              XL._kling_pick({R: waiting, A: account}).get("checked") is False)
+    except Exception as exc:
+        check("可灵解析：非 GRANTED 能解析", False, repr(exc)[:80])
+
+    for label, bodies in (("空", {}), ("非 JSON", {R: "x"}),
+                          ("服务端失败", {R: json.dumps({"result": 0})})):
+        try:
+            XL._kling_pick(bodies)
+            check("可灵解析：%s 应明确报错" % label, False)
+        except XL.CheckinError:
+            check("可灵解析：%s 明确报错" % label, True)
+        except Exception as exc:
+            check("可灵解析：%s 不崩" % label, False, repr(exc)[:60])
 
 
 if __name__ == "__main__":

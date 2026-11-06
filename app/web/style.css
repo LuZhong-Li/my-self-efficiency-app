@@ -3798,9 +3798,72 @@ html[data-skin="glass"] .day-btn { background: var(--soft); }
 .ds-new .inline-field { display: flex; align-items: center; gap: 8px; }
 .ds-new #ds-new-name { flex: 1 1 auto; min-width: 0; }
 
+/* 设置页那张「自定义适配」卡片（2026-11-03 加）：复用数据集那套行的长相，
+   只补两处 —— 装坏了的包标红、右边那排按钮一起靠右。 */
+.pack-broken { border-color: var(--err); }
+.pack-broken .ds-name { color: var(--err); }
+.pack-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+#pack-card .row { flex-wrap: wrap; }
+#pack-card input[type="text"], #pack-card #pack-dir, #pack-card #pack-repo {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* 设置页那张「每日签到」卡片（2026-11-04 加，同日改成多站点列表）。
+   一个站点一行：名字 + 状态 + 本周格子 + 按钮；点「填凭证」就地展开。
+   颜色一律走变量，换皮肤/换明暗都跟着走，不写死颜色值。 */
+.ck-list { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 10px; }
+.ck-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--panel, transparent);
+}
+/* 待签的稍微强调一点，扫一眼就知道该点哪个 */
+.ck-row.ck-not-checked { border-color: var(--accent, var(--line)); }
+/* 出问题的标红，但别整行发红，看着太吵 */
+.ck-row.ck-broken, .ck-row.ck-error { border-color: var(--err); }
+.ck-row.ck-disabled { opacity: .55; }
+
+.ck-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ck-name { font-weight: 600; }
+.ck-tag {
+  font-size: 11px; padding: 1px 6px; border-radius: 6px;
+  color: var(--muted); border: 1px solid var(--line);
+}
+.ck-state { color: var(--muted); font-size: 13px; }
+.ck-row.ck-checked .ck-state { color: var(--ok, var(--muted)); }
+
+.ck-week { margin-left: auto; display: flex; gap: 4px; }
+.ck-cell {
+  width: 20px; height: 20px; border-radius: 6px;
+  display: grid; place-items: center;
+  font-size: 11px; line-height: 1;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.ck-cell.on {
+  border-color: var(--accent, var(--line));
+  color: #fff;
+  background: var(--accent, var(--muted));
+  font-weight: 600;
+}
+
+.ck-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.ck-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.ck-panel {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+#checkin-card .row { flex-wrap: wrap; }
+#checkin-card input[type="password"], #checkin-card input[data-ck-var] {
+  flex: 1 1 260px; min-width: 0;
+}
+
 @media (max-width: 700px) {
   .gm-bar-gap { display: none; }
   .gm-stat > strong { font-size: 17px; }
+  .ck-week { margin-left: 0; }
 }
 
 /* 子任务：行上那枚胶囊 + 就地展开的清单（2026-10-14 加） */

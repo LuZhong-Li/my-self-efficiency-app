@@ -25,6 +25,7 @@ import { icon } from "./icons.js";
 import { markEnter } from "./ui.js";
 import { toast } from "./dialog.js";
 import { setupConflict } from "./conflict.js";
+import { applyPack, loadPack } from "./pack.js";
 
 const view = document.getElementById("view");
 const sideNav = document.getElementById("side-nav");
@@ -133,6 +134,13 @@ async function boot() {
       location.origin + (health.version ? " · " + health.version : "");
   } catch {
     /* 拿不到 health 不影响使用，下面 initStore 失败时会给出提示 */
+  }
+
+  try {
+    await loadPack();
+    applyPack();
+  } catch {
+    /* 装没装适配包都不影响主流程 */
   }
 
   try {
